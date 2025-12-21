@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QA Testing Tool</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <h1>QA Testing Tool</h1>
+            <nav class="main-nav">
+                <button class="nav-btn active" data-view="dashboard">Dashboard</button>
+                <button class="nav-btn" data-view="projects">Projects</button>
+                <button class="nav-btn" data-view="api-specs">API Specs</button>
+                <button class="nav-btn" data-view="test-runs">Test Runs</button>
+            </nav>
+        </header>
+
+        <main>
+            <!-- Dashboard View -->
+            <div id="dashboard-view" class="view active">
+                <h2>Dashboard</h2>
+                <div class="dashboard-stats">
+                    <div class="stat-card">
+                        <div class="stat-value" id="total-projects">0</div>
+                        <div class="stat-label">Projects</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="total-api-specs">0</div>
+                        <div class="stat-label">API Specs</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="total-test-runs">0</div>
+                        <div class="stat-label">Test Runs</div>
+                    </div>
+                </div>
+                <div class="recent-test-runs">
+                    <h3>Recent Test Runs</h3>
+                    <div id="recent-runs-list"></div>
+                </div>
+            </div>
+
+            <!-- Projects View -->
+            <div id="projects-view" class="view">
+                <div class="view-header">
+                    <h2>Projects</h2>
+                    <button class="btn btn-primary" id="create-project-btn">Create Project</button>
+                </div>
+                <div id="projects-list"></div>
+            </div>
+
+            <!-- Project Detail View -->
+            <div id="project-detail-view" class="view">
+                <div class="view-header">
+                    <button class="btn btn-secondary" id="back-to-projects">← Back to Projects</button>
+                    <h2 id="project-detail-name"></h2>
+                </div>
+                <div class="project-detail-content">
+                    <div class="project-info">
+                        <p id="project-detail-description"></p>
+                    </div>
+                    <div class="project-actions">
+                        <button class="btn btn-primary" id="add-api-spec-btn">Add API Spec</button>
+                        <button class="btn btn-primary" id="upload-postman-collection-btn">Upload Postman Collection</button>
+                        <button class="btn btn-primary" id="run-tests-btn">Run Tests</button>
+                    </div>
+                    <div class="project-api-specs">
+                        <h3>API Specs in Project</h3>
+                        <div id="project-api-specs-list"></div>
+                    </div>
+                    <div class="project-collections">
+                        <h3>Available Tests</h3>
+                        <div id="project-collections-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- API Specs View -->
+            <div id="api-specs-view" class="view">
+                <div class="view-header">
+                    <h2>API Specifications</h2>
+                    <button class="btn btn-primary" id="upload-api-spec-btn">Upload API Spec</button>
+                </div>
+                <div id="api-specs-list"></div>
+            </div>
+
+            <!-- Test Runs View -->
+            <div id="test-runs-view" class="view">
+                <div class="view-header">
+                    <h2>Test Runs</h2>
+                    <div class="filters">
+                        <select id="project-filter">
+                            <option value="">All Projects</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="test-runs-list"></div>
+            </div>
+
+            <!-- Test Run Detail View -->
+            <div id="test-run-detail-view" class="view">
+                <div class="view-header">
+                    <button class="btn btn-secondary" id="back-to-test-runs">← Back to Test Runs</button>
+                    <h2 id="test-run-detail-name"></h2>
+                </div>
+                <div class="test-run-detail-content">
+                    <div class="test-run-info" id="test-run-info"></div>
+                    <div class="test-run-actions">
+                        <button class="btn btn-primary" id="view-report-btn">View Report</button>
+                        <button class="btn btn-secondary" id="download-report-btn">Download Report</button>
+                    </div>
+                    <div id="test-results-list"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modal-title"></h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+    <script src="/js/projectManager.js"></script>
+    <script src="/js/testRunner.js"></script>
+    <script src="/js/reportViewer.js"></script>
+</body>
+</html>
+

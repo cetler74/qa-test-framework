@@ -1,0 +1,1678 @@
+openapi: 3.0.0
+info:
+  title: V7 - Managed Connectivity API
+  description: Smart2M Managed Connectivity API for managing connectivity resources, endpoints, reports, service instances, and more
+  version: 1.0.0
+  contact:
+    name: Smart2M Support
+  license:
+    name: Smart2M
+
+servers:
+  - url: https://api.smart2m.com/managed-connectivity
+    description: Production server
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Bearer token authentication
+
+  schemas:
+    User:
+      type: object
+      properties:
+        name:
+          type: string
+          description: User name
+        login:
+          type: string
+          description: User login
+        type:
+          type: string
+          enum: [CLIENT, MANAGEMENT, APPLICATION]
+          description: User type
+
+    ChangeRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Change request identifier
+        status:
+          type: string
+          enum: [PROCESSING, PROCESSED, ERROR, ACCEPTED, VALIDATING, PENDING, SUBMITTED]
+          description: Change request status
+        channel:
+          type: string
+          enum: [SELFCARE, API, FILE, SYSTEM, MANAGEMENT, INTERNAL]
+          description: Channel from which the change request was submitted
+        requestType:
+          type: string
+          enum: [RESOURCE_CHANGE]
+          description: Change request type
+        requestSubtype:
+          type: string
+          description: Change request subtype
+        creationDate:
+          type: string
+          format: date-time
+          description: Change request creation date
+        changeDate:
+          type: string
+          format: date-time
+          description: Change request last change date
+        user:
+          $ref: '#/components/schemas/User'
+        impersonated:
+          type: boolean
+          description: Request made by Backoffice
+        reason:
+          type: string
+          description: Reason for the change request
+
+    ResourceLocation:
+      type: object
+      properties:
+        msisdn:
+          type: string
+          description: Resource MSISDN
+        latitude:
+          type: string
+          description: Resource location latitude
+        longitude:
+          type: string
+          description: Resource location longitude
+        date:
+          type: string
+          format: date-time
+          description: Last location request date
+        locationMethod:
+          type: string
+          description: Location method used
+        mcc:
+          type: string
+          description: Country code
+        mnc:
+          type: string
+          description: Network code
+        hasLocation:
+          type: boolean
+          description: Indicates if resource has location
+
+    ConnectivityService:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Connectivity service identifier
+        type:
+          type: string
+          enum: [VOICE, DATACS, SMS, DATAPS]
+          description: Connectivity service type
+        deprecated:
+          type: boolean
+          description: Indicates if service is deprecated
+        pricingPlan:
+          type: object
+          properties:
+            id:
+              type: string
+              description: Pricing plan identifier
+            name:
+              type: string
+              description: Pricing plan name
+            roaming:
+              type: boolean
+              description: Pricing plan allowed for roaming
+            deprecated:
+              type: boolean
+              description: Pricing plan deprecated status
+
+    ResourceTestDiagnosis:
+      type: object
+      properties:
+        executionDate:
+          type: string
+          format: date-time
+          description: Last test execution date
+        statusTest:
+          type: string
+          enum: [OK, NOK]
+          description: Test result for status request
+        status:
+          type: string
+          enum: [ACTIVE, PREACTIVE, BLOCKED, SUSPENDED, CANCELED, TESTING, POST_TESTING]
+          description: Resource status
+        balanceTest:
+          type: string
+          enum: [OK, NOK]
+          description: Test result for balance information
+        pricingPlansTest:
+          type: string
+          enum: [OK, NOK]
+          description: Test result for pricing plans
+        networkTest:
+          type: string
+          enum: [OK, NOK]
+          description: Test result for network status
+        communicationActivityTest:
+          type: string
+          enum: [OK, NOK]
+          description: Test result for communication status
+        connectivityServices:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConnectivityService'
+
+    Plafond:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Balance name
+        units:
+          type: string
+          description: Balance unit
+        amount:
+          type: string
+          description: Balance amount
+
+    APN:
+      type: object
+      properties:
+        id:
+          type: string
+          description: APN identifier
+        login:
+          type: string
+          description: APN login (for PRIVATE_AUTH APNs)
+        password:
+          type: string
+          description: APN password (for PRIVATE_AUTH APNs)
+        qos:
+          type: string
+          description: QoS level
+        ipAddresses:
+          type: array
+          items:
+            type: object
+            properties:
+              ipAddressType:
+                type: string
+                enum: [IPV4, IPV6]
+              ipAddressIndex:
+                type: integer
+              ipAddress:
+                type: string
+
+    ConfigurationChange:
+      type: object
+      properties:
+        testingFlag:
+          type: boolean
+          description: Testing flag status
+        servicesToAdd:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                description: Connectivity service identifier
+              allowedCommunications:
+                type: string
+                enum: [BOTH, IN, OUT]
+              pricingPlan:
+                type: object
+                properties:
+                  id:
+                    type: integer
+              apnList:
+                type: array
+                items:
+                  $ref: '#/components/schemas/APN'
+        servicesToRemove:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              pricingPlan:
+                type: object
+                properties:
+                  id:
+                    type: integer
+              apnList:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+
+    Endpoint:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        url:
+          type: string
+          format: uri
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+
+    Report:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        reportId:
+          type: string
+          description: Report identifier
+        status:
+          type: string
+          enum: [PROCESSING, PROCESSED, ERROR]
+        reportType:
+          type: string
+          enum: [LOCATION, SESSION_DETAILS, RESOURCE_INFORMATION, USAGE, EXTRA_PLAFOND_CONSUMPTIONS]
+        creationDate:
+          type: string
+          format: date-time
+        changeDate:
+          type: string
+          format: date-time
+        fileName:
+          type: string
+          description: Output file name
+        user:
+          $ref: '#/components/schemas/User'
+        selectList:
+          type: array
+          items:
+            type: string
+          description: Manual selection of resources
+
+    ServiceInstance:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Service instance identifier
+        name:
+          type: string
+          description: Service instance name
+        status:
+          type: string
+          description: Service instance status
+        customFields:
+          type: object
+          additionalProperties:
+            type: string
+
+    Token:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        token:
+          type: string
+          description: Token value
+        roles:
+          type: array
+          items:
+            type: string
+        creationDate:
+          type: string
+          format: date-time
+        expirationDate:
+          type: string
+          format: date-time
+          nullable: true
+
+    DeliveryAddress:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        address:
+          type: string
+        city:
+          type: string
+        postalCode:
+          type: string
+        country:
+          type: string
+
+    Alert:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        condition:
+          type: string
+        severity:
+          type: string
+        enabled:
+          type: boolean
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayId:
+          type: string
+        status:
+          type: string
+          enum: [PROCESSING, PROCESSED, ERROR]
+        orderType:
+          type: string
+          enum: [NEW_CARDS, SIM_REPLACEMENT_STOCK]
+        processingType:
+          type: string
+          enum: [SINGLE_FILE, MULTI_FILE]
+        quantity:
+          type: integer
+        creationDate:
+          type: string
+          format: date-time
+
+security:
+  - BearerAuth: []
+
+paths:
+  /serviceinstances/{serviceInstanceId}/resources/{msisdn}/location:
+    get:
+      summary: Consult resource location
+      description: Get the location of a resource
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Service instance identifier
+        - name: msisdn
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Resource MSISDN
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceLocation'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Resource not found
+
+  /serviceinstances/{serviceInstanceId}/resources/{msisdn}/updatedlocation:
+    get:
+      summary: Request location update
+      description: Request a location update for a specific resource
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: msisdn
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceLocation'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Resource not found
+
+  /serviceinstances/{serviceInstanceId}/resources/{msisdn}/replacement:
+    post:
+      summary: Request card replacement
+      description: Request a card replacement for a specific resource
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: msisdn
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, formFactor]
+              properties:
+                reason:
+                  type: string
+                  description: Reason for replacement
+                formFactor:
+                  type: string
+                  enum: [1FF, 2FF, 3FF, 4FF, eUICC, 2FF/3FF/4FF, MFF2]
+                  description: Form factor (card type)
+                pinType:
+                  type: boolean
+                  description: PIN requirement
+                simType:
+                  type: string
+                  enum: [SIM, USIM, ISIM]
+                deliveryAddress:
+                  type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+
+  /serviceinstances/{serviceInstanceId}/resources/{msisdn}/onlinereplacement:
+    post:
+      summary: Request online card replacement
+      description: Request an online card replacement for a specific resource
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: msisdn
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, newIccid]
+              properties:
+                reason:
+                  type: string
+                newIccid:
+                  type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+
+  /serviceinstances/{serviceInstanceId}/resources/{msisdn}/status:
+    put:
+      summary: Request resource status change
+      description: Request a status change for a specific resource
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: msisdn
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resourceStatus, reason]
+              properties:
+                resourceStatus:
+                  type: string
+                  enum: [ACTIVE, SUSPENDED, TESTING, BLOCKED]
+                reason:
+                  type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+
+  /serviceinstances/{serviceInstanceId}/resources/{msisdn}/communicationstatus:
+    put:
+      summary: Request resource communication status change
+      description: Change communication status for a resource
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: msisdn
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [communicationStatus, reason]
+              properties:
+                communicationStatus:
+                  type: string
+                  enum: [ACTIVE, SUSPENDED, SUSPENDED_NEXT_CYCLE]
+                reason:
+                  type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+
+  /serviceinstances/{serviceInstanceId}/resources/{msisdn}/secondaryimsistatus:
+    put:
+      summary: Request resource secondary IMSI status change
+      description: Change secondary IMSI status for a resource
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: msisdn
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [secondaryImsiStatus, reason]
+              properties:
+                secondaryImsiStatus:
+                  type: boolean
+                reason:
+                  type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+
+  /serviceinstances/{serviceInstanceId}/resources/{msisdn}/friendlyname:
+    put:
+      summary: Request resource name change
+      description: Change the friendly name of a resource
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: msisdn
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newName]
+              properties:
+                newName:
+                  type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+
+  /serviceinstances/{serviceInstanceId}/resources/{msisdn}/roaming:
+    post:
+      summary: Request resource roaming change
+      description: Change roaming status for a resource
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: msisdn
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [roamingStatus, reason]
+              properties:
+                roamingStatus:
+                  type: string
+                  enum: [ALLOW, BLOCK]
+                reason:
+                  type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+
+  /serviceinstances/{serviceInstanceId}/resources/{msisdn}/test/update:
+    get:
+      summary: Request resource test and diagnosis update
+      description: Get test and diagnosis information for a resource
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: msisdn
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceTestDiagnosis'
+        '404':
+          description: Resource not found
+
+  /serviceinstances/{serviceInstanceId}/resourcetransfer:
+    post:
+      summary: Request resource transfer
+      description: Transfer resources to another service instance
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newServiceInstance, resources, reason]
+              properties:
+                newServiceInstance:
+                  type: string
+                resources:
+                  type: array
+                  items:
+                    type: string
+                reason:
+                  type: string
+                customFieldsBehavior:
+                  type: string
+                  enum: [LOSE, KEEP]
+                  default: KEEP
+                forceCustomFieldsBehavior:
+                  type: boolean
+                  default: false
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+
+  /serviceinstances/{serviceInstanceId}/resources/{msisdn}/configuration:
+    post:
+      summary: Request resource configuration change
+      description: Update connectivity service configuration for a resource
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: msisdn
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                testingFlag:
+                  type: boolean
+                reason:
+                  type: string
+                servicesToAdd:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      allowedCommunications:
+                        type: string
+                        enum: [BOTH, IN, OUT]
+                      pricingPlan:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                      apnList:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/APN'
+                servicesToRemove:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      apnList:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+
+  /serviceinstances/{serviceInstanceId}/resourcecustomfields-change:
+    post:
+      summary: Request resource custom fields change
+      description: Update custom fields for resources
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customFields, resources]
+              properties:
+                customFields:
+                  type: object
+                  additionalProperties:
+                    type: string
+                resources:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+
+  /serviceinstances/{serviceInstanceId}/use-extra-plafond:
+    post:
+      summary: Request extra-plafond usage
+      description: Enable extra-plafond usage for resources
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resources, reason]
+              properties:
+                resources:
+                  type: array
+                  items:
+                    type: string
+                reason:
+                  type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+
+  /serviceinstances/{serviceInstanceId}/extend-resource-validity-period:
+    post:
+      summary: Request resource validity period extension
+      description: Extend resource validity period
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [duration, resources, reason]
+              properties:
+                duration:
+                  type: integer
+                  description: Duration in months
+                resources:
+                  type: array
+                  items:
+                    type: string
+                reason:
+                  type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeRequest'
+
+  /serviceinstances/{serviceInstanceId}/resources/{msisdn}/consumptions:
+    get:
+      summary: Get resource consumptions
+      description: Get consumption data for a resource
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: msisdn
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /serviceinstances/{serviceInstanceId}/resources:
+    get:
+      summary: List resources
+      description: List all resources in a service instance
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: currentPage
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: resultsPerPage
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  currentPage:
+                    type: integer
+                  resultsPerPage:
+                    type: integer
+                  fullListSize:
+                    type: integer
+                  list:
+                    type: array
+                    items:
+                      type: object
+
+  /serviceinstances/{serviceInstanceId}/resources/{msisdn}:
+    get:
+      summary: Get resource details
+      description: Get detailed information about a specific resource
+      tags:
+        - Connectivity Resources
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: msisdn
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /serviceinstances/{serviceInstanceId}/endpoints:
+    get:
+      summary: List endpoints
+      description: List all endpoints for a service instance
+      tags:
+        - Endpoints
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  list:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Endpoint'
+    post:
+      summary: Create endpoint
+      description: Create a new endpoint
+      tags:
+        - Endpoints
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Endpoint'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Endpoint'
+
+  /serviceinstances/{serviceInstanceId}/endpoints/{endpointId}:
+    get:
+      summary: Get endpoint details
+      description: Get details of a specific endpoint
+      tags:
+        - Endpoints
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: endpointId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Endpoint'
+    put:
+      summary: Update endpoint
+      description: Update an existing endpoint
+      tags:
+        - Endpoints
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: endpointId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Endpoint'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Endpoint'
+    delete:
+      summary: Delete endpoint
+      description: Delete an endpoint
+      tags:
+        - Endpoints
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: endpointId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+
+  /serviceinstances/{serviceInstanceId}/reports:
+    get:
+      summary: List reports
+      description: List all reports for a service instance
+      tags:
+        - Reports
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: currentPage
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  list:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Report'
+
+  /serviceinstances/{serviceInstanceId}/reports/request:
+    post:
+      summary: Request or schedule report
+      description: Create a new report request or schedule a report
+      tags:
+        - Reports
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, isSingleRequest, isScheduledRequest]
+              properties:
+                type:
+                  type: string
+                  enum: [LOCATION, SESSION_DETAILS, RESOURCE_INFORMATION, USAGE, EXTRA_PLAFOND_CONSUMPTIONS]
+                resources:
+                  type: array
+                  items:
+                    type: string
+                isSingleRequest:
+                  type: boolean
+                isScheduledRequest:
+                  type: boolean
+                schedulingPeriod:
+                  type: string
+                schedulingProcess:
+                  type: string
+                  enum: [DAILY, WEEKLY, MONTHLY]
+                schedulingDay:
+                  type: string
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+
+  /serviceinstances/{serviceInstanceId}/reports/{reportId}:
+    get:
+      summary: Get report details
+      description: Get details of a specific report
+      tags:
+        - Reports
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+
+  /serviceinstances/{serviceInstanceId}:
+    get:
+      summary: Get service instance
+      description: Get details of a service instance
+      tags:
+        - Service Instances
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceInstance'
+
+  /serviceinstances:
+    get:
+      summary: List service instances
+      description: List all service instances assigned to user
+      tags:
+        - Service Instances
+      parameters:
+        - name: currentPage
+          in: query
+          schema:
+            type: integer
+        - name: resultsPerPage
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  list:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServiceInstance'
+
+  /serviceinstances/{serviceInstanceId}/delivery-addresses:
+    get:
+      summary: List delivery addresses
+      description: List all delivery addresses for a service instance
+      tags:
+        - Delivery Addresses
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  list:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DeliveryAddress'
+    post:
+      summary: Create delivery address
+      description: Create a new delivery address
+      tags:
+        - Delivery Addresses
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeliveryAddress'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryAddress'
+
+  /serviceinstances/{serviceInstanceId}/delivery-addresses/{addressId}:
+    put:
+      summary: Update delivery address
+      description: Update an existing delivery address
+      tags:
+        - Delivery Addresses
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: addressId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeliveryAddress'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryAddress'
+    delete:
+      summary: Delete delivery address
+      description: Delete a delivery address
+      tags:
+        - Delivery Addresses
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: addressId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+
+  /tokens:
+    get:
+      summary: List tokens
+      description: List all tokens for the authenticated user
+      tags:
+        - Tokens
+      parameters:
+        - name: currentPage
+          in: query
+          schema:
+            type: integer
+        - name: resultsPerPage
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  list:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Token'
+
+  /tokens/{tokenId}:
+    get:
+      summary: Get token details
+      description: Get details of a specific token
+      tags:
+        - Tokens
+      parameters:
+        - name: tokenId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+    delete:
+      summary: Revoke token
+      description: Revoke a specific token
+      tags:
+        - Tokens
+      parameters:
+        - name: tokenId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Revoked
+
+  /tokens/roles:
+    get:
+      summary: Get token roles
+      description: Get roles associated with the current token
+      tags:
+        - Tokens
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  roles:
+                    type: array
+                    items:
+                      type: string
+
+  /serviceinstances/{serviceInstanceId}/alerts:
+    get:
+      summary: Consult configured alerts
+      description: List all configured alerts
+      tags:
+        - Alerts and Actions
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  list:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Alert'
+    post:
+      summary: Request alert creation
+      description: Create a new alert
+      tags:
+        - Alerts and Actions
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Alert'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
+
+  /serviceinstances/{serviceInstanceId}/alerts/{alertId}:
+    delete:
+      summary: Remove configured alert
+      description: Delete an alert
+      tags:
+        - Alerts and Actions
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: alertId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+    put:
+      summary: Request alert update
+      description: Update an alert
+      tags:
+        - Alerts and Actions
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: alertId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Alert'
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
+
+  /serviceinstances/{serviceInstanceId}/orders:
+    get:
+      summary: List orders
+      description: List all orders for a service instance
+      tags:
+        - Orders
+      parameters:
+        - name: serviceInstanceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: currentPage
+          in: query
+          schema:
+            type: integer
+        - name: resultsPerPage
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  list:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+
+  /orders/{orderId}/resources:
+    get:
+      summary: List resources provisioned in order context
+      description: List resources provisioned as part of an order
+      tags:
+        - Orders
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  list:
+                    type: array
+                    items:
+                      type: object
