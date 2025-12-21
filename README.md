@@ -34,7 +34,7 @@ cp .env.example .env
 ```
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=linkuup_db
+DB_NAME=qa_testing
 DB_USER=postgres
 DB_PASSWORD=your_password
 ```
@@ -45,7 +45,7 @@ npm run migrate
 ```
 
 This will:
-- Create the `linkuup_db` database if it doesn't exist
+- Create the `qa_testing` database if it doesn't exist
 - Create all necessary tables
 
 ## Running the Application
