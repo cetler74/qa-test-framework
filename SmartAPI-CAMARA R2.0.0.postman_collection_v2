@@ -1,0 +1,6054 @@
+{
+	"info": {
+		"_postman_id": "d9b03c70-71c2-4bd6-88c7-7b6e95a52020",
+		"name": "SmartAPI-CAMARA R2.0.0",
+		"description": "Comprehensive Postman collection for all CAMARA APIs including Device Identifier, Number Verification, SIM Swap, Device Reachability Status, Location Retrieval, Location Verification, and Device Roaming Status",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "3659059"
+	},
+	"item": [
+		{
+			"name": "SIM Swap",
+			"item": [
+				{
+					"name": "Retrieve SIM Swap Date",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_ACCESS_TOKEN",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "x-correlator",
+								"value": "{{$guid}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"phoneNumber\": \"{{phoneNumber}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/sim-swap/v0/retrieve-date",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"sim-swap",
+								"v0",
+								"retrieve-date"
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "RETRIEVE_DATE",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"latestSimChange\": \"2024-09-18T07:37:53.471829447Z\"\n}"
+						},
+						{
+							"name": "RETRIEVE_MONITORED_PERIOD",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\"\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"latestSimChange\": null,\n  \"monitoredPeriod\": 120\n}"
+						},
+						{
+							"name": "RETRIEVE_MONITORED_NULL",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"latestSimChange\": null\n}"
+						},
+						{
+							"name": "GENERIC_400_INVALID_ARGUMENT",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 400,\n  \"code\": \"INVALID_ARGUMENT\",\n  \"message\": \"Client specified an invalid argument, request body or query param.\"\n}"
+						},
+						{
+							"name": "GENERIC_400_OUT_OF_RANGE",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\"\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 400,\n  \"code\": \"OUT_OF_RANGE\",\n  \"message\": \"Client specified an invalid range.\"\n}"
+						},
+						{
+							"name": "GENERIC_401_UNAUTHENTICATED",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 401,\n  \"code\": \"UNAUTHENTICATED\",\n  \"message\": \"Request not authenticated due to missing, invalid, or expired credentials. A new authentication is required.\"\n}"
+						},
+						{
+							"name": "RETRIEVE_2LEGS",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\"\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 401,\n  \"code\": \"UNAUTHENTICATED\",\n  \"message\": \"Request not authenticated due to missing, invalid, or expired credentials. A new authentication is required.\"\n}"
+						},
+						{
+							"name": "GENERIC_403_PERMISSION_DENIED",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 403,\n  \"code\": \"PERMISSION_DENIED\",\n  \"message\": \"Client does not have sufficient permissions to perform this action.\"\n}"
+						},
+						{
+							"name": "RETRIEVE_2LEGS",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\"\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 403,\n  \"code\": \"PERMISSION_DENIED\",\n  \"message\": \"Client does not have sufficient permissions to perform this action.\"\n}"
+						},
+						{
+							"name": "GENERIC_404_NOT_FOUND",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 404,\n  \"code\": \"NOT_FOUND\",\n  \"message\": \"The specified resource is not found.\"\n}"
+						},
+						{
+							"name": "RETRIEVE_2LEGS",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\"\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 404,\n  \"code\": \"NOT_FOUND\",\n  \"message\": \"The specified resource is not found.\"\n}"
+						},
+						{
+							"name": "GENERIC_422_SERVICE_NOT_APPLICABLE",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"SERVICE_NOT_APPLICABLE\",\n  \"message\": \"The service is not available for the provided identifier.\"\n}"
+						},
+						{
+							"name": "GENERIC_422_MISSING_IDENTIFIER",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\"\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"MISSING_IDENTIFIER\",\n  \"message\": \"The device cannot be identified.\"\n}"
+						},
+						{
+							"name": "GENERIC_422_UNNECESSARY_IDENTIFIER",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"UNNECESSARY_IDENTIFIER\",\n  \"message\": \"The device is already identified by the access token.\"\n}"
+						},
+						{
+							"name": "GENERIC_429_QUOTA_EXCEEDED",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "Too Many Requests",
+							"code": 429,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 429,\n  \"code\": \"QUOTA_EXCEEDED\",\n  \"message\": \"Rejected due to exceeding a business quota limit.\"\n}"
+						},
+						{
+							"name": "GENERIC_429_TOO_MANY_REQUESTS",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\"\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve-date",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve-date"
+									]
+								}
+							},
+							"status": "Too Many Requests",
+							"code": 429,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 429,\n  \"code\": \"TOO_MANY_REQUESTS\",\n  \"message\": \"Rejected due to request rate limit overpassed.\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Check SIM Swap",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"// ============================================\r",
+									"// Comprehensive POST Response Test Script\r",
+									"// ============================================\r",
+									"\r",
+									"// 1. Response Time Validation\r",
+									"pm.test(\"Response time is acceptable (under 2000ms)\", function () {\r",
+									"    pm.expect(pm.response.responseTime).to.be.below(2000);\r",
+									"});\r",
+									"\r",
+									"// 2. Content-Type Header Validation\r",
+									"pm.test(\"Content-Type header is application/json\", function () {\r",
+									"    pm.response.to.have.header(\"Content-Type\");\r",
+									"    const contentType = pm.response.headers.get(\"Content-Type\");\r",
+									"    pm.expect(contentType).to.include(\"application/json\");\r",
+									"});\r",
+									"\r",
+									"// 3. Status Code Validation (200 Success or 400 Error)\r",
+									"pm.test(\"Status code is either 200 (success) or 400 (error)\", function () {\r",
+									"    pm.expect(pm.response.code).to.be.oneOf([200, 400]);\r",
+									"});\r",
+									"\r",
+									"// Get response data for further validation\r",
+									"const jsonData = pm.response.json();\r",
+									"\r",
+									"// ============================================\r",
+									"// SUCCESS RESPONSE VALIDATION (200)\r",
+									"// ============================================\r",
+									"if (pm.response.code === 200) {\r",
+									"    \r",
+									"    // 4. Schema Validation for Success Response\r",
+									"    pm.test(\"Success response has valid schema\", function () {\r",
+									"        const successSchema = {\r",
+									"            type: \"object\",\r",
+									"            required: [\"swapped\"],\r",
+									"            properties: {\r",
+									"                swapped: { type: \"boolean\" }\r",
+									"            },\r",
+									"            additionalProperties: false\r",
+									"        };\r",
+									"        pm.expect(tv4.validate(jsonData, successSchema)).to.be.true;\r",
+									"    });\r",
+									"\r",
+									"    // 5. Validate \"swapped\" field exists and is boolean\r",
+									"    pm.test(\"Response contains 'swapped' field\", function () {\r",
+									"        pm.expect(jsonData).to.have.property(\"swapped\");\r",
+									"    });\r",
+									"\r",
+									"    pm.test(\"'swapped' field is a boolean value\", function () {\r",
+									"        pm.expect(jsonData.swapped).to.be.a(\"boolean\");\r",
+									"    });\r",
+									"\r",
+									"    // 6. Validate swapped value is either true or false\r",
+									"    pm.test(\"'swapped' value is true or false\", function () {\r",
+									"        pm.expect(jsonData.swapped).to.be.oneOf([true, false]);\r",
+									"    });\r",
+									"\r",
+									"    // Log success result for debugging\r",
+									"    console.log(\"SIM Swap Check Result - swapped: \" + jsonData.swapped);\r",
+									"}\r",
+									"\r",
+									"// ============================================\r",
+									"// ERROR RESPONSE VALIDATION (400)\r",
+									"// ============================================\r",
+									"if (pm.response.code === 400) {\r",
+									"    \r",
+									"    // 7. Schema Validation for Error Response\r",
+									"    pm.test(\"Error response has valid schema\", function () {\r",
+									"        const errorSchema = {\r",
+									"            type: \"object\",\r",
+									"            required: [\"status\", \"code\", \"message\"],\r",
+									"            properties: {\r",
+									"                status: { type: \"integer\" },\r",
+									"                code: { type: \"string\" },\r",
+									"                message: { type: \"string\" }\r",
+									"            }\r",
+									"        };\r",
+									"        pm.expect(tv4.validate(jsonData, errorSchema)).to.be.true;\r",
+									"    });\r",
+									"\r",
+									"    // 8. Validate required error fields exist\r",
+									"    pm.test(\"Error response contains 'status' field\", function () {\r",
+									"        pm.expect(jsonData).to.have.property(\"status\");\r",
+									"    });\r",
+									"\r",
+									"    pm.test(\"Error response contains 'code' field\", function () {\r",
+									"        pm.expect(jsonData).to.have.property(\"code\");\r",
+									"    });\r",
+									"\r",
+									"    pm.test(\"Error response contains 'message' field\", function () {\r",
+									"        pm.expect(jsonData).to.have.property(\"message\");\r",
+									"    });\r",
+									"\r",
+									"    // 9. Validate error field types\r",
+									"    pm.test(\"'status' field is a number\", function () {\r",
+									"        pm.expect(jsonData.status).to.be.a(\"number\");\r",
+									"    });\r",
+									"\r",
+									"    pm.test(\"'code' field is a string\", function () {\r",
+									"        pm.expect(jsonData.code).to.be.a(\"string\");\r",
+									"    });\r",
+									"\r",
+									"    pm.test(\"'message' field is a string\", function () {\r",
+									"        pm.expect(jsonData.message).to.be.a(\"string\");\r",
+									"    });\r",
+									"\r",
+									"    // 10. Validate error status matches HTTP status code\r",
+									"    pm.test(\"Error 'status' field matches HTTP status code (400)\", function () {\r",
+									"        pm.expect(jsonData.status).to.eql(400);\r",
+									"    });\r",
+									"\r",
+									"    // 11. Validate error code is INVALID_ARGUMENT for 400 errors\r",
+									"    pm.test(\"Error 'code' is 'INVALID_ARGUMENT'\", function () {\r",
+									"        pm.expect(jsonData.code).to.eql(\"INVALID_ARGUMENT\");\r",
+									"    });\r",
+									"\r",
+									"    // 12. Validate message is not empty\r",
+									"    pm.test(\"Error 'message' is not empty\", function () {\r",
+									"        pm.expect(jsonData.message).to.not.be.empty;\r",
+									"    });\r",
+									"\r",
+									"    // Log error details for debugging\r",
+									"    console.log(\"Error Response - Status: \" + jsonData.status + \", Code: \" + jsonData.code + \", Message: \" + jsonData.message);\r",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_ACCESS_TOKEN",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "x-correlator",
+								"value": "{{$guid}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"phoneNumber\": \"{{phoneNumber}}\",\n  \"maxAge\": 120\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/sim-swap/v0/check",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"sim-swap",
+								"v0",
+								"check"
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "CHECK_3LEGS",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"swapped\": false\n}"
+						},
+						{
+							"name": "CHECK_2LEGS",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\",\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"swapped\": false\n}"
+						},
+						{
+							"name": "GENERIC_400_INVALID_ARGUMENT",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 400,\n  \"code\": \"INVALID_ARGUMENT\",\n  \"message\": \"Client specified an invalid argument, request body or query param.\"\n}"
+						},
+						{
+							"name": "GENERIC_400_OUT_OF_RANGE",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\",\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 400,\n  \"code\": \"OUT_OF_RANGE\",\n  \"message\": \"Client specified an invalid range.\"\n}"
+						},
+						{
+							"name": "GENERIC_401_UNAUTHENTICATED",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 401,\n  \"code\": \"UNAUTHENTICATED\",\n  \"message\": \"Request not authenticated due to missing, invalid, or expired credentials. A new authentication is required.\"\n}"
+						},
+						{
+							"name": "CHECK_2LEGS",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\",\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 401,\n  \"code\": \"UNAUTHENTICATED\",\n  \"message\": \"Request not authenticated due to missing, invalid, or expired credentials. A new authentication is required.\"\n}"
+						},
+						{
+							"name": "GENERIC_403_PERMISSION_DENIED",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 403,\n  \"code\": \"PERMISSION_DENIED\",\n  \"message\": \"Client does not have sufficient permissions to perform this action.\"\n}"
+						},
+						{
+							"name": "CHECK_2LEGS",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\",\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 403,\n  \"code\": \"PERMISSION_DENIED\",\n  \"message\": \"Client does not have sufficient permissions to perform this action.\"\n}"
+						},
+						{
+							"name": "GENERIC_404_NOT_FOUND",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 404,\n  \"code\": \"NOT_FOUND\",\n  \"message\": \"The specified resource is not found.\"\n}"
+						},
+						{
+							"name": "CHECK_2LEGS",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\",\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 404,\n  \"code\": \"NOT_FOUND\",\n  \"message\": \"The specified resource is not found.\"\n}"
+						},
+						{
+							"name": "GENERIC_422_SERVICE_NOT_APPLICABLE",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"SERVICE_NOT_APPLICABLE\",\n  \"message\": \"The service is not available for the provided identifier.\"\n}"
+						},
+						{
+							"name": "GENERIC_422_MISSING_IDENTIFIER",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\",\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"MISSING_IDENTIFIER\",\n  \"message\": \"The device cannot be identified.\"\n}"
+						},
+						{
+							"name": "GENERIC_422_UNNECESSARY_IDENTIFIER",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"UNNECESSARY_IDENTIFIER\",\n  \"message\": \"The device is already identified by the access token.\"\n}"
+						},
+						{
+							"name": "GENERIC_429_QUOTA_EXCEEDED",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "Too Many Requests",
+							"code": 429,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 429,\n  \"code\": \"QUOTA_EXCEEDED\",\n  \"message\": \"Rejected due to exceeding a business quota limit.\"\n}"
+						},
+						{
+							"name": "GENERIC_429_TOO_MANY_REQUESTS",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phoneNumber\": \"+346661113334\",\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/check",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"check"
+									]
+								}
+							},
+							"status": "Too Many Requests",
+							"code": 429,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 429,\n  \"code\": \"TOO_MANY_REQUESTS\",\n  \"message\": \"Rejected due to request rate limit overpassed.\"\n}"
+						}
+					]
+				}
+			],
+			"description": "SIM Swap API - Check SIM swap events"
+		},
+		{
+			"name": "Location Retrieval",
+			"item": [
+				{
+					"name": "Retrieve Device Location",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_ACCESS_TOKEN",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "x-correlator",
+								"value": "{{$guid}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"{{phoneNumber}}\"\n  },\n  \"maxAge\": 600,\n  \"maxSurface\": 1000000\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/location-retrieval/v0/retrieve",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"location-retrieval",
+								"v0",
+								"retrieve"
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "LOCATION_CIRCLE",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"lastLocationTime\": \"2023-10-17T13:18:23.682Z\",\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 45.754114,\n      \"longitude\": 4.860374\n    },\n    \"radius\": 800\n  }\n}"
+						},
+						{
+							"name": "LOCATION_CIRCLE 2G",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"lastLocationTime\": \"2023-10-17T13:18:23.682Z\",\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 45.754114,\n      \"longitude\": 4.860374\n    },\n    \"radius\": 800\n  }\n}"
+						},
+						{
+							"name": "LOCATION_CIRCLE 4G",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"lastLocationTime\": \"2023-10-17T13:18:23.682Z\",\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 45.754114,\n      \"longitude\": 4.860374\n    },\n    \"radius\": 800\n  }\n}"
+						},
+						{
+							"name": "LOCATION_CIRCLE 5G",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"lastLocationTime\": \"2023-10-17T13:18:23.682Z\",\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 45.754114,\n      \"longitude\": 4.860374\n    },\n    \"radius\": 800\n  }\n}"
+						},
+						{
+							"name": "LOCATION_POLYGON",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120,\n  \"maxSurface\": 1000000\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"lastLocationTime\": \"2023-10-17T13:18:23.682Z\",\n  \"area\": {\n    \"areaType\": \"POLYGON\",\n    \"boundary\": [\n      {\n        \"latitude\": 45.754114,\n        \"longitude\": 4.860374\n      },\n      {\n        \"latitude\": 45.753845,\n        \"longitude\": 4.863185\n      },\n      {\n        \"latitude\": 45.75249,\n        \"longitude\": 4.861876\n      },\n      {\n        \"latitude\": 45.751224,\n        \"longitude\": 4.861125\n      },\n      {\n        \"latitude\": 45.751442,\n        \"longitude\": 4.859827\n      }\n    ]\n  }\n}"
+						},
+						{
+							"name": "LOCATION_CIRCLE_WITH_DEVICE IP",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"lastLocationTime\": \"2023-10-17T13:18:23.682Z\",\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 45.754114,\n      \"longitude\": 4.860374\n    },\n    \"radius\": 800\n  },\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  }\n}"
+						},
+						{
+							"name": "Device not provided, only maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"lastLocationTime\": \"2023-10-17T13:18:23.682Z\",\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 45.754114,\n      \"longitude\": 4.860374\n    },\n    \"radius\": 800\n  }\n}"
+						},
+						{
+							"name": "Both phone number and IPv4 address, without maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\",\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"lastLocationTime\": \"2023-10-17T13:18:23.682Z\",\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 45.754114,\n      \"longitude\": 4.860374\n    },\n    \"radius\": 800\n  }\n}"
+						},
+						{
+							"name": "Invalid argument",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 400,\n  \"code\": \"INVALID_ARGUMENT\",\n  \"message\": \"Client specified an invalid argument, request body or query param.\"\n}"
+						},
+						{
+							"name": "Phone number, maxAge and maxSurface",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120,\n  \"maxSurface\": 1000000\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 400,\n  \"code\": \"INVALID_ARGUMENT\",\n  \"message\": \"Client specified an invalid argument, request body or query param.\"\n}"
+						},
+						{
+							"name": "IPv4 address without maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 400,\n  \"code\": \"INVALID_ARGUMENT\",\n  \"message\": \"Client specified an invalid argument, request body or query param.\"\n}"
+						},
+						{
+							"name": "Device not provided, only maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 400,\n  \"code\": \"INVALID_ARGUMENT\",\n  \"message\": \"Client specified an invalid argument, request body or query param.\"\n}"
+						},
+						{
+							"name": "Both phone number and IPv4 address, without maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\",\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 400,\n  \"code\": \"INVALID_ARGUMENT\",\n  \"message\": \"Client specified an invalid argument, request body or query param.\"\n}"
+						},
+						{
+							"name": "GENERIC_401_UNAUTHENTICATED",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 401,\n  \"code\": \"UNAUTHENTICATED\",\n  \"message\": \"Request not authenticated due to missing, invalid, or expired credentials. A new authentication is required.\"\n}"
+						},
+						{
+							"name": "Phone number, maxAge and maxSurface",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120,\n  \"maxSurface\": 1000000\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 401,\n  \"code\": \"UNAUTHENTICATED\",\n  \"message\": \"Request not authenticated due to missing, invalid, or expired credentials. A new authentication is required.\"\n}"
+						},
+						{
+							"name": "IPv4 address without maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 401,\n  \"code\": \"UNAUTHENTICATED\",\n  \"message\": \"Request not authenticated due to missing, invalid, or expired credentials. A new authentication is required.\"\n}"
+						},
+						{
+							"name": "Device not provided, only maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 401,\n  \"code\": \"UNAUTHENTICATED\",\n  \"message\": \"Request not authenticated due to missing, invalid, or expired credentials. A new authentication is required.\"\n}"
+						},
+						{
+							"name": "Both phone number and IPv4 address, without maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\",\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 401,\n  \"code\": \"UNAUTHENTICATED\",\n  \"message\": \"Request not authenticated due to missing, invalid, or expired credentials. A new authentication is required.\"\n}"
+						},
+						{
+							"name": "Permission denied",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 403,\n  \"code\": \"PERMISSION_DENIED\",\n  \"message\": \"Client does not have sufficient permissions to perform this action.\"\n}"
+						},
+						{
+							"name": "Phone number, maxAge and maxSurface",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120,\n  \"maxSurface\": 1000000\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 403,\n  \"code\": \"PERMISSION_DENIED\",\n  \"message\": \"Client does not have sufficient permissions to perform this action.\"\n}"
+						},
+						{
+							"name": "IPv4 address without maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 403,\n  \"code\": \"PERMISSION_DENIED\",\n  \"message\": \"Client does not have sufficient permissions to perform this action.\"\n}"
+						},
+						{
+							"name": "Device not provided, only maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 403,\n  \"code\": \"PERMISSION_DENIED\",\n  \"message\": \"Client does not have sufficient permissions to perform this action.\"\n}"
+						},
+						{
+							"name": "Both phone number and IPv4 address, without maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\",\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 403,\n  \"code\": \"PERMISSION_DENIED\",\n  \"message\": \"Client does not have sufficient permissions to perform this action.\"\n}"
+						},
+						{
+							"name": "Identifier not found",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 404,\n  \"code\": \"IDENTIFIER_NOT_FOUND\",\n  \"message\": \"Device identifier not found.\"\n}"
+						},
+						{
+							"name": "Phone number, maxAge and maxSurface",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120,\n  \"maxSurface\": 1000000\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 404,\n  \"code\": \"IDENTIFIER_NOT_FOUND\",\n  \"message\": \"Device identifier not found.\"\n}"
+						},
+						{
+							"name": "IPv4 address without maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 404,\n  \"code\": \"IDENTIFIER_NOT_FOUND\",\n  \"message\": \"Device identifier not found.\"\n}"
+						},
+						{
+							"name": "Device not provided, only maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 404,\n  \"code\": \"IDENTIFIER_NOT_FOUND\",\n  \"message\": \"Device identifier not found.\"\n}"
+						},
+						{
+							"name": "Both phone number and IPv4 address, without maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\",\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 404,\n  \"code\": \"IDENTIFIER_NOT_FOUND\",\n  \"message\": \"Device identifier not found.\"\n}"
+						},
+						{
+							"name": "Service not applicable",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"SERVICE_NOT_APPLICABLE\",\n  \"message\": \"The service is not available for the provided identifier.\"\n}"
+						},
+						{
+							"name": "Missing identifier",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120,\n  \"maxSurface\": 1000000\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"MISSING_IDENTIFIER\",\n  \"message\": \"The device cannot be identified.\"\n}"
+						},
+						{
+							"name": "Unsupported identifier",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"UNSUPPORTED_IDENTIFIER\",\n  \"message\": \"The identifier provided is not supported.\"\n}"
+						},
+						{
+							"name": "Unnecessary identifier",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"UNNECESSARY_IDENTIFIER\",\n  \"message\": \"The device is already identified by the access token.\"\n}"
+						},
+						{
+							"name": "Unable to fulfill maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\",\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"LOCATION_RETRIEVAL.UNABLE_TO_FULFILL_MAX_AGE\",\n  \"message\": \"Unable to provide expected freshness for location\"\n}"
+						},
+						{
+							"name": "Unable to fulfill maxSurface",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"LOCATION_RETRIEVAL.UNABLE_TO_FULFILL_MAX_SURFACE\",\n  \"message\": \"Unable to provide accurate acceptable surface for location\"\n}"
+						},
+						{
+							"name": "Unable to locate device",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/retrieve",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"retrieve"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"LOCATION_RETRIEVAL.UNABLE_TO_LOCATE\",\n  \"message\": \"The network is unable to locate the device\"\n}"
+						}
+					]
+				}
+			],
+			"description": "Location Retrieval API - Get device location"
+		},
+		{
+			"name": "Location Verification",
+			"item": [
+				{
+					"name": "Verify Device Location",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_ACCESS_TOKEN",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "x-correlator",
+								"value": "{{$guid}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"{{phoneNumber}}\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 1000\n  },\n  \"maxAge\": 600\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/location-verification/v0/verify",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"location-verification",
+								"v0",
+								"verify"
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "Match",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"verificationResult\": \"TRUE\",\n  \"lastLocationTime\": \"2023-09-07T10:40:52Z\"\n}"
+						},
+						{
+							"name": "Match 2G",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"verificationResult\": \"TRUE\",\n  \"lastLocationTime\": \"2023-09-07T10:40:52Z\"\n}"
+						},
+						{
+							"name": "Match 4G",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"verificationResult\": \"TRUE\",\n  \"lastLocationTime\": \"2023-09-07T10:40:52Z\"\n}"
+						},
+						{
+							"name": "Match 5G",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"verificationResult\": \"TRUE\",\n  \"lastLocationTime\": \"2023-09-07T10:40:52Z\"\n}"
+						},
+						{
+							"name": "Match returning the device identifier used by the implementation",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"verificationResult\": \"TRUE\",\n  \"lastLocationTime\": \"2023-09-07T10:40:52Z\",\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  }\n}"
+						},
+						{
+							"name": "No match",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\",\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"verificationResult\": \"FALSE\",\n  \"lastLocationTime\": \"2023-09-07T10:40:52Z\"\n}"
+						},
+						{
+							"name": "Partial match",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"verificationResult\": \"PARTIAL\",\n  \"matchRate\": 74,\n  \"lastLocationTime\": \"2023-09-07T10:40:52Z\"\n}"
+						},
+						{
+							"name": "GENERIC_400_INVALID_ARGUMENT",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 400,\n  \"code\": \"INVALID_ARGUMENT\",\n  \"message\": \"Client specified an invalid argument, request body or query param.\"\n}"
+						},
+						{
+							"name": "GENERIC_400_OUT_OF_RANGE",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 400,\n  \"code\": \"OUT_OF_RANGE\",\n  \"message\": \"Client specified an invalid range.\"\n}"
+						},
+						{
+							"name": "Both phone number and IPv4 address, circle and maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\",\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 400,\n  \"code\": \"INVALID_ARGUMENT\",\n  \"message\": \"Client specified an invalid argument, request body or query param.\"\n}"
+						},
+						{
+							"name": "Device not provided",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Bad Request",
+							"code": 400,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 400,\n  \"code\": \"INVALID_ARGUMENT\",\n  \"message\": \"Client specified an invalid argument, request body or query param.\"\n}"
+						},
+						{
+							"name": "GENERIC_401_UNAUTHENTICATED",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 401,\n  \"code\": \"UNAUTHENTICATED\",\n  \"message\": \"Request not authenticated due to missing, invalid, or expired credentials. A new authentication is required.\"\n}"
+						},
+						{
+							"name": "IPv4 address, circle, without maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 401,\n  \"code\": \"UNAUTHENTICATED\",\n  \"message\": \"Request not authenticated due to missing, invalid, or expired credentials. A new authentication is required.\"\n}"
+						},
+						{
+							"name": "Both phone number and IPv4 address, circle and maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\",\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 401,\n  \"code\": \"UNAUTHENTICATED\",\n  \"message\": \"Request not authenticated due to missing, invalid, or expired credentials. A new authentication is required.\"\n}"
+						},
+						{
+							"name": "Device not provided",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Unauthorized",
+							"code": 401,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 401,\n  \"code\": \"UNAUTHENTICATED\",\n  \"message\": \"Request not authenticated due to missing, invalid, or expired credentials. A new authentication is required.\"\n}"
+						},
+						{
+							"name": "GENERIC_403_PERMISSION_DENIED",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 403,\n  \"code\": \"PERMISSION_DENIED\",\n  \"message\": \"Client does not have sufficient permissions to perform this action.\"\n}"
+						},
+						{
+							"name": "IPv4 address, circle, without maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 403,\n  \"code\": \"PERMISSION_DENIED\",\n  \"message\": \"Client does not have sufficient permissions to perform this action.\"\n}"
+						},
+						{
+							"name": "Both phone number and IPv4 address, circle and maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\",\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 403,\n  \"code\": \"PERMISSION_DENIED\",\n  \"message\": \"Client does not have sufficient permissions to perform this action.\"\n}"
+						},
+						{
+							"name": "Device not provided",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 403,\n  \"code\": \"PERMISSION_DENIED\",\n  \"message\": \"Client does not have sufficient permissions to perform this action.\"\n}"
+						},
+						{
+							"name": "GENERIC_404_IDENTIFIER_NOT_FOUND",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 404,\n  \"code\": \"IDENTIFIER_NOT_FOUND\",\n  \"message\": \"Device identifier not found.\"\n}"
+						},
+						{
+							"name": "IPv4 address, circle, without maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 404,\n  \"code\": \"IDENTIFIER_NOT_FOUND\",\n  \"message\": \"Device identifier not found.\"\n}"
+						},
+						{
+							"name": "Both phone number and IPv4 address, circle and maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\",\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 404,\n  \"code\": \"IDENTIFIER_NOT_FOUND\",\n  \"message\": \"Device identifier not found.\"\n}"
+						},
+						{
+							"name": "Device not provided",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 404,\n  \"code\": \"IDENTIFIER_NOT_FOUND\",\n  \"message\": \"Device identifier not found.\"\n}"
+						},
+						{
+							"name": "GENERIC_422_SERVICE_NOT_APPLICABLE",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"SERVICE_NOT_APPLICABLE\",\n  \"message\": \"The service is not available for the provided identifier.\"\n}"
+						},
+						{
+							"name": "GENERIC_422_MISSING_IDENTIFIER",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  }\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"MISSING_IDENTIFIER\",\n  \"message\": \"The device cannot be identified.\"\n}"
+						},
+						{
+							"name": "GENERIC_422_UNSUPPORTED_IDENTIFIER",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\",\n    \"ipv4Address\": {\n      \"publicAddress\": \"123.234.1.2\",\n      \"publicPort\": 1234\n    }\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"UNSUPPORTED_IDENTIFIER\",\n  \"message\": \"The identifier provided is not supported.\"\n}"
+						},
+						{
+							"name": "GENERIC_422_UNNECESSARY_IDENTIFIER",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"UNNECESSARY_IDENTIFIER\",\n  \"message\": \"The device is already identified by the access token.\"\n}"
+						},
+						{
+							"name": "The area cannot be covered",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"LOCATION_VERIFICATION.AREA_NOT_COVERED\",\n  \"message\": \"Unable to cover the requested area\"\n}"
+						},
+						{
+							"name": "Invalid area",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"LOCATION_VERIFICATION.INVALID_AREA\",\n  \"message\": \"The requested area is too small\"\n}"
+						},
+						{
+							"name": "Unable to fulfill maxAge",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"LOCATION_VERIFICATION.UNABLE_TO_FULFILL_MAX_AGE\",\n  \"message\": \"Unable to provide expected freshness for location\"\n}"
+						},
+						{
+							"name": "Unable to locate device",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "x-correlator",
+										"value": "b4333c46-49c0-4f62-80d7-f0ef930f1c46",
+										"description": "Correlation id for the different services"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"device\": {\n    \"phoneNumber\": \"+123456789\"\n  },\n  \"area\": {\n    \"areaType\": \"CIRCLE\",\n    \"center\": {\n      \"latitude\": 50.735851,\n      \"longitude\": 7.10066\n    },\n    \"radius\": 50000\n  },\n  \"maxAge\": 120\n}",
+									"options": {
+										"raw": {
+											"headerFamily": "json",
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{baseUrl}}/verify",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"verify"
+									]
+								}
+							},
+							"status": "Unprocessable Entity (WebDAV) (RFC 4918)",
+							"code": 422,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								},
+								{
+									"key": "x-correlator",
+									"value": "",
+									"description": {
+										"content": "",
+										"type": "text/plain"
+									}
+								}
+							],
+							"cookie": [],
+							"body": "{\n  \"status\": 422,\n  \"code\": \"LOCATION_VERIFICATION.UNABLE_TO_LOCATE\",\n  \"message\": \"The network is unable to locate the device\"\n}"
+						}
+					]
+				}
+			],
+			"description": "Location Verification API - Verify device location in area\n\nThis API provides the consumer with the ability to verify the location of a device.\n\n# Introduction\n\nAPI consumers are able to verify whether the location of certain user device is within the area specified. Currently the only area supported as input is a circle determined by a set of coordinates (latitude and longitude) and some expected accuracy (radius).\n\n- If the provided area is out of the operator's coverage or it is not supported for any reason, an error `422 LOCATION_VERIFICATION.AREA_NOT_COVERED` will be returned.\n    \n- Legal restrictions regarding privacy, or other regulatory or implementation issues, may force the operator to set restrictions to the provided area, such as setting a minimum value to the accepted radius. In these cases, an error `422 LOCATION_VERIFICATION.INVALID_AREA` will be returned and the error message will refer to the reason of the limitation.\n    \n\nThe verification result depends on the network's ability and accuracy to locate the device at the requested area.\n\n- If the network's estimation of the device's location is fully contained within the requested area, the verification result is `TRUE`.\n    \n- If the network's estimation of the device's location does not overlap with the requested area at all, the verification result is `FALSE`.\n    \n- If the network's estimation of the device's location partially overlaps with the requested area, or it fully contains the requested area (because it is larger), the result is `PARTIAL`. In this case, a `match_rate` is included in the response, indicating an estimation of the likelihood of the match in percent.\n    \n- If the network cannot locate the device, an error with code `422 LOCATION_VERIFICATION.UNABLE_TO_LOCATE` is sent back.\n    \n- The client may optionally include a `maxAge` indication. If the location information known to the server is older than the specified `maxAge` or not known at all, an error with code `422 LOCATION_VERIFICATION.UNABLE_TO_FULFILL_MAX_AGE` is sent back, independently of the verification result.\n    \n\nLocation Verification could be useful in scenarios such as:\n\n- Fraud protection, to ensure a given user is located in the location area claimed for financial transactions.\n    \n- Verification of GPS coordinates reported by the app on a device, to ensure the GPS was not faked, e.g. for content delivery with regional restrictions.\n    \n- Contextual-based advertising, to trigger advertising after verifying the device is in the area of interest.\n    \n- Smart mobility (vehicle / bikes renting), to confirm the location of the device and the location of the vehicle/bike to guarantee they are rented correctly.\n    \n\n# Relevant terms and definitions\n\n- **Device**: A device refers to any physical entity that can connect to a network and participate in network communication.\n    \n- **Area**: It specifies the geographical surface where a device may be physically located.\n    \n    - **Max Age**: Maximum age of the location information which is accepted for the location verification (in seconds).\n        \n        - Absence of maxAge means \"any age\" is acceptable for the client. In other words, this is like maxAge=infinite. In this case the system will return `lastLocationTime`.\n            \n        - maxAge=0 means a fresh calculation is requested by the client. If the system is not able to provide the fresh location, an error with code `422 LOCATION_VERIFICATION.UNABLE_TO_FULFILL_MAX_AGE` is sent back.\n            \n- **Verification**: Process triggered in the API server to confirm or contradict the expectation assumed by the API client about the device location.\n    \n\n# API Functionality\n\nThe API exposes a single endpoint/operation:\n\n- Verify whether the device location is within a requested area, currently a circle with center specified by the latitude and longitude, and radius specified by the accuracy. The operation returns a verification result and, optionally, a match rate estimation for the location verification in percent.\n    \n\n# Authorization and authentication\n\nThe \"Camara Security and Interoperability Profile\" provides details of how an API consumer requests an access token. Please refer to Identity and Consent Management ([https://github.com/camaraproject/IdentityAndConsentManagement/](https://github.com/camaraproject/IdentityAndConsentManagement/)) for the released version of the profile.\n\nThe specific authorization flows to be used will be agreed upon during the onboarding process, happening between the API consumer and the API provider, taking into account the declared purpose for accessing the API, whilst also being subject to the prevailing legal framework dictated by local legislation.\n\nIn cases where personal data is processed by the API and users can exercise their rights through mechanisms such as opt-in and/or opt-out, the use of three-legged access tokens is mandatory. This ensures that the API remains in compliance with privacy regulations, upholding the principles of transparency and user-centric privacy-by-design.\n\n# Identifying the device from the access token\n\nThis API requires the API consumer to identify a device as the subject of the API as follows:\n\n- When the API is invoked using a two-legged access token, the subject will be identified from the optional `device` object, which therefore MUST be provided.\n    \n- When a three-legged access token is used however, this optional identifier MUST NOT be provided, as the subject will be uniquely identified from the access token.\n    \n\nThis approach simplifies API usage for API consumers using a three-legged access token to invoke the API by relying on the information that is associated with the access token and was identified during the authentication process.\n\n## Error handling:\n\n- If the subject cannot be identified from the access token and the optional `device` object is not included in the request, then the server will return an error with the `422 MISSING_IDENTIFIER` error code.\n    \n- If the subject can be identified from the access token and the optional `device` object is also included in the request, then the server will return an error with the `422 UNNECESSARY_IDENTIFIER` error code. This will be the case even if the same device is identified by these two methods, as the server is unable to make this comparison.\n    \n\n# Multi-SIM scenario handling\n\nIn multi-SIM scenarios, where more than one mobile device is associated with the phone number given as input in the API call (e.g. a smartphone with an associated smartwatch), it might not be possible to uniquely identify the device whose location is to be verified. Check with the API provider what is the expected behaviour when a phone number belonging to a multi-SIM group is used as the device identifier, as the API may response with:\n\n- an error indicating that that phone number is not supported for this API, or\n    \n- the verification for a single device in the multi-SIM group, if one of the devices is considered linked to the main SIM and this concept is supported by the operator, or\n    \n- a verification value that combines the location verification of all the SIMs associated to the requested phone number.\n    \n\nPossible solutions to make the scenario more deterministic include:\n\n- Using preferably the authorisation code flow to obtain an access token, which will automatically identify the intended device.\n    \n- Identifying the intended device from a unique identifier for that device, such as its source IP address and port.\n    \n- Check with the API provider whether a unique \"secondary\" phone number is already associated with each device and use the secondary phone number to identify the intended device if available.\n    \n\n# Additional CAMARA error responses\n\nThe list of error codes in this API specification is not exhaustive. Therefore the API specification may not document some non-mandatory error statuses as indicated in `CAMARA API Design Guide`.\n\nPlease refer to the `CAMARA_common.yaml` of the Commonalities Release associated to this API version for a complete list of error responses. The applicable Commonalities Release can be identified in the `API Readiness Checklist` document associated to this API version.\n\nAs a specific rule, error `501 - NOT_IMPLEMENTED` can be only a possible error response if it is explicitly documented in the API.\n\n# Further info and support\n\n(FAQs will be added in a later version of the documentation)"
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "https://api.example.com",
+			"type": "string"
+		}
+	]
+}
