@@ -3,13 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QA Testing Tool</title>
+    <title>DEO/EPS -- QA Testing Tool</title>
     <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
     <div class="app-container">
         <header>
-            <h1>QA Testing Tool</h1>
+            <div class="brand">
+                <img src="https://conteudos.meo.pt/Style%20Library/quantcast/logo-meo.png?qc-size=98,56" alt="MEO logo" class="brand-logo">
+                <h1>DEO/EPS -- QA Testing Tool</h1>
+            </div>
             <nav class="main-nav">
                 <button class="nav-btn active" data-view="dashboard">Dashboard</button>
                 <button class="nav-btn" data-view="projects">Projects</button>
@@ -91,9 +94,14 @@
                 <div class="view-header">
                     <h2>Test Runs</h2>
                     <div class="filters">
+                        <input type="text" id="test-run-search" placeholder="Search by name..." />
+                        <input type="date" id="start-date" title="Start date" />
+                        <input type="date" id="end-date" title="End date" />
                         <select id="project-filter">
                             <option value="">All Projects</option>
                         </select>
+                        <button class="btn" id="apply-filters-btn">Apply</button>
+                        <button class="btn btn-secondary" id="clear-filters-btn">Clear</button>
                     </div>
                 </div>
                 <div id="test-runs-list"></div>

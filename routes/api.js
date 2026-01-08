@@ -5,6 +5,8 @@ const path = require('path');
 const fs = require('fs');
 
 const { Project, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec } = require('../models');
+const SequelizeLib = require('sequelize');
+const { Op } = require('sequelize');
 const { convertToPostmanCollection, parsePostmanCollection } = require('../services/apiSpecConverter');
 const { upload, validateAndParseApiSpec, validatePostmanCollection } = require('../services/fileUpload');
 const { executeTests } = require('../services/testRunner');
@@ -383,9 +385,38 @@ router.delete('/collections/:id', async (req, res) => {
 // Get all test runs
 router.get('/test-runs', async (req, res) => {
   try {
-    const { projectId } = req.query;
-    const where = projectId ? { project_id: projectId } : {};
-    
+    const { projectId, name, startDate, endDate } = req.query;
+    const where = {};
+
+    if (projectId) {
+      where.project_id = projectId;
+    }
+
+    if (name) {
+      // Case-insensitive substring match on TestRun.name (qualify to avoid ambiguity with joined tables)
+      const lower = name.toLowerCase();
+      where[Op.and] = where[Op.and] || [];
+      where[Op.and].push(SequelizeLib.where(SequelizeLib.fn('LOWER', SequelizeLib.col('TestRun.name')), { [Op.like]: `%${lower}%` }));
+    }
+
+    // Date filters (qualified to TestRun.created_at to avoid ambiguity)
+    if (startDate && endDate) {
+      const s = new Date(startDate);
+      const e = new Date(endDate);
+      where[Op.and] = where[Op.and] || [];
+      where[Op.and].push(SequelizeLib.where(SequelizeLib.col('TestRun.created_at'), { [Op.between]: [s, e] }));
+    } else if (startDate) {
+      const s = new Date(startDate);
+      where[Op.and] = where[Op.and] || [];
+      where[Op.and].push(SequelizeLib.where(SequelizeLib.col('TestRun.created_at'), { [Op.gte]: s }));
+    } else if (endDate) {
+      const e = new Date(endDate);
+      where[Op.and] = where[Op.and] || [];
+      where[Op.and].push(SequelizeLib.where(SequelizeLib.col('TestRun.created_at'), { [Op.lte]: e }));
+    }
+
+    console.info('[GET /test-runs] query=', req.query, 'where=', where);
+
     const testRuns = await TestRun.findAll({
       where,
       include: [{
@@ -455,6 +486,17 @@ router.post('/test-runs/execute', async (req, res) => {
       testOptions.envVars = envVars; // Object with key-value pairs
     }
 
+    // Optional: global delay between tests (seconds)
+    if (typeof req.body.delayBetweenTests !== 'undefined') {
+      const d = Number(req.body.delayBetweenTests);
+      if (!isNaN(d) && d >= 0) testOptions.delayBetweenTests = d;
+    }
+
+    // Optional: per-test delays mapping: { collectionId: { "0.1": seconds, ... } }
+    if (req.body.testDelays && typeof req.body.testDelays === 'object') {
+      testOptions.testDelays = req.body.testDelays;
+    }
+
     // Use new format if available, otherwise fall back to old format
     if (selectedTests) {
       testOptions.selectedTests = selectedTests; // Format: { collectionId: [itemIndex1, itemIndex2, ...] }
@@ -488,7 +530,7 @@ router.delete('/test-runs/:id', async (req, res) => {
 
 // ==================== REPORTS ====================
 
-// Generate report
+// Generate report (POST) - maintains existing behavior
 router.post('/test-runs/:id/report', async (req, res) => {
   try {
     const { html, filePath, fileName } = await generateReport(req.params.id);
@@ -497,6 +539,22 @@ router.post('/test-runs/:id/report', async (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// View report (GET) - supported for the frontend 'View Report' action
+router.get('/test-runs/:id/report', async (req, res) => {
+  try {
+    const { html, filePath, fileName } = await generateReport(req.params.id);
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (error) {
+    // If not found, return 404 to the client for clarity
+    if (error.message && error.message.toLowerCase().includes('not found')) {
+      return res.status(404).json({ error: error.message });
+    }
     res.status(500).json({ error: error.message });
   }
 });

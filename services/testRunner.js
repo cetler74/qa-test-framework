@@ -154,7 +154,7 @@ function runNewmanTests(collection, options = {}) {
         })),
         _postman_variable_scope: 'environment',
         _postman_exported_at: new Date().toISOString(),
-        _postman_exported_using: 'QA Testing Tool'
+        _postman_exported_using: 'DEO/EPS -- QA Testing Tool'
       };
       
       const envFile = path.join(tempDir, `environment-${envId}.json`);
@@ -360,7 +360,7 @@ function getItemByPath(collection, path) {
  * @param {Array<Array<number>>} selectedPaths - Array of path arrays in execution order (e.g., [[0, 1], [0, 2]])
  * @returns {object} Filtered collection with only selected items in specified order
  */
-function filterCollectionItems(collection, selectedPaths) {
+function filterCollectionItems(collection, selectedPaths, testDelaysForCollection = {}) {
   if (!selectedPaths || selectedPaths.length === 0) {
     return collection; // Return all items if no filter specified
   }
@@ -376,6 +376,10 @@ function filterCollectionItems(collection, selectedPaths) {
     if (item) {
       // Deep clone the item to avoid modifying the original
       const clonedItem = JSON.parse(JSON.stringify(item));
+      const pathString = path.join('.');
+      if (testDelaysForCollection && typeof testDelaysForCollection[pathString] !== 'undefined') {
+        clonedItem._delaySeconds = Number(testDelaysForCollection[pathString]);
+      }
       filtered.item.push(clonedItem);
     }
   });
@@ -424,10 +428,34 @@ async function executeTests(projectId, testRunName, options = {}) {
     // Filter and get collection JSONs
     const collectionObjects = collections.map(c => {
       const collectionJson = c.collection_json;
+
+      // Determine per-collection delays mapping (supports numeric keys or string keys)
+      const delaysForCollection = (options.testDelays && (options.testDelays[c.id] || options.testDelays[String(c.id)])) ? (options.testDelays[c.id] || options.testDelays[String(c.id)]) : {};
       
-      // If selectedTests is provided, filter items for this collection
+      // If selectedTests is provided, filter items for this collection and inject per-item delays
       if (selectedTests && selectedTests[c.id]) {
-        return filterCollectionItems(collectionJson, selectedTests[c.id]);
+        return filterCollectionItems(collectionJson, selectedTests[c.id], delaysForCollection);
+      }
+
+      // If per-item delays are provided for the whole collection (legacy flow), apply them in-place
+      if (delaysForCollection && Object.keys(delaysForCollection).length > 0) {
+        const cloned = JSON.parse(JSON.stringify(collectionJson));
+        function applyDelays(items, parentPath = []) {
+          if (!items || !Array.isArray(items)) return;
+          items.forEach((item, index) => {
+            const path = [...parentPath, index];
+            const pathString = path.join('.');
+            if (item.request && typeof delaysForCollection[pathString] !== 'undefined') {
+              item._delaySeconds = Number(delaysForCollection[pathString]);
+            }
+            if (item.item && Array.isArray(item.item)) {
+              applyDelays(item.item, path);
+            }
+          });
+        }
+        applyDelays(cloned.item || []);
+        console.log('[testRunner] Applied per-item delays for collection', c.id, delaysForCollection);
+        return cloned;
       }
       
       // Otherwise return the full collection
@@ -438,7 +466,53 @@ async function executeTests(projectId, testRunName, options = {}) {
     const mergedCollection = mergeCollections(collectionObjects, testRunName);
 
     // Run tests with options (environment variables, etc.)
-    const newmanResults = await runNewmanTests(mergedCollection, options);
+    // If delays are requested (global or per-item), execute items sequentially with waits between them
+    const hasGlobalDelay = options.delayBetweenTests && Number(options.delayBetweenTests) >= 0 && Number(options.delayBetweenTests) > 0;
+    const hasPerItemDelay = (mergedCollection.item || []).some(it => typeof it._delaySeconds !== 'undefined' && it._delaySeconds !== null);
+
+    // Log debug information about delay configuration
+    console.log('[testRunner] hasGlobalDelay=', !!hasGlobalDelay, 'delayBetweenTests=', options.delayBetweenTests, 'hasPerItemDelay=', hasPerItemDelay, 'mergedItems=', (mergedCollection.item || []).length);
+
+    let newmanResults;
+    if (hasGlobalDelay || hasPerItemDelay) {
+      const combinedExecutions = [];
+      const started = Date.now();
+
+      for (let i = 0; i < (mergedCollection.item || []).length; i++) {
+        const item = mergedCollection.item[i];
+        const singleCollection = {
+          info: mergedCollection.info || { name: testRunName },
+          item: [JSON.parse(JSON.stringify(item))]
+        };
+
+        // Run single item as its own collection
+        console.log(`[testRunner] Executing item ${i + 1}/${(mergedCollection.item || []).length}:`, item.name || item.request?.method || 'Unnamed');
+        const parsed = await runNewmanTests(singleCollection, options);
+        if (parsed && parsed.executions && parsed.executions.length > 0) {
+          combinedExecutions.push(parsed.executions[0]);
+        } else {
+          // Fallback execution record when Newman doesn't return expected execution
+          combinedExecutions.push({
+            item: { name: item.name || 'Unknown', request: item.request || {} },
+            status: 'failed',
+            errorMessage: 'No execution result returned'
+          });
+        }
+
+        // Determine delay to apply before next test
+        const delaySec = (typeof item._delaySeconds !== 'undefined' && item._delaySeconds !== null) ? Number(item._delaySeconds) : (Number(options.delayBetweenTests) || 0);
+        console.log(`[testRunner] delaySec for item ${i + 1}:`, delaySec);
+        if (delaySec > 0 && i < (mergedCollection.item || []).length - 1) {
+          console.log(`[testRunner] Waiting ${delaySec} seconds before next test`);
+          await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+        }
+      }
+
+      const completed = Date.now();
+      newmanResults = { summary: { run: { timings: { started: started, completed: completed } } }, executions: combinedExecutions };
+    } else {
+      newmanResults = await runNewmanTests(mergedCollection, options);
+    }
 
     // Create test run record with placeholder values (will be updated after counting results)
     const testRun = await TestRun.create({
@@ -470,7 +544,12 @@ async function executeTests(projectId, testRunName, options = {}) {
 
       // Determine status from execution data
       // Priority: execution.status (from parsed results, which includes assertion checks) > response code > default to failed
-      const responseCode = execution.item.response?.code || 0;
+      let responseCode = execution.item.response?.code ?? null;
+      // Try to extract HTTP code from execution error message when response is missing
+      if (!responseCode && execution.item.error && execution.item.error.message) {
+        const m = execution.item.error.message.match(/HTTP\s*(\d{3})/i);
+        if (m) responseCode = parseInt(m[1], 10);
+      }
       let status = 'failed'; // Default to failed
       
       // Check for failed assertions from test scripts
@@ -515,6 +594,41 @@ async function executeTests(projectId, testRunName, options = {}) {
         }
       }
 
+      // Ensure response body is set even when only an error message is available
+      const rawResponseBody = execution.item.response?.body || (errorMessage ? `Error: ${errorMessage}` : (execution.item.error?.message ? `Error: ${execution.item.error.message}` : ''));
+
+      // Build readable request details (method, url, headers, body)
+      const rawReqHeaders = execution.item.request?.headers || [];
+      const reqHeadersStr = Array.isArray(rawReqHeaders) ? rawReqHeaders.map(h => `${h.key || h.name || ''}: ${h.value || h.value || ''}`).join('\n') : '';
+      const requestTextParts = [];
+      requestTextParts.push(`${execution.item.request?.method || ''} ${execution.item.request?.url || ''}`);
+      requestTextParts.push('');
+      requestTextParts.push('Headers:');
+      requestTextParts.push(reqHeadersStr || 'None');
+      requestTextParts.push('');
+      requestTextParts.push('Body:');
+      requestTextParts.push(execution.item.request?.body || '');
+      const formattedRequest = requestTextParts.join('\n');
+
+      // Build readable response details (status, headers, body)
+      const rawRespHeaders = execution.item.response?.headers || [];
+      const respHeadersStr = Array.isArray(rawRespHeaders) ? rawRespHeaders.map(h => `${h.key || h.name || ''}: ${h.value || ''}`).join('\n') : '';
+      const responseTextParts = [];
+      if (execution.item.response) {
+        responseTextParts.push(`Status: ${execution.item.response.code || ''} ${execution.item.response.status || ''}`);
+        responseTextParts.push('');
+        responseTextParts.push('Headers:');
+        responseTextParts.push(respHeadersStr || 'None');
+        responseTextParts.push('');
+        responseTextParts.push('Body:');
+        responseTextParts.push(rawResponseBody || '');
+      } else if (execution.item.error) {
+        responseTextParts.push(`Error: ${execution.item.error.message || ''}`);
+      } else {
+        responseTextParts.push(rawResponseBody || 'No response');
+      }
+      const formattedResponse = responseTextParts.join('\n');
+
       const testResult = await TestResult.create({
         test_run_id: testRun.id,
         test_name: execution.item.name,
@@ -522,8 +636,8 @@ async function executeTests(projectId, testRunName, options = {}) {
         method: execution.item.request?.method || '',
         status: status,
         duration_ms: 0, // Newman doesn't provide per-request timing easily
-        request_body: execution.item.request?.body || '',
-        response_body: execution.item.response?.body || '',
+        request_body: formattedRequest,
+        response_body: formattedResponse,
         response_code: responseCode || null,
         assertions: execution.assertions || [],
         error_message: errorMessage,

@@ -282,7 +282,7 @@ const reportTemplate = `
                 </div>
                 {{#each this}}
                 <div class="test-item">
-                    <div class="test-item-header" onclick="toggleDetails({{this.groupIndex}}_{{this.itemIndex}})">
+                    <div class="test-item-header" data-detail-id="{{this.groupIndex}}_{{this.itemIndex}}">
                         <div>
                             <span class="method-badge {{this.method}}">{{this.method}}</span>
                             <span class="test-item-name">{{this.test_name}}</span>
@@ -291,21 +291,26 @@ const reportTemplate = `
                     </div>
                     <div class="test-item-details" id="details_{{this.groupIndex}}_{{this.itemIndex}}">
                         <div class="detail-section">
-                            <div class="detail-label">Endpoint</div>
-                            <div class="detail-value">{{this.endpoint}}</div>
+                            <div class="detail-label">Request</div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                <small style="color:#666;">Request evidence</small>
+                                <a href="{{this.request_download}}" download="{{this.test_name}}-request.txt" class="btn" style="font-size:12px;">Download</a>
+                            </div>
+                            <div class="detail-value">{{#if this.request_body_pretty}}{{this.request_body_pretty}}{{else}}Method: {{this.method}}\nURL: {{this.endpoint}}{{/if}}</div>
+                            {{#if this.request_headers}}
+                            <div style="margin-top:8px; font-size:12px; color:#666;">Headers:</div>
+                            <div class="detail-value" style="margin-top:6px;">{{this.request_headers}}</div>
+                            {{/if}}
                         </div>
-                        {{#if this.request_body}}
+
                         <div class="detail-section">
-                            <div class="detail-label">Request Body</div>
-                            <div class="detail-value">{{this.request_body}}</div>
+                            <div class="detail-label">Response ({{#if this.response_code}}{{this.response_code}}{{else}}-{{/if}})</div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                <small style="color:#666;">Response evidence</small>
+                                <a href="{{this.response_download}}" download="{{this.test_name}}-response.txt" class="btn" style="font-size:12px;">Download</a>
+                            </div>
+                            <div class="detail-value">{{#if this.response_is_json}}<pre>{{this.response_body_pretty}}</pre>{{else}}{{this.response_body_pretty}}{{/if}}</div>
                         </div>
-                        {{/if}}
-                        {{#if this.response_body}}
-                        <div class="detail-section">
-                            <div class="detail-label">Response ({{this.response_code}})</div>
-                            <div class="detail-value">{{this.response_body}}</div>
-                        </div>
-                        {{/if}}
                         {{#if this.error_message}}
                         <div class="detail-section">
                             <div class="detail-label">Error</div>
@@ -338,17 +343,21 @@ const reportTemplate = `
         </div>
 
         <div class="footer">
-            <p>Generated on {{formatDate (now)}} by QA Testing Tool</p>
+            <p><img src="https://conteudos.meo.pt/Style%20Library/quantcast/logo-meo.png?qc-size=98,56" alt="MEO logo" style="height:20px; vertical-align:middle; margin-right:8px;"> Generated on {{formatDate (now)}} by DEO/EPS -- QA Testing Tool</p>
         </div>
     </div>
 
     <script>
-        function toggleDetails(id) {
-            const details = document.getElementById('details_' + id);
-            if (details) {
-                details.classList.toggle('active');
-            }
-        }
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.test-item-header').forEach(function(el) {
+                const id = el.getAttribute('data-detail-id');
+                if (!id) return;
+                el.addEventListener('click', function() {
+                    const details = document.getElementById('details_' + id);
+                    if (details) details.classList.toggle('active');
+                });
+            });
+        });
     </script>
 </body>
 </html>
@@ -421,6 +430,62 @@ async function generateReport(testRunId) {
       testResultsBySpec[specName].forEach((result, resultIndex) => {
         result.groupIndex = specIndex;
         result.itemIndex = resultIndex;
+
+        // Prepare download Data URIs and pretty-printing for request/response
+        const reqRaw = result.request_body || '';
+        const respRaw = result.response_body || '';
+
+        try {
+          // Attempt to extract and pretty-print request body if it's JSON
+          let reqBody = '';
+          const bodyMarker = '\nBody:\n';
+          const bodyPos = reqRaw.indexOf(bodyMarker);
+          if (bodyPos >= 0) {
+            reqBody = reqRaw.substring(bodyPos + bodyMarker.length).trim();
+            try {
+              const parsedReq = JSON.parse(reqBody);
+              result.request_body_pretty = JSON.stringify(parsedReq, null, 2);
+            } catch (e) {
+              // Not JSON - leave as-is
+              result.request_body_pretty = reqBody || null;
+            }
+            // Extract headers if present
+            const headersMarker = '\nHeaders:\n';
+            const headersPos = reqRaw.indexOf(headersMarker);
+            if (headersPos >= 0 && bodyPos > headersPos) {
+              result.request_headers = reqRaw.substring(headersPos + headersMarker.length, bodyPos).trim() || null;
+            }
+          } else {
+            // Fallback: store full request text
+            result.request_body_pretty = reqRaw || null;
+          }
+        } catch (e) {
+          result.request_body_pretty = reqRaw || null;
+        }
+
+        try {
+          // Try to detect JSON response and pretty-print
+          let respTrim = typeof respRaw === 'string' ? respRaw.trim() : '';
+          if ((respTrim.startsWith('{') || respTrim.startsWith('['))) {
+            try {
+              result.response_body_pretty = JSON.stringify(JSON.parse(respTrim), null, 2);
+              result.response_is_json = true;
+            } catch (e) {
+              result.response_body_pretty = respRaw || null;
+              result.response_is_json = false;
+            }
+          } else {
+            result.response_body_pretty = respRaw || null;
+            result.response_is_json = false;
+          }
+        } catch (e) {
+          result.response_body_pretty = respRaw || null;
+          result.response_is_json = false;
+        }
+
+        // Create download links (data URIs)
+        result.request_download = 'data:text/plain;charset=utf-8,' + encodeURIComponent(reqRaw || '');
+        result.response_download = 'data:text/plain;charset=utf-8,' + encodeURIComponent(respRaw || '');
       });
     });
 

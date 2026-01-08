@@ -58,6 +58,59 @@ function showCreateProjectModal() {
   });
 }
 
+// Edit Project
+window.editProject = async (projectId) => {
+  try {
+    const project = await apiRequest(`/projects/${projectId}`);
+
+    const content = `
+      <form id="edit-project-form">
+        <div class="form-group">
+          <label for="edit-project-name">Project Name *</label>
+          <input type="text" id="edit-project-name" value="${project.name}" required>
+        </div>
+        <div class="form-group">
+          <label for="edit-project-description">Description</label>
+          <textarea id="edit-project-description">${project.description || ''}</textarea>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    `;
+
+    showModal('Edit Project', content);
+
+    document.getElementById('edit-project-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const name = document.getElementById('edit-project-name').value;
+      const description = document.getElementById('edit-project-description').value;
+
+      try {
+        await apiRequest(`/projects/${projectId}`, {
+          method: 'PUT',
+          body: { name, description }
+        });
+
+        hideModal();
+        loadProjects();
+        const currentProjectDetailName = document.getElementById('project-detail-name');
+        if (currentProjectDetailName && currentProjectDetailName.textContent === project.name) {
+          viewProject(projectId);
+        }
+
+        alert('Project updated successfully');
+      } catch (error) {
+        alert('Error updating project: ' + error.message);
+      }
+    });
+  } catch (error) {
+    alert('Error loading project: ' + error.message);
+  }
+};
+
 // View Project
 window.viewProject = async (projectId) => {
   try {

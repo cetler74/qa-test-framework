@@ -32,6 +32,18 @@ header h1 {
     font-weight: 600;
 }
 
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.brand-logo {
+    height: 36px;
+    width: auto;
+    display: block;
+}
+
 .main-nav {
     display: flex;
     gap: 10px;
@@ -346,18 +358,99 @@ main {
     background: white;
     border-radius: 8px;
     width: 90%;
-    max-width: 600px;
+    max-width: 1000px;
     max-height: 90vh;
     overflow-y: auto;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
-.modal-header {
-    padding: 20px;
-    border-bottom: 1px solid #e0e0e0;
+/* Test item layout and alignment */
+.test-item {
     display: flex;
-    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.test-item-left {
+    width: 36px;
+    flex: 0 0 36px;
+    display: flex;
     align-items: center;
+    justify-content: center;
+}
+
+.test-item-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.test-item-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.test-item-name {
+    font-weight: 500;
+    color: #2c3e50;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.test-item-endpoint {
+    font-size: 12px;
+    color: #666;
+    font-family: monospace;
+    white-space: normal; /* allow wrapping so full URL is visible */
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    margin-top: 4px;
+}
+
+/* Per-test delay input styling */
+.test-delay-input {
+    width: 70px;
+    padding: 4px;
+    font-size: 12px;
+    margin-left: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.method-badge {
+    margin-left: auto;
+    flex: 0 0 auto;
+}
+
+/* Group headers - left aligned and aligned with test items */
+.test-group-header {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    margin: 5px 0;
+}
+
+.test-group-header .group-count {
+    margin-left: 8px;
+    font-size: 12px;
+    color: #666;
+}
+
+.test-group-items {
+    margin-top: 6px;
+}
+
+.toggle-group {
+    margin-top: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+}
 }
 
 .modal-header h3 {

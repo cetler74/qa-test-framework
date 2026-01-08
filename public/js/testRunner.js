@@ -59,16 +59,21 @@ function buildNestedTestHTML(items, collectionId, parentPath = [], level = 0) {
       const url = item.request?.url ? (typeof item.request.url === 'string' ? item.request.url : item.request.url.raw || '') : '';
       
       html += `
-        <div class="test-item" style="padding-left: ${indent}px;" data-path="${pathString}">
-          <label style="display: flex; align-items: center; cursor: pointer;">
+        <div class="test-item" data-path="${pathString}">
+          <div class="test-item-left">
             <input type="checkbox" class="test-checkbox" 
                    data-collection-id="${collectionId}" 
                    data-path="${pathString}"
                    value="${collectionId}">
-            <span class="method-badge ${method}">${method}</span>
-            <span class="test-item-name">${item.name || 'Unnamed Test'}</span>
-          </label>
-          <div class="test-item-endpoint">${url}</div>
+          </div>
+          <div class="test-item-body" style="padding-left: ${indent}px;">
+            <div class="test-item-row">
+              <span class="test-item-name">${item.name || 'Unnamed Test'}</span>
+              <span class="method-badge ${method}">${method}</span>
+              <input type="number" class="test-delay-input" placeholder="Delay s" min="0" style="width:70px; padding:4px; margin-left:8px;" title="Delay after this test (seconds)">
+            </div>
+            <div class="test-item-endpoint">${url}</div>
+          </div>
         </div>
       `;
     } else if (item.item && Array.isArray(item.item)) {
@@ -79,18 +84,24 @@ function buildNestedTestHTML(items, collectionId, parentPath = [], level = 0) {
       if (hasTests) {
         html += `
           <div class="test-group" style="padding-left: ${indent}px;" data-path="${pathString}">
-            <div class="test-group-header" style="display: flex; align-items: center; padding: 10px; background: #f8f9fa; border-radius: 4px; margin: 5px 0;">
-              <label style="display: flex; align-items: center; cursor: pointer; flex: 1;">
+            <div class="test-group-header">
+              <div class="test-item-left">
                 <input type="checkbox" class="group-checkbox" 
                        data-collection-id="${collectionId}" 
                        data-path="${pathString}"
                        data-group-id="${groupId}">
-                <strong style="margin-left: 8px;">📁 ${item.name || 'Unnamed Group'}</strong>
-                <span style="margin-left: 10px; font-size: 12px; color: #666;">(${item.item.filter(i => i.request).length} tests)</span>
-              </label>
-              <button type="button" class="btn btn-sm btn-secondary toggle-group" data-group-id="${groupId}" style="padding: 4px 8px; font-size: 11px;">Expand</button>
+              </div>
+              <div class="test-item-body">
+                <div class="group-title-row">
+                  <strong>📁 ${item.name || 'Unnamed Group'}</strong>
+                  <span class="group-count">(${item.item.filter(i => i.request).length} tests)</span>
+                </div>
+                <div style="margin-top:6px;">
+                  <button type="button" class="btn btn-sm btn-secondary toggle-group" data-group-id="${groupId}">Expand</button>
+                </div>
+              </div>
             </div>
-            <div class="test-group-items" id="${groupId}" style="display: none; margin-left: 20px;">
+            <div class="test-group-items" id="${groupId}" style="display: none; padding-left: 20px;">
               ${buildNestedTestHTML(item.item, collectionId, currentPath, level + 1)}
             </div>
           </div>
@@ -157,6 +168,18 @@ function showRunTestsModal() {
             </div>
           </div>
         </div>
+        <div class="form-group">
+          <label for="env-select">Select Environment (optional)</label>
+          <div style="display:flex; gap:10px; align-items: center;">
+            <select id="env-select" style="flex: 1; padding:8px; border:1px solid #ddd; border-radius:4px;">
+              <option value="">Choose environment...</option>
+            </select>
+            <button type="button" class="btn btn-sm btn-secondary" id="manage-envs-btn">Manage</button>
+            <button type="button" class="btn btn-sm btn-secondary" id="create-env-btn">Create</button>
+          </div>
+          <p style="font-size:12px; color:#666; margin-top:6px;">Environments store values for <code>{{endpoint}}</code>, <code>{{version}}</code> and <code>{{ixs}}</code>. Selecting one will pre-fill these variables.</p>
+        </div>
+
         <div class="form-group" id="collection-vars-section" style="display: none;">
           <label>Collection Variables *</label>
           <p style="font-size: 12px; color: #666; margin-bottom: 10px;">
@@ -185,6 +208,11 @@ function showRunTestsModal() {
             <button type="button" class="btn btn-secondary" onclick="addEnvVar()" style="margin-top: 10px;">Add Variable</button>
           </div>
         </div>
+        <div class="form-group">
+          <label for="delay-between-tests">Delay between tests (seconds)</label>
+          <input type="number" id="delay-between-tests" min="0" placeholder="e.g., 2" style="width: 120px; padding: 6px;">
+          <p style="font-size:12px; color:#666; margin-top:6px;">If set, waits this many seconds before running the next test. Per-test delays override this value.</p>
+        </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
           <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
           <button type="submit" class="btn btn-primary">Run Tests</button>
@@ -193,6 +221,7 @@ function showRunTestsModal() {
     `;
     
     showModal('Run Tests', content);
+    populateEnvSelect();
     
     let selectedCollection = null;
     let selectedTestsOrder = []; // Array of {collectionId, path, name, method}
@@ -223,34 +252,36 @@ function showRunTestsModal() {
       }
       
       // Extract variables set by test scripts and pre-request scripts
+      // Support multiple pm.*.set variants and capture variable names robustly
       function extractScriptSetVariables(items) {
         if (!items || !Array.isArray(items)) return;
         items.forEach(item => {
           // Check both test scripts and pre-request scripts
           if (item.event && Array.isArray(item.event)) {
             item.event.forEach(event => {
-              // Check both 'test' and 'prerequest' event types
-              if ((event.listen === 'test' || event.listen === 'prerequest') && event.script && event.script.exec) {
+              // Consider any script events (test or prerequest)
+              if (event.script && event.script.exec) {
                 const scriptLines = Array.isArray(event.script.exec) 
                   ? event.script.exec 
                   : [event.script.exec];
                 
                 scriptLines.forEach(line => {
                   if (typeof line === 'string') {
-                    // Match pm.collectionVariables.set("variableName", ...)
-                    const setMatches = line.match(/pm\.collectionVariables\.set\(["']([^"']+)["']/g);
-                    if (setMatches) {
-                      setMatches.forEach(match => {
+                    // Generic regex for pm.<scope>.set("varName" or 'varName')
+                    const genericMatches = line.match(/pm\.(?:collectionVariables|environment|variables|globals)\.set\(["']([^"']+)["']/g);
+                    if (genericMatches) {
+                      genericMatches.forEach(match => {
                         const varName = match.match(/["']([^"']+)["']/)[1];
                         scriptSetVariables.add(varName);
                       });
                     }
-                    // Match pm.environment.set("variableName", ...)
-                    const envMatches = line.match(/pm\.environment\.set\(["']([^"']+)["']/g);
-                    if (envMatches) {
-                      envMatches.forEach(match => {
-                        const varName = match.match(/["']([^"']+)["']/)[1];
-                        scriptSetVariables.add(varName);
+
+                    // Also detect pm.collectionVariables.set with different spacing/format
+                    const altMatches = line.match(/pm\.collectionVariables\.set\([^,\n\r]+/g);
+                    if (altMatches) {
+                      altMatches.forEach(m => {
+                        const mm = m.match(/["']([^"']+)["']/);
+                        if (mm && mm[1]) scriptSetVariables.add(mm[1]);
                       });
                     }
                   }
@@ -324,25 +355,40 @@ function showRunTestsModal() {
       // Then, identify which ones are set by scripts
       extractScriptSetVariables(collectionJson.item);
       
-      // Return only variables that are NOT set by scripts (user must provide these)
-      const userProvidedVariables = Array.from(allVariables).filter(v => !scriptSetVariables.has(v));
+      // Normalize and allow certain vars to be provided via environment instead
+      const envAllowedLower = new Set(['token','endpoint','version','ixs','ixs2']);
+      // Variables we assume are produced by the collection scripts and should NOT block running
+      const assumedScriptVarsLower = new Set(['alertid','msisdn','msisdn2','user','ixs2']);
+      
+      // Build lowercase set for script-set variables
+      const scriptSetLower = new Set(Array.from(scriptSetVariables).map(v => v.toLowerCase()));
+      // Add assumed script vars so they are not considered required
+      assumedScriptVarsLower.forEach(v => scriptSetLower.add(v));
+      
+      // Filter user-provided variables (case-insensitive) and exclude envAllowed
+      const userProvided = Array.from(allVariables).filter(v => {
+        const vl = v.toLowerCase();
+        if (scriptSetLower.has(vl)) return false;
+        if (envAllowedLower.has(vl)) return false;
+        return true;
+      });
       
       return {
-        userProvided: userProvidedVariables.sort(),
+        userProvided: userProvided.sort(),
         scriptSet: Array.from(scriptSetVariables).sort()
       };
     }
     
     // Handle collection selection
     document.getElementById('collection-select').addEventListener('change', (e) => {
-      const collectionId = parseInt(e.target.value);
+      const collectionId = e.target.value; // treat as string (IDs may be UUIDs)
       if (!collectionId) {
         document.getElementById('test-selection-section').style.display = 'none';
         document.getElementById('collection-vars-section').style.display = 'none';
         return;
       }
       
-      selectedCollection = collections.find(c => c.id === collectionId);
+      selectedCollection = collections.find(c => String(c.id) === String(collectionId));
       if (!selectedCollection) return;
       
       // Extract and display collection variables
@@ -355,7 +401,7 @@ function showRunTestsModal() {
           const defaultValue = existingVar?.value || '';
           
           return `
-            <div class="env-var-item" style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
+            <div class="collection-var-item" style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
               <label style="min-width: 150px; font-weight: 500;">${varName}:</label>
               <input type="text" class="collection-var-value" data-var-name="${varName}" 
                      placeholder="Enter value for ${varName}" 
@@ -380,6 +426,51 @@ function showRunTestsModal() {
         
         document.getElementById('collection-vars-list').innerHTML = varsHTML + scriptVarsInfo;
         document.getElementById('collection-vars-section').style.display = 'block';
+
+        // Ensure core environment variables (token, endpoint, version, ixs) are available in env vars
+        const envAllowed = ['token','endpoint','version','ixs'];
+        const envList = document.getElementById('env-vars-list');
+        if (envList) {
+          // If user hasn't opened env-vars, show it so token can be set easily
+          const showEnvCheckbox = document.getElementById('show-env-vars');
+          let shouldShowEnv = false;
+
+          envAllowed.forEach(name => {
+            // Skip if env var already exists in the list
+            const exists = Array.from(document.querySelectorAll('#env-vars-list .env-var-key')).some(k => k.value.trim().toLowerCase() === name.toLowerCase());
+            if (exists) return;
+
+            // Try to get default value from collection variables if defined
+            const collectionJson = selectedCollection.collection_json || {};
+            const existingVar = collectionJson.variable?.find(v => v.key && v.key.toLowerCase() === name.toLowerCase());
+            const defaultValue = existingVar?.value || '';
+
+            // Add env var input for this name
+            const newItem = document.createElement('div');
+            newItem.className = 'env-var-item';
+            newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
+            newItem.innerHTML = `
+              <input type="text" placeholder="Variable name (e.g., bearer_token)" class="env-var-key" style="flex: 1; padding: 8px;" value="${name}">
+              <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px;" value="${defaultValue}">
+              <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
+            `;
+            envList.appendChild(newItem);
+            shouldShowEnv = true;
+          });
+
+          if (shouldShowEnv) {
+            if (showEnvCheckbox && !showEnvCheckbox.checked) {
+              showEnvCheckbox.checked = true;
+              toggleEnvVars();
+            }
+          }
+        }
+
+        // Apply selected environment to prefill collection vars if an env is selected
+        const envSelectEl = document.getElementById('env-select');
+        if (envSelectEl && envSelectEl.value) {
+          onEnvSelected({ target: envSelectEl });
+        }
       } else {
         document.getElementById('collection-vars-section').style.display = 'none';
       }
@@ -563,8 +654,13 @@ function showRunTestsModal() {
       e.preventDefault();
       
       const testRunName = document.getElementById('test-run-name').value;
-      const collectionId = parseInt(document.getElementById('collection-select').value);
+      const collectionId = document.getElementById('collection-select').value; // keep as string
       
+      if (!testRunName || testRunName.trim() === '') {
+        alert('Please enter a Test Run Name');
+        return;
+      }
+
       if (!collectionId) {
         alert('Please select a collection');
         return;
@@ -618,14 +714,28 @@ function showRunTestsModal() {
       
       // Collect additional environment variables if configured
       const envVars = { ...collectionVars }; // Start with collection variables
-      const envVarItems = document.querySelectorAll('.env-var-item');
+      const envVarItems = document.querySelectorAll('#env-vars-list .env-var-item');
       envVarItems.forEach(item => {
-        const key = item.querySelector('.env-var-key').value.trim();
-        const value = item.querySelector('.env-var-value').value.trim();
+        const keyInput = item.querySelector('.env-var-key');
+        const valueInput = item.querySelector('.env-var-value');
+        const key = keyInput ? keyInput.value.trim() : '';
+        const value = valueInput ? valueInput.value.trim() : '';
         if (key && value) {
           envVars[key] = value; // Additional vars override collection vars
         }
       });
+
+      // If a saved environment was selected, merge its core variables (endpoint, version, ixs)
+      const envSelectEl = document.getElementById('env-select');
+      if (envSelectEl && envSelectEl.value) {
+        const savedEnvs = loadSavedEnvs(projectId);
+        const selectedEnv = savedEnvs.find(e => e.id === envSelectEl.value);
+        if (selectedEnv) {
+          ['endpoint', 'version', 'ixs'].forEach(k => {
+            if (selectedEnv[k]) envVars[k] = selectedEnv[k];
+          });
+        }
+      }
       
       hideModal();
       
@@ -648,6 +758,29 @@ function showRunTestsModal() {
         // Add environment variables if any were set
         if (Object.keys(envVars).length > 0) {
           requestBody.envVars = envVars;
+        }
+
+        // Collect per-test delays (seconds) if provided
+        const testDelays = {};
+        selectedTestsOrder.forEach(test => {
+          const testEl = document.querySelector(`.test-item[data-path="${test.path}"]`);
+          if (!testEl) return;
+          const delayInput = testEl.querySelector('.test-delay-input');
+          const val = delayInput && delayInput.value ? parseFloat(delayInput.value) : null;
+          if (val !== null && !isNaN(val) && Number(val) >= 0) { // allow zero
+            if (!testDelays[test.collectionId]) testDelays[test.collectionId] = {};
+            testDelays[test.collectionId][test.path] = Number(val);
+          }
+        });
+        if (Object.keys(testDelays).length > 0) {
+          requestBody.testDelays = testDelays;
+        }
+
+        // Global delay between tests (seconds) - applied when per-test delay not set
+        const globalDelayInput = document.getElementById('delay-between-tests');
+        const globalDelayVal = globalDelayInput && globalDelayInput.value ? parseFloat(globalDelayInput.value) : null;
+        if (globalDelayVal !== null && !isNaN(globalDelayVal) && Number(globalDelayVal) > 0) {
+          requestBody.delayBetweenTests = Number(globalDelayVal);
         }
         
         const result = await apiRequest('/test-runs/execute', {
@@ -702,7 +835,173 @@ function removeEnvVar(button) {
   }
 }
 
-// Make functions available globally
+// Environment storage helpers (stored in localStorage per project)
+function getEnvStorageKey(projectId) {
+  return `qa_envs_${projectId}`;
+}
+
+function loadSavedEnvs(projectId) {
+  try {
+    const raw = localStorage.getItem(getEnvStorageKey(projectId));
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveSavedEnvs(projectId, envs) {
+  localStorage.setItem(getEnvStorageKey(projectId), JSON.stringify(envs));
+}
+
+function populateEnvSelect() {
+  const envSelect = document.getElementById('env-select');
+  if (!envSelect) return;
+  const projectId = document.getElementById('run-tests-btn').getAttribute('data-project-id');
+  const envs = loadSavedEnvs(projectId);
+  envSelect.innerHTML = '<option value="">Choose environment...</option>';
+  envs.forEach(env => {
+    const opt = document.createElement('option');
+    opt.value = env.id;
+    opt.textContent = env.name;
+    envSelect.appendChild(opt);
+  });
+  // Attach change handler (ensure not duplicated)
+  envSelect.removeEventListener('change', onEnvSelected);
+  envSelect.addEventListener('change', onEnvSelected);
+}
+
+function onEnvSelected(e) {
+  const envId = e.target.value;
+  const projectId = document.getElementById('run-tests-btn').getAttribute('data-project-id');
+  const envs = loadSavedEnvs(projectId);
+  const env = envs.find(x => x.id === envId);
+  if (env) {
+    // Pre-fill common collection variables if present
+    ['endpoint', 'version', 'ixs'].forEach(k => {
+      const input = document.querySelector(`.collection-var-value[data-var-name="${k}"]`);
+      if (input && env[k]) input.value = env[k];
+    });
+
+    // Also set token into env-vars if present
+    if (env.token) {
+      // Try to find an env-var input with key 'token' and set value
+      const envKeys = Array.from(document.querySelectorAll('#env-vars-list .env-var-item'));
+      for (const item of envKeys) {
+        const keyInput = item.querySelector('.env-var-key');
+        const valInput = item.querySelector('.env-var-value');
+        if (keyInput && keyInput.value.trim().toLowerCase() === 'token') {
+          if (valInput) valInput.value = env.token;
+          return;
+        }
+      }
+      // If not found, add a new env var item
+      const envList = document.getElementById('env-vars-list');
+      if (envList) {
+        const newItem = document.createElement('div');
+        newItem.className = 'env-var-item';
+        newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
+        newItem.innerHTML = `
+          <input type="text" placeholder="Variable name (e.g., bearer_token)" class="env-var-key" style="flex: 1; padding: 8px;" value="token">
+          <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px;" value="${env.token}">
+          <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
+        `;
+        envList.appendChild(newItem);
+      }
+    }
+  }
+}
+
+function showCreateEnvModal() {
+  const projectId = document.getElementById('run-tests-btn').getAttribute('data-project-id');
+  const content = `
+    <form id="create-env-form">
+      <div class="form-group">
+        <label>Name</label>
+        <input id="env-name" required style="width:100%;padding:8px;margin-bottom:8px">
+      </div>
+      <div class="form-group">
+        <label>endpoint</label>
+        <input id="env-endpoint" placeholder="example.com" style="width:100%;padding:8px;margin-bottom:8px">
+      </div>
+      <div class="form-group">
+        <label>version</label>
+        <input id="env-version" placeholder="V7" style="width:100%;padding:8px;margin-bottom:8px">
+      </div>
+      <div class="form-group">
+        <label>ixs</label>
+        <input id="env-ixs" placeholder="service instance" style="width:100%;padding:8px;margin-bottom:8px">
+      </div>
+      <div class="form-group">
+        <label>token</label>
+        <input id="env-token" placeholder="Bearer token value" style="width:100%;padding:8px;margin-bottom:8px">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  `;
+  showModal('Create Environment', content);
+
+  document.getElementById('create-env-form').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const name = document.getElementById('env-name').value.trim();
+    const endpoint = document.getElementById('env-endpoint').value.trim();
+    const version = document.getElementById('env-version').value.trim();
+    const ixs = document.getElementById('env-ixs').value.trim();
+    if (!name) { alert('Please provide a name'); return; }
+    const envs = loadSavedEnvs(projectId);
+    const id = 'env-' + Date.now();
+    const token = document.getElementById('env-token').value.trim();
+    envs.push({ id, name, endpoint, version, ixs, token });
+    saveSavedEnvs(projectId, envs);
+    hideModal();
+    populateEnvSelect();
+  });
+}
+
+function showManageEnvsModal() {
+  const projectId = document.getElementById('run-tests-btn').getAttribute('data-project-id');
+  const envs = loadSavedEnvs(projectId);
+  const list = envs.map(e => `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <strong style="flex:1">${e.name}</strong>
+      <div style="font-size:12px;color:#666;flex:3">endpoint:${e.endpoint||''} version:${e.version||''} ixs:${e.ixs||''} token:${e.token? '***': ''}</div>
+      <button class="btn btn-sm btn-danger delete-env" data-id="${e.id}">Delete</button>
+    </div>
+  `).join('') || '<p>No environments defined.</p>';
+
+  const content = `
+    <div>${list}</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+      <button class="btn btn-secondary" onclick="hideModal()">Close</button>
+    </div>
+  `;
+
+  showModal('Manage Environments', content);
+
+  document.querySelectorAll('.delete-env').forEach(b => {
+    b.addEventListener('click', (ev) => {
+      const id = ev.target.getAttribute('data-id');
+      const arr = loadSavedEnvs(projectId);
+      const newArr = arr.filter(x => x.id !== id);
+      saveSavedEnvs(projectId, newArr);
+      showManageEnvsModal();
+    });
+  });
+}
+
+// Wire up the manage/create buttons on the run modal (buttons are present when the modal is shown)
+document.addEventListener('click', (ev) => {
+  if (ev.target && ev.target.id === 'create-env-btn') {
+    showCreateEnvModal();
+  }
+  if (ev.target && ev.target.id === 'manage-envs-btn') {
+    showManageEnvsModal();
+  }
+});
+
+// Make existing functions available globally
 window.toggleEnvVars = toggleEnvVars;
 window.addEnvVar = addEnvVar;
 window.removeEnvVar = removeEnvVar;

@@ -80,6 +80,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initial load
   loadDashboard();
+
+  // Filter event bindings for Test Runs
+  const applyFiltersBtn = document.getElementById('apply-filters-btn');
+  if (applyFiltersBtn) {
+    applyFiltersBtn.addEventListener('click', () => loadTestRuns());
+  }
+
+  const clearFiltersBtn = document.getElementById('clear-filters-btn');
+  if (clearFiltersBtn) {
+    clearFiltersBtn.addEventListener('click', () => {
+      const search = document.getElementById('test-run-search');
+      const start = document.getElementById('start-date');
+      const end = document.getElementById('end-date');
+      const project = document.getElementById('project-filter');
+      if (search) search.value = '';
+      if (start) start.value = '';
+      if (end) end.value = '';
+      if (project) project.value = '';
+      loadTestRuns();
+    });
+  }
+
+  const searchInput = document.getElementById('test-run-search');
+  if (searchInput) {
+    searchInput.addEventListener('keyup', (e) => {
+      if (e.key === 'Enter') loadTestRuns();
+    });
+  }
 });
 
 // Load view data
@@ -121,7 +149,7 @@ async function loadDashboard() {
         <div class="list-item" onclick="viewTestRun(${run.id})">
           <div class="list-item-info">
             <h3>${run.name}</h3>
-            <p>Project: ${run.project?.name || 'Unknown'} • ${new Date(run.created_at).toLocaleString()}</p>
+            <p>Project: ${run.project?.name || 'Unknown'} • ${formatDateTime(run.created_at)}</p>
           </div>
           <span class="status-badge ${run.status}">${run.status}</span>
         </div>
@@ -191,10 +219,44 @@ async function loadApiSpecs() {
   }
 }
 
+// Helper to format date as DD/MM/YYYY, keeping time portion
+function formatDateTime(dateInput) {
+  const d = new Date(dateInput);
+  if (isNaN(d)) return '';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  // Preserve the time format (12-hour with AM/PM) using toLocaleTimeString
+  const time = d.toLocaleTimeString();
+  return `${dd}/${mm}/${yyyy}, ${time}`;
+}
+
 // Test Runs
-async function loadTestRuns(projectId = null) {
+async function loadTestRuns() {
   try {
-    const endpoint = projectId ? `/test-runs?projectId=${projectId}` : '/test-runs';
+    // Populate projects dropdown
+    const projects = await apiRequest('/projects');
+    const projectFilter = document.getElementById('project-filter');
+    const currentProject = projectFilter.value || '';
+    projectFilter.innerHTML = `<option value="">All Projects</option>` + projects.map(p => `
+      <option value="${p.id}" ${p.id == currentProject ? 'selected' : ''}>${p.name}</option>
+    `).join('');
+
+    // Read filter values
+    const name = document.getElementById('test-run-search')?.value.trim();
+    const projectId = document.getElementById('project-filter')?.value;
+    const startDate = document.getElementById('start-date')?.value;
+    const endDate = document.getElementById('end-date')?.value;
+
+    const params = new URLSearchParams();
+    if (projectId) params.append('projectId', projectId);
+    if (name) params.append('name', name);
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    params.append('limit', '50');
+
+    const endpoint = `/test-runs?${params.toString()}`;
+    console.info('[loadTestRuns] fetching', endpoint);
     const testRuns = await apiRequest(endpoint);
     const testRunsList = document.getElementById('test-runs-list');
     
@@ -205,7 +267,7 @@ async function loadTestRuns(projectId = null) {
         <div class="list-item" onclick="viewTestRun(${run.id})" style="cursor: pointer;">
           <div class="list-item-info">
             <h3>${run.name}</h3>
-            <p>Project: ${run.project?.name || 'Unknown'} • ${new Date(run.created_at).toLocaleString()}</p>
+            <p>Project: ${run.project?.name || 'Unknown'} • ${formatDateTime(run.created_at)}</p>
             <p style="font-size: 12px; color: #666; margin-top: 5px;">
               ${run.passed_tests || 0} passed, ${run.failed_tests || 0} failed of ${run.total_tests || 0} total
             </p>
@@ -218,6 +280,8 @@ async function loadTestRuns(projectId = null) {
     console.error('Error loading test runs:', error);
   }
 }
+
+
 
 // View test run
 async function viewTestRun(testRunId) {

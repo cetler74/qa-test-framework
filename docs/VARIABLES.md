@@ -2,7 +2,7 @@
 
 ## Overview
 
-The QA Testing Tool supports Postman variables in multiple ways:
+The DEO/EPS -- QA Testing Tool supports Postman variables in multiple ways:
 1. **Collection Variables** - Automatically extracted from OpenAPI specs
 2. **Environment Variables** - Can be configured per project or test run
 3. **Custom Variables** - Can be added manually to collections

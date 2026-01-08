@@ -79,13 +79,25 @@ The application will be available at `http://localhost:3000`
    - In your project, click "Run Tests"
    - Select which tests to run
    - Provide a test run name (e.g., "Release 1.0")
+   - Optionally configure delays:
+     - **Global Delay**: set "Delay between tests (seconds)" — the runner will wait this many seconds before starting the next test.
+     - **Per-test Delay**: each test row includes a "Delay s" input to specify seconds to wait *after* that specific test; per-test delays override the global delay for that transition.
+     - Delays accept numbers (seconds); fractional values (e.g., 0.5) are supported. A value of 0 disables delay.
    - Click "Run Tests"
+
+**Delay behavior notes:**
+- When delays are present the runner executes tests **sequentially** (each test runs as its own Newman invocation), and waits the configured seconds before the next test. The total test run duration includes delays.
+- Use per-test delays when you need custom wait times between specific consecutive tests; otherwise use the global delay for a consistent pause between tests.
 
 5. **View Reports**:
    - Go to Test Runs to see all test executions
    - Click on a test run to view details
    - Click "View Report" to see the HTML report in a new window
    - Click "Download Report" to download the report as an HTML file
+
+**Verification scripts:**
+- `scripts/run-sample-execution-with-delay.js` — creates a small two-request collection and runs it with a configured `delayBetweenTests` to validate delay timing.
+- `scripts/create-test-run-fixture.js` — creates a synthetic test run (success + failure) and generates an HTML report for manual verification of report content (response bodies, errors).
 
 ## Project Structure
 
@@ -124,7 +136,7 @@ The application will be available at `http://localhost:3000`
 
 ### Test Runs
 - `GET /api/test-runs` - List test runs
-- `POST /api/test-runs/execute` - Execute tests
+- `POST /api/test-runs/execute` - Execute tests (supports optional `delayBetweenTests` in seconds and `testDelays` mapping for per-test delays in seconds)
 - `GET /api/test-runs/:id` - Get test run details
 - `POST /api/test-runs/:id/report` - Generate HTML report
 - `GET /api/test-runs/:id/report/download` - Download report
