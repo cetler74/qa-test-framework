@@ -1,0 +1,5045 @@
+{
+	"info": {
+		"_postman_id": "75bf6c4e-f766-4193-9ecb-8bb31a890160",
+		"name": "API - Version_QA_Automated",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "48391152"
+	},
+	"item": [
+		{
+			"name": "Endpoints",
+			"item": [
+				{
+					"name": "Endpoints - Positive Tests",
+					"item": [
+						{
+							"name": "Step 1: 001- Get Valid Resource ID",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											"",
+											"try {",
+											"    const jsonData = pm.response.json();",
+											"",
+											"    // Your response has: { ..., list: [ { msisdn: \"960194662\", ... } ] }",
+											"    let resId = null;",
+											"",
+											"    if (Array.isArray(jsonData.list) && jsonData.list.length > 0) {",
+											"        resId = jsonData.list[0].msisdn;   // or .endpoint.id, etc.",
+											"    }",
+											"",
+											"    if (resId) {",
+											"        pm.collectionVariables.set(\"validResourceId\", resId);",
+											"        console.log(\"Captured validResourceId: \" + resId);",
+											"    } else {",
+											"        console.log(\"No resources found to capture.\");",
+											"    }",
+											"} catch (e) {",
+											"    console.log(e);",
+											"}"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Step 2: 002- Create endpoint",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(201);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											"",
+											"try {",
+											"    const jsonData = pm.response.json();",
+											"    const endpointId = jsonData.id;  // Direct access to root-level \"id\"",
+											"",
+											"    if (endpointId) {",
+											"        pm.collectionVariables.set(\"endpointId\", endpointId);",
+											"        console.log(\"Captured endpointId: \" + endpointId);",
+											"    } else {",
+											"        console.log(\"No endpoint ID found in response.\");",
+											"    }",
+											"} catch (e) {",
+											"    console.log(\"Error parsing response: \" + e);",
+											"}"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								},
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"",
+											"var randomName = \"Auto_Endpoint_\" + (Math.floor(Math.random() * 100000));",
+											"pm.collectionVariables.set(\"randomEndpointName\", randomName);",
+											"console.log(\"Generated randomEndpointName: \" + randomName);",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"name\": \"{{randomEndpointName}}\",\r\n    \"description\": \"endpoint 2\",\r\n    \"designation\": \"endpoint 2\",\r\n    \"equipment\": \"\",\r\n    \"status\": \"ACTIVE\",\r\n    \"address\": \"1 Street A\",\r\n    \"latitude\": \"40.626461\",\r\n    \"longitude\": \"-8.603668\",\r\n    \"resources\": [\r\n        {\r\n            \"id\": \"{{validResourceId}}\"\r\n        }\r\n    ],\r\n    \"endpointProperties\": {\r\n        \"technicianName\": \"Bruno Antunes\",\r\n        \"technicianContact\": \"9273332838\",\r\n        \"technicianEmail\": \"bruno@smart2m.pt\"\r\n    }\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/endpoints",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"endpoints"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Step 3: 003- Endpoint details",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/endpoints/{{endpointId}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"endpoints",
+										"{{endpointId}}"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Step 4: 004- Update endpoint",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "PATCH",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"description\": \"Endpoint_relase_10.17.1\" \r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/endpoints/{{endpointId}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"endpoints",
+										"{{endpointId}}"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "005- List endpoints",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/endpoints",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"endpoints"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "006- List service instance endpoints",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/endpoints",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"endpoints"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "007- Endpoint resources",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/endpoints/{{endpointId}}/resources",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"endpoints",
+										"{{endpointId}}",
+										"resources"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Step 5: 008- Delete endpoint V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(204);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/endpoints/{{endpointId}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"endpoints",
+										"{{endpointId}}"
+									]
+								}
+							},
+							"response": []
+						}
+					],
+					"description": "Positive test cases"
+				}
+			]
+		},
+		{
+			"name": "Connectivity resources",
+			"item": [
+				{
+					"name": "Connectivity resources - Positive Tests",
+					"item": [
+						{
+							"name": "001- Consult resource location",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/location",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"location"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "002- Consult resources of a service instance",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "003- Get resource details",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}?includeResourceProperties=true&includeResourceConfiguration=true&includeAlarms=true&includeLastCommunication=true&includePlafonds=true",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}"
+									],
+									"query": [
+										{
+											"key": "includeResourceProperties",
+											"value": "true"
+										},
+										{
+											"key": "includeResourceConfiguration",
+											"value": "true"
+										},
+										{
+											"key": "includeAlarms",
+											"value": "true"
+										},
+										{
+											"key": "includeLastCommunication",
+											"value": "true"
+										},
+										{
+											"key": "includePlafonds",
+											"value": "true"
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "004- Request resource name change",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "PUT",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"newName\": \"release10.16.4\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/friendlyname",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"friendlyname"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "005- Request resource secondary imsi status change",
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "PUT",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"secondaryImsiStatus\": false,\r\n  \"reason\": \"secondary imsi no longer needed for communications\"\r\n} ",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/secondaryimsistatus",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"secondaryimsistatus"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "006- Consult resource test and diagnosis",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/test",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"test"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "007- Request resource test and diagnosis update",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(4000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/test/update",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"test",
+										"update"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "008- Request resource configuration change",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"reason\": \"Client request\",\r\n  \"servicesToAdd\": [\r\n    {\r\n      \"id\": \"810\",\r\n      \"apnList\": [\r\n         {\r\n               \"id\":\"ggpic8.tmn.pt\",\r\n               \"ipAddresses\":[\r\n                  {\r\n                     \"ipAddressIndex\":1,\r\n                     \"ipAddressType\":\"IPV4\"\r\n                  }              \r\n                  ],\r\n               \"QoS\":\"Basic\"\r\n        }\r\n      ]\r\n    }\r\n  ]\r\n} ",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/configuration",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"configuration"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "009- List resources",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "010- Create order",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											"",
+											"try {",
+											"    const jsonData = pm.response.json();",
+											"    const OrderId = jsonData.id;  // Direct access to root-level \"id\"",
+											"",
+											"    if (OrderId) {",
+											"        pm.collectionVariables.set(\"id\", OrderId);",
+											"        console.log(\"Captured id: \" + OrderId);",
+											"    } else {",
+											"        console.log(\"No order ID found in response.\");",
+											"    }",
+											"} catch (id) {",
+											"    console.log(\"Error parsing response: \" + OrderId);",
+											"}"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"orderType\": \"NEW_CARDS\",\r\n  \"resourceType\": \"SIM\",\r\n  \"resourceSubtype\": \"SINGLE_IMSI\",\r\n  \"universalType\": \"N1\",\r\n  \"formFactor\": \"2FF/3FF/4FF\",\r\n  \"pinType\": true,\r\n  \"robustnessLevel\": \"N\",\r\n  \"simType\": \"USIM\",\r\n  \"quantity\": 1,\r\n  \"contactName\": \"Bruno_Antunes\",\r\n  \"contactPhone\": \"927332838\",\r\n  \"deliveryAddress\": \"Lisboa\",\r\n  \"observations\" : \"lorem ipsum\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/orders",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"orders"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "011- List orders",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/orders",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"orders"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "012- Get order",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/orders/",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"orders",
+										""
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "013- List Resources provisioned in the context of an order",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/orders/{{id}}/resources",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"orders",
+										"{{id}}",
+										"resources"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "014- Consult sms console messages",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/V7/serviceinstances/{{ixs}}/resources/smsconsole",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"V7",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"smsconsole"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "015- Get resource communications",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/communications",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"communications"
+									]
+								}
+							},
+							"response": []
+						}
+					],
+					"description": "Positive test cases"
+				}
+			]
+		},
+		{
+			"name": "Connectivity resources with timers   60000ms",
+			"item": [
+				{
+					"name": "Connectivity resources - Positive Tests",
+					"item": [
+						{
+							"name": "001- Request resource status change - SUSPENDED",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											"",
+											"try {",
+											"    const jsonData = pm.response.json();",
+											"    const requestId = jsonData.id;  // Direct access to root-level \"id\"",
+											"",
+											"    if (requestId) {",
+											"        pm.collectionVariables.set(\"requestId\", requestId);",
+											"        console.log(\"Captured requestId: \" + requestId);",
+											"    } else {",
+											"        console.log(\"No endpoint ID found in response.\");",
+											"    }",
+											"} catch (e) {",
+											"    console.log(\"Error parsing response: \" + e);",
+											"}"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "PUT",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"resourceStatus\": \"SUSPENDED\",\r\n  \"reason\": \"Teste Release 10.16.2\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/status",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"status"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "002- Request resource status change- ACTIVE",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "PUT",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"resourceStatus\": \"ACTIVE\",\r\n  \"reason\": \"Teste Release 10.16.2\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/status",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"status"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "003- Request resource communication status change Suspended",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "PUT",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"communicationStatus\": \"SUSPENDED_NEXT_CYCLE\",\r\n  \"reason\": \"Connectivity exceeding the alert threshold of 1.0 GiB\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/communicationstatus",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"communicationstatus"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "004- Request resource communication status change Active",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "PUT",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"communicationStatus\": \"ACTIVE\",\r\n  \"reason\": \"Teste API- PRD\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/communicationstatus",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"communicationstatus"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "005- Request resource roaming change BLOCK",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"roamingStatus\": \"BLOCK\",\r\n  \"reason\": \"Client request\"\r\n} ",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/roaming",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"roaming"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "006- Request resource roaming change ALLOW",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"roamingStatus\": \"ALLOW\",\r\n  \"reason\": \"Client request\"\r\n} ",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/roaming",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"roaming"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "007- Request resource transfer",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"newServiceInstance\" : \"{{ixs2}}\",\r\n    \"reason\" : \"xpto reason\",\r\n    \"resources\" : [\"{{msisdn2}}\"],\r\n    \"customFieldsBehavior\": \"KEEP\",\r\n    \"forceCustomFieldsBehavior\": false\r\n }",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resourcetransfer",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resourcetransfer"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "008- Send new console message",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"message\": \"test using API\",\r\n  \"resources\": [\r\n    \"{{msisdn}}\"\r\n  ]\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/smsconsole/send",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"smsconsole",
+										"send"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "009- Request card replacement",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"reason\": \"card loss\",\r\n  \"formFactor\": \"2FF/3FF/4FF\",\r\n  \"pinType\": true,\r\n  \"simType\": \"USIM\",\r\n  \"deliveryAddress\" : \"Lisbon-TEST\"\r\n} ",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resources/{{msisdn}}/replacement",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resources",
+										"{{msisdn}}",
+										"replacement"
+									]
+								}
+							},
+							"response": []
+						}
+					],
+					"description": "Positive test cases"
+				}
+			]
+		},
+		{
+			"name": "Change Requests",
+			"item": [
+				{
+					"name": "Change Requests - Positive Tests",
+					"item": [
+						{
+							"name": "001- Consult request details",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/requests/{{requestId}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"requests",
+										"{{requestId}}"
+									]
+								}
+							},
+							"response": []
+						}
+					],
+					"description": "Positive test cases"
+				}
+			]
+		},
+		{
+			"name": "Alerts and Actions",
+			"item": [
+				{
+					"name": "Alerts and Actions - Positive Tests with timers 5000ms",
+					"item": [
+						{
+							"name": "001-Add action configuration",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(201);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"alertType\": \"RESOURCE_COMMUNICATION_SESSIONS\",\r\n  \"type\": \"NOTIFICATION\",\r\n  \"subtype\": \"NOTIFICATION_EMAIL\",\r\n  \"message\": \"api testing %DATETIME% with %MSISDN%\",\r\n  \"recipients\": [\r\n   \r\n    {\r\n      \"operation\": \"ADD\",\r\n      \"recipient\": \"bruno.a.antunes@meo.pt\"\r\n    }\r\n  ]\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/actions",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"actions"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "002-Update action configuration",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "PUT",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"alertType\": \"RESOURCE_COMMUNICATION_SESSIONS\",\r\n  \"type\": \"NOTIFICATION\",\r\n  \"subtype\": \"NOTIFICATION_EMAIL\",\r\n  \"message\": \"api testing %DATETIME% with %MSISDN%\",\r\n  \"recipients\": [\r\n   \r\n    {\r\n      \"operation\": \"ADD\",\r\n      \"recipient\": \"thiago.c.cabral@meo.pt\"\r\n    }\r\n  ]\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/actions",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"actions"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "003-Request alert creation",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"connectivityService\": {\r\n    \"type\": \"DATAPS\"\r\n  },\r\n  \"periodicity\": \"DIARY\",\r\n  \"operator\": \"LESS_THAN\",\r\n  \"value\": \"20\",\r\n  \"unit\": \"SESSION\",\r\n  \"resources\": [\r\n    \"{{msisdn}}\"\r\n  ],\r\n  \"type\": \"RESOURCE_COMMUNICATION_SESSIONS\",\r\n  \"scope\" : \"RESOURCE\"\r\n} ",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/alerts",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"alerts"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "005-Consult configured alerts",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											"",
+											"try {",
+											"    const jsonData = pm.response.json();",
+											"    const AlertId = jsonData.list[0].id;  // Direct access to root-level \"id\"",
+											"",
+											"    if (AlertId) {",
+											"        pm.collectionVariables.set(\"AlertId\", AlertId);",
+											"        console.log(\"Captured AlertId: \" + AlertId);",
+											"    } else {",
+											"        console.log(\"No alert ID found in response.\");",
+											"    }",
+											"} catch (id) {",
+											"    console.log(\"Error parsing response: \" + id);",
+											"}"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/alerts",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"alerts"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "004-Request alert update",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "PATCH",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"actions\": [\r\n        {\r\n            \"type\": \"NOTIFICATION\",\r\n            \"subtype\": \"NOTIFICATION_EMAIL\",\r\n            \"active\": false\r\n        }\r\n    ]\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/alerts/{{AlertId}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"alerts",
+										"{{AlertId}}"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "006-Consult triggered alerts",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/triggeredalerts",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"triggeredalerts"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "007-Consult alert change requests",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/alertchangerequests",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"alertchangerequests"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "008-Consult Configured actions",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n  \"alertType\": \"RESOURCE_COMMUNICATION_SESSIONS\",\r\n  \"type\": \"NOTIFICATION\",\r\n  \"subtype\": \"NOTIFICATION_EMAIL\",\r\n  \"message\": \"api testing %DATETIME% with %MSISDN%\",\r\n  \"recipients\": [\r\n    {\r\n      \"operation\": \"ADD\",\r\n      \"name\": \"John Doe\"\r\n    },\r\n    {\r\n      \"operation\": \"ADD\",\r\n      \"recipient\": \"user@smart2m.pt\"\r\n    }\r\n  ]\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/actions",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"actions"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "009-Consult Executed actions",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/executedactions",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"executedactions"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "010-Consult configured action details",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/actions/configured/details?alertType=RESOURCE_COMMUNICATION_SESSIONS&type=NOTIFICATION&subtype=NOTIFICATION_EMAIL",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"actions",
+										"configured",
+										"details"
+									],
+									"query": [
+										{
+											"key": "alertType",
+											"value": "RESOURCE_COMMUNICATION_SESSIONS"
+										},
+										{
+											"key": "type",
+											"value": "NOTIFICATION"
+										},
+										{
+											"key": "subtype",
+											"value": "NOTIFICATION_EMAIL"
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "011-Remove configured action",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(204);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/actions?alertType=RESOURCE_COMMUNICATION_SESSIONS&type=NOTIFICATION&subtype=NOTIFICATION_EMAIL",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"actions"
+									],
+									"query": [
+										{
+											"key": "alertType",
+											"value": "RESOURCE_COMMUNICATION_SESSIONS"
+										},
+										{
+											"key": "type",
+											"value": "NOTIFICATION"
+										},
+										{
+											"key": "subtype",
+											"value": "NOTIFICATION_EMAIL"
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "012- Remove configured alerts",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/alerts/{{AlertId}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"alerts",
+										"{{AlertId}}"
+									]
+								}
+							},
+							"response": []
+						}
+					],
+					"description": "Positive test cases"
+				}
+			]
+		},
+		{
+			"name": "Reports",
+			"item": [
+				{
+					"name": "Reports - Positive Tests",
+					"item": [
+						{
+							"name": "001- Request schedule report USAGE V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"type\": \"USAGE\",\r\n    \"isSingleRequest\": true,\r\n    \"isScheduledRequest\": false,\r\n    \"schedulingPeriod\": \"CurrentMonth\",\r\n    \"schedulingProcess\": \"WEEKLY\",\r\n    \"schedulingDay\": \"4\",\r\n    \"threshold\": [\r\n        {\r\n            \"field\": \"DATACS_CONSUMPTION_IN\",\r\n            \"operator\": \"GREATER_THAN\",\r\n            \"value\": 1,\r\n            \"units\": \"SECOND\"\r\n        }\r\n    ],\r\n    \"groupBy\": \"ACCESS_TYPE\",\r\n    \"sortCriterion\": \"ACCESS_TYPE\",\r\n    \"sortDirection\": \"ASC\",\r\n    \"columns\": [\r\n        \"ACCESS_TYPE\",\r\n        \"ServedMsisdn\",\r\n        \"DATAPS_CONSUMPTION\",\r\n        \"VOICE_CONSUMPTION\",\r\n        \"DATACS_CONSUMPTION\",\r\n        \"SMS_CONSUMPTION\",\r\n        \"DATAPS_CONSUMPTION_UPLOAD\",\r\n        \"DATAPS_CONSUMPTION_DOWNLOAD\",\r\n        \"VOICE_CONSUMPTION_IN\",\r\n        \"VOICE_CONSUMPTION_OUT\",\r\n        \"SMS_CONSUMPTION_IN\",\r\n        \"SMS_CONSUMPTION_OUT\",\r\n        \"DATACS_CONSUMPTION_IN\",\r\n        \"DATACS_CONSUMPTION_OUT\"\r\n    ]\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/reports/request",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"reports",
+										"request"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "002- Consult reports",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											"",
+											"try {",
+											"    const jsonData = pm.response.json();",
+											"    const ReportId = jsonData.list[0].reportId;  // Direct access to root-level \"id\"",
+											"",
+											"    if (ReportId) {",
+											"        pm.collectionVariables.set(\"ReportId\", ReportId);",
+											"        console.log(\"Captured ReportId: \" + ReportId);",
+											"    } else {",
+											"        console.log(\"No Report ID found in response.\");",
+											"    }",
+											"} catch (id) {",
+											"    console.log(\"Error parsing response: \" + id);",
+											"}"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/reports",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"reports"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "003- Request schedule report EXTRA V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"type\": \"EXTRA_PLAFOND_CONSUMPTIONS\",\r\n    \"isSingleRequest\": true,\r\n    \"isScheduledRequest\": false,\r\n    \"schedulingPeriod\": \"Last7Days\",\r\n    \"schedulingDay\": 5,\r\n    \"schedulingProcess\": \"MONTHLY\",\r\n    \"threshold\": [\r\n        {\r\n            \"field\": \"EP_TOTAL_CONSUMPTION\",\r\n            \"operator\": \"LESS_THAN\",\r\n            \"value\": 1,\r\n            \"units\": \"EURO\"\r\n        }\r\n    ],\r\n    \"groupBy\": \"DAY\",\r\n    \"sortCriterion\": \"EP_TOTAL_CONSUMPTION\",\r\n    \"sortDirection\": \"ASC\",\r\n    \"columns\": [\r\n        \"ServedMsisdn\",\r\n        \"SERVEDIMSI\",\r\n        \"ICCID\",\r\n        \"RESOURCEDESIGNATION\",\r\n        \"ENDPOINT\",\r\n        \"GROUPENDPOINT\",\r\n        \"FIRST_ACTIVATION_DATE\",\r\n        \"STATUS\",\r\n        \"DAY\",\r\n        \"EP_TOTAL_CONSUMPTION\",\r\n        \"EP_DATAPS_CONSUMPTION\",\r\n        \"EP_VOICE_CONSUMPTION\",\r\n        \"EP_DATACS_CONSUMPTION\",\r\n        \"EP_SMS_CONSUMPTION\"\r\n    ]\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/reports/request",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"reports",
+										"request"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "004- List reports",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/reports",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"reports"
+									]
+								}
+							},
+							"response": []
+						}
+					],
+					"description": "Positive test cases"
+				},
+				{
+					"name": "Reports with timers of 180000ms",
+					"item": [
+						{
+							"name": "005- Consult report details",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/reports/{{ReportId}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"reports",
+										"{{ReportId}}"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "006- Get report file content V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/reports/{{ReportId}}/file",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"reports",
+										"{{ReportId}}",
+										"file"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Remaining Tests without timers",
+					"item": [
+						{
+							"name": "007- Request schedule report - V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(202);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n\r\n\r\n\r\n  \"type\": \"SESSION_DETAILS\",\r\n\r\n  \"resources\": [\r\n\r\n    \"{{msisdn}}\"\r\n\r\n  ],\r\n\r\n  \"isSingleRequest\": false,\r\n  \"isScheduledRequest\": true,\r\n  \"schedulingPeriod\": \"LastMonth\",\r\n  \"schedulingProcess\": \"Monthly\",\r\n\r\n  \"schedulingDay\": \"16\",\r\n\r\n  \"connectivityServices\": [\r\n\r\n    \"DATACS\",\r\n    \"SMS\",\r\n    \"VOICE\"\r\n\r\n  ],\r\n\r\n  \"columns\": [\r\n\r\n    \"EventType\",\r\n    \"ServedMsisdn\",\r\n    \"ResourceDesignation\",\r\n    \"ServicePlan\"\r\n\r\n  ]\r\n\r\n\r\n\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/reports/request",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"reports",
+										"request"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "008- Consult reports to Cancel",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											"",
+											"try {",
+											"    const jsonData = pm.response.json();",
+											"    const ReportId = jsonData.list[0].reportId;  // Direct access to root-level \"id\"",
+											"",
+											"    if (ReportId) {",
+											"        pm.collectionVariables.set(\"ReportId\", ReportId);",
+											"        console.log(\"Captured ReportId: \" + ReportId);",
+											"    } else {",
+											"        console.log(\"No Report ID found in response.\");",
+											"    }",
+											"} catch (id) {",
+											"    console.log(\"Error parsing response: \" + id);",
+											"}"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/reports",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"reports"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "009- Cancel scheduled report",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/reports/{{ReportId}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"reports",
+										"{{ReportId}}"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Service instances",
+			"item": [
+				{
+					"name": "Service instances - Positive Tests with timers 5000ms",
+					"item": [
+						{
+							"name": "001- Consult list of service instances assigned to a user",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "002- Get service instance",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}?includeCommActivity=true&includeRoaming=true&includeConnServices=true&includeLifecycle=true&includeClient=true&includeSubscription=true&includeAdmin=true&includeMultiImsiConfiguration=true&includeResourceOrdersConfiguration=true",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}"
+									],
+									"query": [
+										{
+											"key": "includeCommActivity",
+											"value": "true"
+										},
+										{
+											"key": "includeRoaming",
+											"value": "true"
+										},
+										{
+											"key": "includeConnServices",
+											"value": "true"
+										},
+										{
+											"key": "includeLifecycle",
+											"value": "true"
+										},
+										{
+											"key": "includeClient",
+											"value": "true"
+										},
+										{
+											"key": "includeSubscription",
+											"value": "true"
+										},
+										{
+											"key": "includeAdmin",
+											"value": "true"
+										},
+										{
+											"key": "includeMultiImsiConfiguration",
+											"value": "true"
+										},
+										{
+											"key": "includeResourceOrdersConfiguration",
+											"value": "true"
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "003- Consult resource change requests",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/resourcechangerequests",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"resourcechangerequests"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "004- Assign service instance access to a user",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "[\r\n  {\r\n    \"id\": \"{{ixs}}\",\r\n    \"administrator\": false\r\n  },\r\n  {\r\n    \"id\": \"{{ixs}}\",\r\n    \"administrator\": false\r\n  }\r\n]",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/users/{{user}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"users",
+										"{{user}}"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "005- Remove user access from a service instance",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/users/{{user}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"users",
+										"{{user}}"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "006- Consult service instance change requests",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/changerequests?currentPage=1&resultsPerPage=20&sortCriterion=id&sortDirection=ASC",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"changerequests"
+									],
+									"query": [
+										{
+											"key": "currentPage",
+											"value": "1"
+										},
+										{
+											"key": "resultsPerPage",
+											"value": "20"
+										},
+										{
+											"key": "sortCriterion",
+											"value": "id"
+										},
+										{
+											"key": "sortDirection",
+											"value": "ASC"
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "007- Create custom field V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(201);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"id\": \"color\",  \r\n    \"labels\": {\r\n        \"en_US\": \"color\",\r\n        \"pt_PT\": \"cor\"\r\n    }\r\n }",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/customfields",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"customfields"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "008- Create custom field Copy V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "PATCH",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"id\": \"color\",  \r\n    \"labels\": {\r\n        \"en_US\": \"aaaaa_EN\"\r\n    }\r\n }",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/customfields/color",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"customfields",
+										"color"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "009- Delete custom field V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(204);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/customfields/color",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"customfields",
+										"color"
+									]
+								}
+							},
+							"response": []
+						}
+					],
+					"description": "Positive test cases"
+				}
+			]
+		},
+		{
+			"name": "Delivery address V7",
+			"item": [
+				{
+					"name": "Delivery address V7 - Positive Tests with timers of 5000ms",
+					"item": [
+						{
+							"name": "001- Create delivery address V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(201);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"alias\": \"work2\",\r\n    \"contactName\": \"John\",\r\n    \"contactNumber\": \"{{msisdn}}\",\r\n    \"deliveryAddress\": \"Rua de cima\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/delivery-addresses/",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"delivery-addresses",
+										""
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "002 - List delivery addresses V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											"",
+											"try {",
+											"    const jsonData = pm.response.json();",
+											"    const DeliveryId = jsonData.list[0].id;  // Direct access to root-level \"id\"",
+											"",
+											"    if (DeliveryId) {",
+											"        pm.collectionVariables.set(\"DeliveryId\", DeliveryId);",
+											"        console.log(\"Captured DeliveryId: \" + DeliveryId);",
+											"    } else {",
+											"        console.log(\"No DeliveryId ID found in response.\");",
+											"    }",
+											"} catch (id) {",
+											"    console.log(\"Error parsing response: \" + id);",
+											"}"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/delivery-addresses/",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"delivery-addresses",
+										""
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "003- Update delivery address V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "PATCH",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\r\n    \"alias\": \"work_work_work\",\r\n    \"contactName\": \"John\",\r\n    \"contactNumber\": \"965214547\",\r\n    \"deliveryAddress\": \"Rua de cima\"\r\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/delivery-addresses/{{DeliveryId}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"delivery-addresses",
+										"{{DeliveryId}}"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "004 - Delete delivery address V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(204);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/serviceinstances/{{ixs}}/delivery-addresses/{{DeliveryId}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"serviceinstances",
+										"{{ixs}}",
+										"delivery-addresses",
+										"{{DeliveryId}}"
+									]
+								}
+							},
+							"response": []
+						}
+					],
+					"description": "Positive test cases"
+				}
+			]
+		},
+		{
+			"name": "Tokens V7",
+			"item": [
+				{
+					"name": "Tokens V7 - Positive Tests",
+					"item": [
+						{
+							"name": "001 - List tokens V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											"",
+											"try {",
+											"    const jsonData = pm.response.json();",
+											"    const TokenId = jsonData.list[1].id;  // Direct access to root-level \"id\"",
+											"",
+											"    if (TokenId) {",
+											"        pm.collectionVariables.set(\"TokenId\", TokenId);",
+											"        console.log(\"Captured TokenId: \" + TokenId);",
+											"    } else {",
+											"        console.log(\"No TokenId ID found in response.\");",
+											"    }",
+											"} catch (id) {",
+											"    console.log(\"Error parsing response: \" + id);",
+											"}"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/tokens",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"tokens"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "002 - Get token roles V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/tokens/{{TokenId}}/roles",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"tokens",
+										"{{TokenId}}",
+										"roles"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "003 - List tokens change requests V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											"",
+											"try {",
+											"    const jsonData = pm.response.json();",
+											"    const ChangeTokenId = jsonData.list[0].id;  // Direct access to root-level \"id\"",
+											"",
+											"    if (ChangeTokenId) {",
+											"        pm.collectionVariables.set(\"ChangeTokenId\", ChangeTokenId);",
+											"        console.log(\"Captured ChangeTokenId: \" + ChangeTokenId);",
+											"    } else {",
+											"        console.log(\"No ChangeTokenId ID found in response.\");",
+											"    }",
+											"} catch (id) {",
+											"    console.log(\"Error parsing response: \" + id);",
+											"}"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/token-changerequests",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"token-changerequests"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "004 -Get token change request details V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/token-changerequests/{{ChangeTokenId}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"token-changerequests",
+										"{{ChangeTokenId}}"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "005- Get token details V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/tokens/{{TokenId}}",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"tokens",
+										"{{TokenId}}"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "006- List token change request service instances V7",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/token-changerequests/{{ChangeTokenId}}/serviceinstances",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"token-changerequests",
+										"{{ChangeTokenId}}",
+										"serviceinstances"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "007- Revoke token",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"",
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"pm.test(\"Response time is less than 2000ms\", function () {",
+											"    pm.expect(pm.response.responseTime).to.be.below(2000);",
+											"});",
+											"pm.test(\"Content-Type is valid\", function () {",
+											"    pm.response.to.have.header(\"Content-Type\");",
+											"});",
+											"pm.test(\"Response body is a valid JSON\", function () {",
+											"     pm.response.to.be.json;",
+											"});",
+											""
+										]
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "bearer",
+									"bearer": [
+										{
+											"key": "token",
+											"value": "{{token}}",
+											"type": "string"
+										}
+									]
+								},
+								"method": "PATCH",
+								"header": [],
+								"url": {
+									"raw": "https://{{endpoint}}/M2M/ManagedConnectivity/{{version}}/tokens/55fc67a7-b047-45aa-b12e-16d1ea95fba4/revoke",
+									"protocol": "https",
+									"host": [
+										"{{endpoint}}"
+									],
+									"path": [
+										"M2M",
+										"ManagedConnectivity",
+										"{{version}}",
+										"tokens",
+										"55fc67a7-b047-45aa-b12e-16d1ea95fba4",
+										"revoke"
+									]
+								}
+							},
+							"response": []
+						}
+					],
+					"description": "Positive test cases"
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"requests": {},
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"requests": {},
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "randomEndpointName",
+			"value": ""
+		},
+		{
+			"key": "validResourceId",
+			"value": ""
+		},
+		{
+			"key": "endpointId",
+			"value": ""
+		},
+		{
+			"key": "requestId",
+			"value": ""
+		},
+		{
+			"key": "id",
+			"value": ""
+		},
+		{
+			"key": "AlertId",
+			"value": ""
+		},
+		{
+			"key": "alertID",
+			"value": "",
+			"type": "default"
+		},
+		{
+			"key": "ReportId",
+			"value": ""
+		},
+		{
+			"key": "DeliveryId",
+			"value": ""
+		},
+		{
+			"key": "TokenId",
+			"value": ""
+		},
+		{
+			"key": "ChangeTokenId",
+			"value": ""
+		}
+	]
+}

@@ -425,45 +425,96 @@ async function executeTests(projectId, testRunName, options = {}) {
       throw new Error('No collections found');
     }
 
-    // Filter and get collection JSONs
-    const collectionObjects = collections.map(c => {
-      const collectionJson = c.collection_json;
+    // If caller provided an explicit ordered list of tests, honor that order across collections
+    let mergedCollection;
+    if (options.selectedTestsOrdered && Array.isArray(options.selectedTestsOrdered) && options.selectedTestsOrdered.length > 0) {
+      const ordered = [];
+      const delays = options.testDelays || {};
 
-      // Determine per-collection delays mapping (supports numeric keys or string keys)
-      const delaysForCollection = (options.testDelays && (options.testDelays[c.id] || options.testDelays[String(c.id)])) ? (options.testDelays[c.id] || options.testDelays[String(c.id)]) : {};
-      
-      // If selectedTests is provided, filter items for this collection and inject per-item delays
-      if (selectedTests && selectedTests[c.id]) {
-        return filterCollectionItems(collectionJson, selectedTests[c.id], delaysForCollection);
+      // Build ordered list of items using provided sequence
+      for (const entry of options.selectedTestsOrdered) {
+        const cid = entry.collectionId;
+        const path = entry.path;
+        // Find the collection object by id (support string/number)
+        const coll = collections.find(c => String(c.id) === String(cid) || c.id === cid);
+        if (!coll) continue;
+
+        const item = getItemByPath(coll.collection_json, path);
+        if (!item) continue;
+
+        const cloned = JSON.parse(JSON.stringify(item));
+        const pathString = path.join('.');
+        const delaysForCollection = delays[cid] || delays[String(cid)] || {};
+        if (delaysForCollection && typeof delaysForCollection[pathString] !== 'undefined') {
+          cloned._delaySeconds = Number(delaysForCollection[pathString]);
+        }
+
+        ordered.push(cloned);
       }
 
-      // If per-item delays are provided for the whole collection (legacy flow), apply them in-place
-      if (delaysForCollection && Object.keys(delaysForCollection).length > 0) {
-        const cloned = JSON.parse(JSON.stringify(collectionJson));
-        function applyDelays(items, parentPath = []) {
-          if (!items || !Array.isArray(items)) return;
-          items.forEach((item, index) => {
-            const path = [...parentPath, index];
-            const pathString = path.join('.');
-            if (item.request && typeof delaysForCollection[pathString] !== 'undefined') {
-              item._delaySeconds = Number(delaysForCollection[pathString]);
-            }
-            if (item.item && Array.isArray(item.item)) {
-              applyDelays(item.item, path);
+      // Merge variables and auth from original collections (preserve first occurrence semantics)
+      const mergedVars = [];
+      const seenVariables = new Set();
+      collections.forEach(c => {
+        if (c.collection_json && c.collection_json.variable && Array.isArray(c.collection_json.variable)) {
+          c.collection_json.variable.forEach(v => {
+            if (!seenVariables.has(v.key)) {
+              mergedVars.push({ ...v });
+              seenVariables.add(v.key);
             }
           });
         }
-        applyDelays(cloned.item || []);
-        console.log('[testRunner] Applied per-item delays for collection', c.id, delaysForCollection);
-        return cloned;
-      }
-      
-      // Otherwise return the full collection
-      return collectionJson;
-    });
+      });
 
-    // Merge collections if multiple
-    const mergedCollection = mergeCollections(collectionObjects, testRunName);
+      mergedCollection = {
+        info: { name: testRunName, description: `Ordered selection merged from ${collections.length} sources`, schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
+        item: ordered
+      };
+      if (mergedVars.length > 0) mergedCollection.variable = mergedVars;
+      if (collections[0] && collections[0].collection_json && collections[0].collection_json.auth) mergedCollection.auth = collections[0].collection_json.auth;
+
+      console.log('[testRunner] Executing tests in explicit ordered sequence provided by client. Total items:', ordered.length);
+    } else {
+      // Filter and get collection JSONs (legacy/grouped by collection behavior)
+      const collectionObjects = collections.map(c => {
+        const collectionJson = c.collection_json;
+
+        // Determine per-collection delays mapping (supports numeric keys or string keys)
+        const delaysForCollection = (options.testDelays && (options.testDelays[c.id] || options.testDelays[String(c.id)])) ? (options.testDelays[c.id] || options.testDelays[String(c.id)]) : {};
+        
+        // If selectedTests is provided, filter items for this collection and inject per-item delays
+        if (selectedTests && selectedTests[c.id]) {
+          return filterCollectionItems(collectionJson, selectedTests[c.id], delaysForCollection);
+        }
+
+        // If per-item delays are provided for the whole collection (legacy flow), apply them in-place
+        if (delaysForCollection && Object.keys(delaysForCollection).length > 0) {
+          const cloned = JSON.parse(JSON.stringify(collectionJson));
+          function applyDelays(items, parentPath = []) {
+            if (!items || !Array.isArray(items)) return;
+            items.forEach((item, index) => {
+              const path = [...parentPath, index];
+              const pathString = path.join('.');
+              if (item.request && typeof delaysForCollection[pathString] !== 'undefined') {
+                item._delaySeconds = Number(delaysForCollection[pathString]);
+              }
+              if (item.item && Array.isArray(item.item)) {
+                applyDelays(item.item, path);
+              }
+            });
+          }
+          applyDelays(cloned.item || []);
+          console.log('[testRunner] Applied per-item delays for collection', c.id, delaysForCollection);
+          return cloned;
+        }
+        
+        // Otherwise return the full collection
+        return collectionJson;
+      });
+
+      // Merge collections if multiple
+      mergedCollection = mergeCollections(collectionObjects, testRunName);
+    }
 
     // Run tests with options (environment variables, etc.)
     // If delays are requested (global or per-item), execute items sequentially with waits between them

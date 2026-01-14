@@ -78,6 +78,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Theme toggle: load and apply saved preference (or follow system) and wire toggle button
+  const themeToggle = document.getElementById('theme-toggle');
+  function applyTheme(theme) {
+    if (theme === 'dark') document.body.classList.add('dark-theme');
+    else document.body.classList.remove('dark-theme');
+    if (themeToggle) themeToggle.textContent = theme === 'dark' ? '☀' : '🌙';
+  }
+  const savedTheme = localStorage.getItem('theme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  applyTheme(savedTheme);
+  if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+      const newTheme = document.body.classList.contains('dark-theme') ? 'light' : 'dark';
+      // Persist the choice first so the theme is applied on reload
+      localStorage.setItem('theme', newTheme);
+      // Reload the page so all UI is redrawn using the new theme (ensures inline-styled components pick it up)
+      location.reload();
+    });
+  }
+
   // Initial load
   loadDashboard();
 

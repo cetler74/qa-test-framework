@@ -375,7 +375,9 @@ function showRunTestsModal() {
       
       return {
         userProvided: userProvided.sort(),
-        scriptSet: Array.from(scriptSetVariables).sort()
+        scriptSet: Array.from(scriptSetVariables).sort(),
+        // All variables detected in the collection (used to populate optional env vars)
+        allVars: Array.from(allVariables).sort()
       };
     }
     
@@ -407,6 +409,7 @@ function showRunTestsModal() {
                      placeholder="Enter value for ${varName}" 
                      value="${defaultValue}"
                      style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+              <span class="collection-var-source" style="font-size:12px;color:#1976d2;margin-left:8px;display:none;"></span>
             </div>
           `;
         }).join('');
@@ -427,38 +430,48 @@ function showRunTestsModal() {
         document.getElementById('collection-vars-list').innerHTML = varsHTML + scriptVarsInfo;
         document.getElementById('collection-vars-section').style.display = 'block';
 
-        // Ensure core environment variables (token, endpoint, version, ixs) are available in env vars
-        const envAllowed = ['token','endpoint','version','ixs'];
+        // Only add variables that the collection actually uses. Remove empty placeholder env entries first.
         const envList = document.getElementById('env-vars-list');
         if (envList) {
-          // If user hasn't opened env-vars, show it so token can be set easily
           const showEnvCheckbox = document.getElementById('show-env-vars');
-          let shouldShowEnv = false;
+          // Remove empty placeholder entries (both key and value blank)
+          Array.from(envList.querySelectorAll('.env-var-item')).forEach(it => {
+            const keyInput = it.querySelector('.env-var-key');
+            const valInput = it.querySelector('.env-var-value');
+            if ((!keyInput || !keyInput.value.trim()) && (!valInput || !valInput.value.trim())) {
+              it.remove();
+            }
+          });
 
-          envAllowed.forEach(name => {
-            // Skip if env var already exists in the list
-            const exists = Array.from(document.querySelectorAll('#env-vars-list .env-var-key')).some(k => k.value.trim().toLowerCase() === name.toLowerCase());
+          // Add all detected variables from the collection to the optional environment variables (none are mandatory)
+          const allVars = collectionVars.allVars || [];
+          let addedAny = false;
+          const collectionJson = selectedCollection.collection_json || {};
+
+          allVars.forEach(name => {
+            const nameTrim = (name || '').toString().trim();
+            if (!nameTrim) return;
+            const exists = Array.from(document.querySelectorAll('#env-vars-list .env-var-key')).some(k => k.value.trim().toLowerCase() === nameTrim.toLowerCase());
             if (exists) return;
 
-            // Try to get default value from collection variables if defined
-            const collectionJson = selectedCollection.collection_json || {};
-            const existingVar = collectionJson.variable?.find(v => v.key && v.key.toLowerCase() === name.toLowerCase());
+            // Default from collection variable if present
+            const existingVar = collectionJson.variable?.find(v => v.key && v.key.toLowerCase() === nameTrim.toLowerCase());
             const defaultValue = existingVar?.value || '';
 
-            // Add env var input for this name
             const newItem = document.createElement('div');
             newItem.className = 'env-var-item';
-            newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
+            newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
             newItem.innerHTML = `
-              <input type="text" placeholder="Variable name (e.g., bearer_token)" class="env-var-key" style="flex: 1; padding: 8px;" value="${name}">
+              <input type="text" placeholder="Variable name (optional)" class="env-var-key" style="flex: 1; padding: 8px;" value="${nameTrim}">
               <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px;" value="${defaultValue}">
               <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
             `;
             envList.appendChild(newItem);
-            shouldShowEnv = true;
+            addedAny = true;
           });
 
-          if (shouldShowEnv) {
+          // If we added any variables, show the env-vars section
+          if (addedAny) {
             if (showEnvCheckbox && !showEnvCheckbox.checked) {
               showEnvCheckbox.checked = true;
               toggleEnvVars();
@@ -725,14 +738,18 @@ function showRunTestsModal() {
         }
       });
 
-      // If a saved environment was selected, merge its core variables (endpoint, version, ixs)
+      // If a saved environment was selected, merge all its variables into envVars (except id/name)
       const envSelectEl = document.getElementById('env-select');
       if (envSelectEl && envSelectEl.value) {
         const savedEnvs = loadSavedEnvs(projectId);
         const selectedEnv = savedEnvs.find(e => e.id === envSelectEl.value);
         if (selectedEnv) {
-          ['endpoint', 'version', 'ixs'].forEach(k => {
-            if (selectedEnv[k]) envVars[k] = selectedEnv[k];
+          Object.keys(selectedEnv).forEach(k => {
+            if (k === 'id' || k === 'name') return;
+            const v = selectedEnv[k];
+            if (typeof v !== 'undefined' && v !== null && String(v).trim() !== '') {
+              envVars[k] = v;
+            }
           });
         }
       }
@@ -752,6 +769,8 @@ function showRunTestsModal() {
         const requestBody = {
           projectId: parseInt(projectId),
           selectedTests: selectedTests, // Format: { collectionId: [[path1], [path2], ...] }
+          // Preserve the exact order of selected tests across collections so backend can execute in this sequence
+          selectedTestsOrdered: selectedTestsOrder.map(t => ({ collectionId: t.collectionId, path: t.path.split('.').map(p => parseInt(p)) })),
           name: testRunName
         };
         
@@ -891,49 +910,118 @@ function onEnvSelected(e) {
         const valInput = item.querySelector('.env-var-value');
         if (keyInput && keyInput.value.trim().toLowerCase() === 'token') {
           if (valInput) valInput.value = env.token;
-          return;
+          break;
         }
       }
       // If not found, add a new env var item
       const envList = document.getElementById('env-vars-list');
       if (envList) {
-        const newItem = document.createElement('div');
-        newItem.className = 'env-var-item';
-        newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
-        newItem.innerHTML = `
-          <input type="text" placeholder="Variable name (e.g., bearer_token)" class="env-var-key" style="flex: 1; padding: 8px;" value="token">
-          <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px;" value="${env.token}">
-          <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
-        `;
-        envList.appendChild(newItem);
+        const existsToken = Array.from(envList.querySelectorAll('.env-var-key')).some(k => k.value.trim().toLowerCase() === 'token');
+        if (!existsToken) {
+          const newItem = document.createElement('div');
+          newItem.className = 'env-var-item';
+          newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+          newItem.innerHTML = `
+            <input type="text" placeholder="Variable name (optional)" class="env-var-key" style="flex: 1; padding: 8px;" value="token">
+            <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px;" value="${env.token}">
+            <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
+          `;
+          envList.appendChild(newItem);
+        }
       }
     }
+
+    // Populate any other keys present in the selected environment into the optional env-vars list
+    Object.keys(env).forEach(k => {
+      if (k === 'id' || k === 'name') return;
+      const val = env[k];
+      if (val == null) return;
+
+      // If a collection variable exists with this key, pre-fill it and show a source badge
+      const collInput = document.querySelector(`.collection-var-value[data-var-name="${k}"]`);
+      if (collInput && val) {
+        collInput.value = val;
+        const badge = collInput.closest('.collection-var-item')?.querySelector('.collection-var-source');
+        if (badge) {
+          badge.textContent = `from env: ${env.name}`;
+          badge.style.display = 'inline';
+        }
+      }
+
+      // Try to find an existing entry in env-vars list and set its value
+      const envItems = Array.from(document.querySelectorAll('#env-vars-list .env-var-item'));
+      let found = false;
+      for (const item of envItems) {
+        const keyInput = item.querySelector('.env-var-key');
+        const valInput = item.querySelector('.env-var-value');
+        if (keyInput && keyInput.value.trim().toLowerCase() === k.toLowerCase()) {
+          if (valInput) valInput.value = val;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        const envList = document.getElementById('env-vars-list');
+        if (envList) {
+          const newItem = document.createElement('div');
+          newItem.className = 'env-var-item';
+          newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+          newItem.innerHTML = `
+            <input type="text" placeholder="Variable name (optional)" class="env-var-key" style="flex: 1; padding: 8px;" value="${k}">
+            <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px;" value="${val}">
+            <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
+          `;
+          envList.appendChild(newItem);
+        }
+      }
+    });
+
+    // Hide any collection var source badges that are not applicable
+    document.querySelectorAll('.collection-var-source').forEach(b => {
+      const parent = b.closest('.collection-var-item');
+      const inp = parent?.querySelector('.collection-var-value');
+      if (inp && (!inp.value || inp.value.trim() === '')) {
+        b.style.display = 'none';
+      }
+    });
   }
 }
 
-function showCreateEnvModal() {
+function showCreateEnvModal(existingEnv = null) {
   const projectId = document.getElementById('run-tests-btn').getAttribute('data-project-id');
+
+  // Gather collection variables currently shown in the modal (if any)
+  const collectionVarsEls = Array.from(document.querySelectorAll('.collection-var-value'));
+  const suggestedVars = {};
+  collectionVarsEls.forEach(el => {
+    const vn = el.getAttribute('data-var-name');
+    if (vn) suggestedVars[vn] = el.value || '';
+  });
+
+  // Also include any currently visible optional env vars
+  const optionalEnvEls = Array.from(document.querySelectorAll('#env-vars-list .env-var-item'));
+  optionalEnvEls.forEach(item => {
+    const k = (item.querySelector('.env-var-key')?.value || '').trim();
+    const v = (item.querySelector('.env-var-value')?.value || '').trim();
+    if (k) suggestedVars[k] = v;
+  });
+
+  const existingName = existingEnv ? (existingEnv.name || '') : '';
+
   const content = `
     <form id="create-env-form">
       <div class="form-group">
         <label>Name</label>
-        <input id="env-name" required style="width:100%;padding:8px;margin-bottom:8px">
+        <input id="env-name" required style="width:100%;padding:8px;margin-bottom:8px" value="${existingName}">
       </div>
       <div class="form-group">
-        <label>endpoint</label>
-        <input id="env-endpoint" placeholder="example.com" style="width:100%;padding:8px;margin-bottom:8px">
-      </div>
-      <div class="form-group">
-        <label>version</label>
-        <input id="env-version" placeholder="V7" style="width:100%;padding:8px;margin-bottom:8px">
-      </div>
-      <div class="form-group">
-        <label>ixs</label>
-        <input id="env-ixs" placeholder="service instance" style="width:100%;padding:8px;margin-bottom:8px">
-      </div>
-      <div class="form-group">
-        <label>token</label>
-        <input id="env-token" placeholder="Bearer token value" style="width:100%;padding:8px;margin-bottom:8px">
+        <label>Variables (optional)</label>
+        <div id="create-env-vars-list" style="padding:8px;background:#f8f9fa;border-radius:4px;border:1px solid #ddd;">
+          <!-- Vars inserted here -->
+        </div>
+        <div style="margin-top:8px;">
+          <button type="button" class="btn btn-sm btn-secondary" id="create-env-add-var">Add Variable</button>
+        </div>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
         <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
@@ -941,35 +1029,95 @@ function showCreateEnvModal() {
       </div>
     </form>
   `;
-  showModal('Create Environment', content);
+
+  showModal(existingEnv ? `Edit Environment - ${existingEnv.name || ''}` : 'Create Environment', content);
+
+  // Helper to add a variable row in the modal
+  function addVarRow(key = '', value = '') {
+    const list = document.getElementById('create-env-vars-list');
+    if (!list) return;
+    const div = document.createElement('div');
+    div.className = 'create-env-var-item';
+    div.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;';
+    div.innerHTML = `
+      <input type="text" placeholder="Variable name" class="create-env-var-key" style="flex:1;padding:8px;" value="${(key||'')}">
+      <input type="text" placeholder="Value" class="create-env-var-value" style="flex:1;padding:8px;" value="${(value||'')}">
+      <button type="button" class="btn btn-secondary" style="padding:6px 8px;" onclick="this.closest('.create-env-var-item').remove();">Remove</button>
+    `;
+    list.appendChild(div);
+  }
+
+  // Pre-populate with suggested vars and existingEnv values
+  const keys = new Set(Object.keys(suggestedVars));
+  if (existingEnv) {
+    Object.keys(existingEnv).forEach(k => {
+      if (k === 'id' || k === 'name') return;
+      keys.add(k);
+    });
+  }
+  keys.forEach(k => {
+    const v = existingEnv && typeof existingEnv[k] !== 'undefined' ? existingEnv[k] : suggestedVars[k] || '';
+    addVarRow(k, v);
+  });
+
+  document.getElementById('create-env-add-var').addEventListener('click', () => addVarRow());
 
   document.getElementById('create-env-form').addEventListener('submit', (ev) => {
     ev.preventDefault();
     const name = document.getElementById('env-name').value.trim();
-    const endpoint = document.getElementById('env-endpoint').value.trim();
-    const version = document.getElementById('env-version').value.trim();
-    const ixs = document.getElementById('env-ixs').value.trim();
     if (!name) { alert('Please provide a name'); return; }
+
     const envs = loadSavedEnvs(projectId);
-    const id = 'env-' + Date.now();
-    const token = document.getElementById('env-token').value.trim();
-    envs.push({ id, name, endpoint, version, ixs, token });
+    const id = existingEnv ? existingEnv.id : ('env-' + Date.now());
+
+    const envObj = { id, name };
+
+    // Collect variables from modal
+    const rows = Array.from(document.querySelectorAll('.create-env-var-item'));
+    rows.forEach(r => {
+      const k = (r.querySelector('.create-env-var-key')?.value || '').trim();
+      const v = (r.querySelector('.create-env-var-value')?.value || '').trim();
+      if (k) envObj[k] = v;
+    });
+
+    // Save (replace existing if editing)
+    const existingIdx = envs.findIndex(e => e.id === id);
+    if (existingIdx !== -1) {
+      envs[existingIdx] = envObj;
+    } else {
+      envs.push(envObj);
+    }
+
     saveSavedEnvs(projectId, envs);
     hideModal();
     populateEnvSelect();
+
+    // Select newly created/updated env
+    const sel = document.getElementById('env-select');
+    if (sel) {
+      setTimeout(() => { sel.value = id; onEnvSelected({ target: sel }); }, 50);
+    }
   });
 }
 
 function showManageEnvsModal() {
   const projectId = document.getElementById('run-tests-btn').getAttribute('data-project-id');
   const envs = loadSavedEnvs(projectId);
-  const list = envs.map(e => `
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-      <strong style="flex:1">${e.name}</strong>
-      <div style="font-size:12px;color:#666;flex:3">endpoint:${e.endpoint||''} version:${e.version||''} ixs:${e.ixs||''} token:${e.token? '***': ''}</div>
-      <button class="btn btn-sm btn-danger delete-env" data-id="${e.id}">Delete</button>
-    </div>
-  `).join('') || '<p>No environments defined.</p>';
+  const list = envs.map(e => {
+    // Build a display of all keys for clarity (mask token)
+    const keys = Object.keys(e).filter(k => k !== 'id' && k !== 'name');
+    const details = keys.map(k => `${k}:${k.toLowerCase() === 'token' ? '***' : (e[k] || '')}`).join(' ');
+    return `
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <strong style="flex:1">${e.name}</strong>
+        <div style="font-size:12px;color:#666;flex:3">${details}</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-sm btn-secondary edit-env" data-id="${e.id}">Edit</button>
+          <button class="btn btn-sm btn-danger delete-env" data-id="${e.id}">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join('') || '<p>No environments defined.</p>';
 
   const content = `
     <div>${list}</div>
@@ -987,6 +1135,19 @@ function showManageEnvsModal() {
       const newArr = arr.filter(x => x.id !== id);
       saveSavedEnvs(projectId, newArr);
       showManageEnvsModal();
+    });
+  });
+
+  document.querySelectorAll('.edit-env').forEach(b => {
+    b.addEventListener('click', (ev) => {
+      const id = ev.target.getAttribute('data-id');
+      const arr = loadSavedEnvs(projectId);
+      const env = arr.find(x => x.id === id);
+      if (env) {
+        hideModal();
+        // Open the create/edit modal pre-filled
+        setTimeout(() => showCreateEnvModal(env), 50);
+      }
     });
   });
 }
