@@ -34,7 +34,7 @@ cp .env.example .env
 ```
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=qa_testing
+DB_NAME=qa_framework
 DB_USER=postgres
 DB_PASSWORD=your_password
 ```
@@ -45,7 +45,7 @@ npm run migrate
 ```
 
 This will:
-- Create the `qa_testing` database if it doesn't exist
+- Create the `qa_framework` database if it doesn't exist
 - Create all necessary tables
 
 ## Running the Application
@@ -155,7 +155,7 @@ The application uses PostgreSQL with the following main tables:
 
 - `DB_HOST` - PostgreSQL host (default: localhost)
 - `DB_PORT` - PostgreSQL port (default: 5432)
-- `DB_NAME` - Database name (default: qa_testing)
+- `DB_NAME` - Database name (default: qa_framework)
 - `DB_USER` - Database user (default: postgres)
 - `DB_PASSWORD` - Database password
 - `PORT` - Server port (default: 3000)

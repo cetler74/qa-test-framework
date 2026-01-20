@@ -8,7 +8,7 @@ Create a `.env` file in the root directory with the following content:
 # Database Configuration
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=qa_testing
+DB_NAME=qa_framework
 DB_USER=postgres
 DB_PASSWORD=your_actual_password_here
 
@@ -35,7 +35,7 @@ npm run migrate
 ```
 
 This will:
-- Create the `qa_testing` database if it doesn't exist
+- Create the `qa_framework` database if it doesn't exist
 - Create all necessary tables
 
 ## 3. Start the Server
