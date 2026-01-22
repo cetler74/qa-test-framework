@@ -466,6 +466,10 @@ router.get('/test-runs/:id', async (req, res) => {
 // Execute tests
 router.post('/test-runs/execute', async (req, res) => {
   try {
+    // Log the entire request body for debugging
+    console.log('[api] POST /test-runs/execute - Request body keys:', Object.keys(req.body));
+    console.log('[api] delayBetweenTests in request:', req.body.delayBetweenTests, 'type:', typeof req.body.delayBetweenTests);
+    
     const { projectId, collectionIds, selectedTests, name, environment, envVars } = req.body;
 
     // Support both old format (collectionIds) and new format (selectedTests)
@@ -489,7 +493,14 @@ router.post('/test-runs/execute', async (req, res) => {
     // Optional: global delay between tests (seconds)
     if (typeof req.body.delayBetweenTests !== 'undefined') {
       const d = Number(req.body.delayBetweenTests);
-      if (!isNaN(d) && d >= 0) testOptions.delayBetweenTests = d;
+      if (!isNaN(d) && d >= 0) {
+        testOptions.delayBetweenTests = d;
+        console.log(`[api] delayBetweenTests extracted: ${d} seconds`);
+      } else {
+        console.log(`[api] delayBetweenTests invalid: ${req.body.delayBetweenTests} (parsed as ${d})`);
+      }
+    } else {
+      console.log('[api] delayBetweenTests not provided in request body');
     }
 
     // Optional: per-test delays mapping: { collectionId: { "0.1": seconds, ... } }
@@ -505,6 +516,31 @@ router.post('/test-runs/execute', async (req, res) => {
       testOptions.collectionIds = collectionIds;
     } else {
       return res.status(400).json({ error: 'Either collectionIds or selectedTests must be provided' });
+    }
+
+    // Extract selectedTestsOrdered if provided (for maintaining execution order)
+    if (req.body.selectedTestsOrdered && Array.isArray(req.body.selectedTestsOrdered)) {
+      testOptions.selectedTestsOrdered = req.body.selectedTestsOrdered;
+    }
+
+    // Log testOptions before calling executeTests
+    console.log('[api] testOptions before executeTests:', JSON.stringify({
+      hasDelayBetweenTests: typeof testOptions.delayBetweenTests !== 'undefined',
+      delayBetweenTests: testOptions.delayBetweenTests,
+      hasSelectedTests: !!testOptions.selectedTests,
+      hasSelectedTestsOrdered: !!testOptions.selectedTestsOrdered,
+      hasTestDelays: !!testOptions.testDelays,
+      hasEnvVars: !!testOptions.envVars
+    }, null, 2));
+    
+    // CRITICAL: Ensure delayBetweenTests is preserved in testOptions
+    // This is a safety check to ensure the delay value isn't lost
+    if (typeof req.body.delayBetweenTests !== 'undefined' && typeof testOptions.delayBetweenTests === 'undefined') {
+      console.warn('[api] WARNING: delayBetweenTests was in request but not in testOptions! Re-adding it.');
+      const d = Number(req.body.delayBetweenTests);
+      if (!isNaN(d) && d >= 0) {
+        testOptions.delayBetweenTests = d;
+      }
     }
 
     const results = await executeTests(projectId, name, testOptions);

@@ -139,13 +139,29 @@ function runNewmanTests(collection, options = {}) {
     
     // Add delayRequest if specified (in milliseconds)
     // Newman's delayRequest adds a delay between each request in the collection
+    // Note: CLI uses --delay-request, but Node.js API uses delayRequest (camelCase)
+    // IMPORTANT: Set delayRequest AFTER spreading options.newmanOptions to ensure it takes precedence
     if (options.delayRequest !== undefined && options.delayRequest !== null) {
       const delayMs = Number(options.delayRequest);
       if (!isNaN(delayMs) && delayMs >= 0) {
         newmanOptions.delayRequest = delayMs;
-        console.log(`[testRunner] Using Newman delayRequest: ${delayMs}ms`);
+        console.log(`[testRunner] Setting Newman delayRequest option: ${delayMs}ms (${delayMs/1000}s)`);
+      } else {
+        console.log(`[testRunner] Invalid delayRequest value: ${options.delayRequest} (parsed as ${delayMs})`);
       }
+    } else {
+      console.log(`[testRunner] No delayRequest option provided (options.delayRequest = ${options.delayRequest})`);
     }
+    
+    // Log final newmanOptions for debugging (excluding sensitive data)
+    console.log(`[testRunner] Newman options:`, {
+      collection: newmanOptions.collection ? 'set' : 'missing',
+      delayRequest: newmanOptions.delayRequest,
+      timeout: newmanOptions.timeout,
+      timeoutRequest: newmanOptions.timeoutRequest,
+      hasEnvironment: !!newmanOptions.environment,
+      insecure: newmanOptions.insecure
+    });
     
     // If environment file is provided, use it
     if (options.environment) {
@@ -406,6 +422,14 @@ function filterCollectionItems(collection, selectedPaths, testDelaysForCollectio
  */
 async function executeTests(projectId, testRunName, options = {}) {
   try {
+    // Log received options for debugging
+    console.log('[testRunner] executeTests called with options:', {
+      hasDelayBetweenTests: typeof options.delayBetweenTests !== 'undefined',
+      delayBetweenTests: options.delayBetweenTests,
+      hasSelectedTestsOrdered: !!options.selectedTestsOrdered,
+      hasTestDelays: !!options.testDelays
+    });
+    
     let collectionIds;
     let selectedTests = null;
 
@@ -528,11 +552,15 @@ async function executeTests(projectId, testRunName, options = {}) {
 
     // Run tests with options (environment variables, etc.)
     // Use Newman's delayRequest option for delays between tests
-    const hasGlobalDelay = options.delayBetweenTests && Number(options.delayBetweenTests) >= 0 && Number(options.delayBetweenTests) > 0;
+    // Convert delayBetweenTests to number and validate
+    const delayBetweenTestsNum = (typeof options.delayBetweenTests !== 'undefined' && options.delayBetweenTests !== null) 
+      ? Number(options.delayBetweenTests) 
+      : undefined;
+    const hasGlobalDelay = delayBetweenTestsNum !== undefined && !isNaN(delayBetweenTestsNum) && delayBetweenTestsNum > 0;
     const hasPerItemDelay = (mergedCollection.item || []).some(it => typeof it._delaySeconds !== 'undefined' && it._delaySeconds !== null);
 
     // Log debug information about delay configuration
-    console.log('[testRunner] hasGlobalDelay=', !!hasGlobalDelay, 'delayBetweenTests=', options.delayBetweenTests, 'hasPerItemDelay=', hasPerItemDelay, 'mergedItems=', (mergedCollection.item || []).length);
+    console.log('[testRunner] hasGlobalDelay=', !!hasGlobalDelay, 'delayBetweenTests=', options.delayBetweenTests, 'delayBetweenTestsNum=', delayBetweenTestsNum, 'hasPerItemDelay=', hasPerItemDelay, 'mergedItems=', (mergedCollection.item || []).length);
 
     let newmanResults;
     
@@ -553,7 +581,7 @@ async function executeTests(projectId, testRunName, options = {}) {
         // Determine delay for this item (will be applied before next test)
         const delaySec = (typeof item._delaySeconds !== 'undefined' && item._delaySeconds !== null) 
           ? Number(item._delaySeconds) 
-          : (hasGlobalDelay ? Number(options.delayBetweenTests) : 0);
+          : (hasGlobalDelay ? delayBetweenTestsNum : 0);
         
         // Create options for this single test run
         const testOptions = { ...options };
@@ -585,8 +613,8 @@ async function executeTests(projectId, testRunName, options = {}) {
       newmanResults = { summary: { run: { timings: { started: started, completed: completed } } }, executions: combinedExecutions };
     } else if (hasGlobalDelay) {
       // Global delay: use Newman's delayRequest option (more efficient than sequential execution)
-      const delayMs = Math.round(Number(options.delayBetweenTests) * 1000); // Convert seconds to milliseconds
-      console.log(`[testRunner] Using Newman delayRequest: ${delayMs}ms (${options.delayBetweenTests}s) for all tests`);
+      const delayMs = Math.round(delayBetweenTestsNum * 1000); // Convert seconds to milliseconds
+      console.log(`[testRunner] Using Newman delayRequest: ${delayMs}ms (${delayBetweenTestsNum}s) for all tests`);
       const testOptions = { ...options, delayRequest: delayMs };
       newmanResults = await runNewmanTests(mergedCollection, testOptions);
     } else {

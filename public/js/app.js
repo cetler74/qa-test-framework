@@ -80,10 +80,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Theme toggle: load and apply saved preference (or follow system) and wire toggle button
   const themeToggle = document.getElementById('theme-toggle');
+  const themeToggleIcon = document.getElementById('theme-toggle-icon');
   function applyTheme(theme) {
     if (theme === 'dark') document.body.classList.add('dark-theme');
     else document.body.classList.remove('dark-theme');
-    if (themeToggle) themeToggle.textContent = theme === 'dark' ? '☀' : '🌙';
+    if (themeToggleIcon) {
+      // Update SVG icon based on theme
+      if (theme === 'dark') {
+        themeToggleIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />';
+        themeToggle.setAttribute('title', 'Switch to light theme');
+      } else {
+        themeToggleIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />';
+        themeToggle.setAttribute('title', 'Switch to dark theme');
+      }
+    }
   }
   const savedTheme = localStorage.getItem('theme') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   applyTheme(savedTheme);
@@ -162,7 +172,14 @@ async function loadDashboard() {
 
     const recentRunsList = document.getElementById('recent-runs-list');
     if (testRuns.length === 0) {
-      recentRunsList.innerHTML = '<div class="empty-state"><p>No test runs yet</p></div>';
+      recentRunsList.innerHTML = `
+        <div class="empty-state">
+          <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          </svg>
+          <p>No test runs yet</p>
+        </div>
+      `;
     } else {
       recentRunsList.innerHTML = testRuns.map(run => `
         <div class="list-item" onclick="viewTestRun(${run.id})">
@@ -186,7 +203,15 @@ async function loadProjects() {
     const projectsList = document.getElementById('projects-list');
     
     if (projects.length === 0) {
-      projectsList.innerHTML = '<div class="empty-state"><h3>No projects yet</h3><p>Create your first project to get started</p></div>';
+      projectsList.innerHTML = `
+        <div class="empty-state">
+          <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+          <h3>No projects yet</h3>
+          <p>Create your first project to get started</p>
+        </div>
+      `;
     } else {
       projectsList.innerHTML = projects.map(project => `
         <div class="list-item">
@@ -198,8 +223,18 @@ async function loadProjects() {
             </p>
           </div>
           <div class="list-item-actions">
-            <button class="btn btn-secondary" onclick="editProject(${project.id})">Edit</button>
-            <button class="btn btn-danger" onclick="deleteProject(${project.id})">Delete</button>
+            <button class="btn btn-secondary" onclick="editProject(${project.id})">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              Edit
+            </button>
+            <button class="btn btn-danger" onclick="deleteProject(${project.id})">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Delete
+            </button>
           </div>
         </div>
       `).join('');
@@ -216,7 +251,15 @@ async function loadApiSpecs() {
     const apiSpecsList = document.getElementById('api-specs-list');
     
     if (apiSpecs.length === 0) {
-      apiSpecsList.innerHTML = '<div class="empty-state"><h3>No API specs yet</h3><p>Upload your first API specification file</p></div>';
+      apiSpecsList.innerHTML = `
+        <div class="empty-state">
+          <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          <h3>No API specs yet</h3>
+          <p>Upload your first API specification file</p>
+        </div>
+      `;
     } else {
       apiSpecsList.innerHTML = apiSpecs.map(spec => `
         <div class="list-item">
@@ -228,7 +271,12 @@ async function loadApiSpecs() {
             </p>
           </div>
           <div class="list-item-actions">
-            <button class="btn btn-danger" onclick="deleteApiSpec(${spec.id})">Delete</button>
+            <button class="btn btn-danger" onclick="deleteApiSpec(${spec.id})">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Delete
+            </button>
           </div>
         </div>
       `).join('');
@@ -280,7 +328,15 @@ async function loadTestRuns() {
     const testRunsList = document.getElementById('test-runs-list');
     
     if (testRuns.length === 0) {
-      testRunsList.innerHTML = '<div class="empty-state"><h3>No test runs yet</h3><p>Run your first test to see results here</p></div>';
+      testRunsList.innerHTML = `
+        <div class="empty-state">
+          <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+          </svg>
+          <h3>No test runs yet</h3>
+          <p>Run your first test to see results here</p>
+        </div>
+      `;
     } else {
       testRunsList.innerHTML = testRuns.map(run => `
         <div class="list-item" onclick="viewTestRun(${run.id})" style="cursor: pointer;">
@@ -348,7 +404,14 @@ async function viewTestRun(testRunId) {
         </div>
       `).join('');
     } else {
-      resultsList.innerHTML = '<div class="empty-state"><p>No test results</p></div>';
+      resultsList.innerHTML = `
+        <div class="empty-state">
+          <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+          </svg>
+          <p>No test results</p>
+        </div>
+      `;
     }
     
     // Store test run ID for report buttons

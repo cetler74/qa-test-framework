@@ -754,6 +754,42 @@ function showRunTestsModal() {
         }
       }
       
+      // IMPORTANT: Read all form values BEFORE hiding the modal!
+      // Collect per-test delays (seconds) if provided
+      const testDelays = {};
+      selectedTestsOrder.forEach(test => {
+        const testEl = document.querySelector(`.test-item[data-path="${test.path}"]`);
+        if (!testEl) return;
+        const delayInput = testEl.querySelector('.test-delay-input');
+        const val = delayInput && delayInput.value ? parseFloat(delayInput.value) : null;
+        if (val !== null && !isNaN(val) && Number(val) >= 0) { // allow zero
+          if (!testDelays[test.collectionId]) testDelays[test.collectionId] = {};
+          testDelays[test.collectionId][test.path] = Number(val);
+        }
+      });
+
+      // Global delay between tests (seconds) - applied when per-test delay not set
+      // MUST read this BEFORE hiding the modal!
+      const globalDelayInput = document.getElementById('delay-between-tests');
+      let globalDelayValue = null;
+      
+      console.log('[frontend] Looking for delay input element:', globalDelayInput ? 'found' : 'NOT FOUND');
+      
+      if (globalDelayInput) {
+        const rawValue = globalDelayInput.value ? String(globalDelayInput.value).trim() : '';
+        const globalDelayVal = rawValue ? parseFloat(rawValue) : null;
+        console.log('[frontend] delay-between-tests - rawValue:', JSON.stringify(rawValue), 'parsed:', globalDelayVal, 'isNaN:', isNaN(globalDelayVal), '>= 0:', globalDelayVal !== null && globalDelayVal >= 0);
+        
+        if (globalDelayVal !== null && !isNaN(globalDelayVal) && globalDelayVal >= 0) {
+          globalDelayValue = Number(globalDelayVal);
+          console.log('[frontend] ✓ Captured delayBetweenTests:', globalDelayValue, 'seconds');
+        } else {
+          console.warn('[frontend] ✗ delayBetweenTests NOT captured - value:', globalDelayVal, 'raw:', JSON.stringify(rawValue));
+        }
+      } else {
+        console.warn('[frontend] ✗ delay-between-tests input element not found!');
+      }
+      
       hideModal();
       
       // Show loading
@@ -779,28 +815,19 @@ function showRunTestsModal() {
           requestBody.envVars = envVars;
         }
 
-        // Collect per-test delays (seconds) if provided
-        const testDelays = {};
-        selectedTestsOrder.forEach(test => {
-          const testEl = document.querySelector(`.test-item[data-path="${test.path}"]`);
-          if (!testEl) return;
-          const delayInput = testEl.querySelector('.test-delay-input');
-          const val = delayInput && delayInput.value ? parseFloat(delayInput.value) : null;
-          if (val !== null && !isNaN(val) && Number(val) >= 0) { // allow zero
-            if (!testDelays[test.collectionId]) testDelays[test.collectionId] = {};
-            testDelays[test.collectionId][test.path] = Number(val);
-          }
-        });
+        // Add per-test delays if any were collected
         if (Object.keys(testDelays).length > 0) {
           requestBody.testDelays = testDelays;
         }
 
-        // Global delay between tests (seconds) - applied when per-test delay not set
-        const globalDelayInput = document.getElementById('delay-between-tests');
-        const globalDelayVal = globalDelayInput && globalDelayInput.value ? parseFloat(globalDelayInput.value) : null;
-        if (globalDelayVal !== null && !isNaN(globalDelayVal) && Number(globalDelayVal) > 0) {
-          requestBody.delayBetweenTests = Number(globalDelayVal);
+        // Add global delay if captured
+        if (globalDelayValue !== null) {
+          requestBody.delayBetweenTests = globalDelayValue;
+          console.log('[frontend] ✓ Added delayBetweenTests to request:', requestBody.delayBetweenTests, 'seconds');
         }
+        
+        // Log the complete request body for debugging
+        console.log('[frontend] Sending test execution request with body:', JSON.stringify(requestBody, null, 2));
         
         const result = await apiRequest('/test-runs/execute', {
           method: 'POST',

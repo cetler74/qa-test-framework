@@ -139,7 +139,14 @@ window.viewProject = async (projectId) => {
         </div>
       `).join('');
     } else {
-      apiSpecsList.innerHTML = '<div class="empty-state"><p>No API specs in this project</p></div>';
+      apiSpecsList.innerHTML = `
+        <div class="empty-state">
+          <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          <p>No API specs in this project</p>
+        </div>
+      `;
     }
     
     // Load collections for project
@@ -147,7 +154,14 @@ window.viewProject = async (projectId) => {
     const collectionsList = document.getElementById('project-collections-list');
     
     if (collections.length === 0) {
-      collectionsList.innerHTML = '<div class="empty-state"><p>No collections available</p></div>';
+      collectionsList.innerHTML = `
+        <div class="empty-state">
+          <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+          </svg>
+          <p>No collections available</p>
+        </div>
+      `;
     } else {
       collectionsList.innerHTML = collections.map(collection => {
         const itemCount = collection.collection_json?.item?.length || 0;

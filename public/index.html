@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DEO/EPS -- QA Testing Tool</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <!-- Heroicons for modern icon system -->
+    <script src="https://cdn.jsdelivr.net/npm/heroicons@2.0.18/24/outline/index.js" type="module"></script>
 </head>
 <body>
     <div class="app-container">
@@ -14,12 +16,36 @@
                 <h1>DEO/EPS -- QA Testing Tool</h1>
             </div>
             <nav class="main-nav">
-                <button class="nav-btn active" data-view="dashboard">Dashboard</button>
-                <button class="nav-btn" data-view="projects">Projects</button>
-                <button class="nav-btn" data-view="api-specs">API Specs</button>
-                <button class="nav-btn" data-view="test-runs">Test Runs</button>
+                <button class="nav-btn active" data-view="dashboard">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                    </svg>
+                    Dashboard
+                </button>
+                <button class="nav-btn" data-view="projects">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                    Projects
+                </button>
+                <button class="nav-btn" data-view="api-specs">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    API Specs
+                </button>
+                <button class="nav-btn" data-view="test-runs">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                    </svg>
+                    Test Runs
+                </button>
                 <!-- Theme toggle -->
-                <button id="theme-toggle" class="nav-btn" title="Toggle theme">🌙</button>
+                <button id="theme-toggle" class="nav-btn" title="Toggle theme">
+                    <svg id="theme-toggle-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                </button>
             </nav>
         </header>
 
@@ -29,14 +55,23 @@
                 <h2>Dashboard</h2>
                 <div class="dashboard-stats">
                     <div class="stat-card">
+                        <svg class="stat-card-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
                         <div class="stat-value" id="total-projects">0</div>
                         <div class="stat-label">Projects</div>
                     </div>
                     <div class="stat-card">
+                        <svg class="stat-card-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
                         <div class="stat-value" id="total-api-specs">0</div>
                         <div class="stat-label">API Specs</div>
                     </div>
                     <div class="stat-card">
+                        <svg class="stat-card-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                        </svg>
                         <div class="stat-value" id="total-test-runs">0</div>
                         <div class="stat-label">Test Runs</div>
                     </div>
@@ -51,7 +86,12 @@
             <div id="projects-view" class="view">
                 <div class="view-header">
                     <h2>Projects</h2>
-                    <button class="btn btn-primary" id="create-project-btn">Create Project</button>
+                    <button class="btn btn-primary" id="create-project-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                        </svg>
+                        Create Project
+                    </button>
                 </div>
                 <div id="projects-list"></div>
             </div>
@@ -59,7 +99,12 @@
             <!-- Project Detail View -->
             <div id="project-detail-view" class="view">
                 <div class="view-header">
-                    <button class="btn btn-secondary" id="back-to-projects">← Back to Projects</button>
+                        <button class="btn btn-secondary" id="back-to-projects">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                            </svg>
+                            Back to Projects
+                        </button>
                     <h2 id="project-detail-name"></h2>
                 </div>
                 <div class="project-detail-content">
@@ -67,9 +112,25 @@
                         <p id="project-detail-description"></p>
                     </div>
                     <div class="project-actions">
-                        <button class="btn btn-primary" id="add-api-spec-btn">Add API Spec</button>
-                        <button class="btn btn-primary" id="upload-postman-collection-btn">Upload Postman Collection</button>
-                        <button class="btn btn-primary" id="run-tests-btn">Run Tests</button>
+                        <button class="btn btn-primary" id="add-api-spec-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                            Add API Spec
+                        </button>
+                        <button class="btn btn-primary" id="upload-postman-collection-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            Upload Postman Collection
+                        </button>
+                        <button class="btn btn-primary" id="run-tests-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Run Tests
+                        </button>
                     </div>
                     <div class="project-api-specs">
                         <h3>API Specs in Project</h3>
@@ -86,7 +147,12 @@
             <div id="api-specs-view" class="view">
                 <div class="view-header">
                     <h2>API Specifications</h2>
-                    <button class="btn btn-primary" id="upload-api-spec-btn">Upload API Spec</button>
+                    <button class="btn btn-primary" id="upload-api-spec-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                        Upload API Spec
+                    </button>
                 </div>
                 <div id="api-specs-list"></div>
             </div>
@@ -112,14 +178,30 @@
             <!-- Test Run Detail View -->
             <div id="test-run-detail-view" class="view">
                 <div class="view-header">
-                    <button class="btn btn-secondary" id="back-to-test-runs">← Back to Test Runs</button>
+                    <button class="btn btn-secondary" id="back-to-test-runs">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Back to Test Runs
+                    </button>
                     <h2 id="test-run-detail-name"></h2>
                 </div>
                 <div class="test-run-detail-content">
                     <div class="test-run-info" id="test-run-info"></div>
                     <div class="test-run-actions">
-                        <button class="btn btn-primary" id="view-report-btn">View Report</button>
-                        <button class="btn btn-secondary" id="download-report-btn">Download Report</button>
+                        <button class="btn btn-primary" id="view-report-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            View Report
+                        </button>
+                        <button class="btn btn-secondary" id="download-report-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Download Report
+                        </button>
                     </div>
                     <div id="test-results-list"></div>
                 </div>
@@ -132,7 +214,11 @@
         <div class="modal">
             <div class="modal-header">
                 <h3 id="modal-title"></h3>
-                <button class="modal-close">&times;</button>
+                <button class="modal-close" aria-label="Close modal">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
             </div>
             <div class="modal-body" id="modal-body"></div>
         </div>
