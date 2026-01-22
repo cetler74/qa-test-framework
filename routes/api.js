@@ -6,7 +6,7 @@ const fs = require('fs');
 
 const { Project, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec } = require('../models');
 const SequelizeLib = require('sequelize');
-const { Op } = require('sequelize');
+const { Op, literal } = require('sequelize');
 const { convertToPostmanCollection, parsePostmanCollection } = require('../services/apiSpecConverter');
 const { upload, validateAndParseApiSpec, validatePostmanCollection } = require('../services/fileUpload');
 const { executeTests } = require('../services/testRunner');
@@ -437,6 +437,30 @@ router.get('/test-runs', async (req, res) => {
 // Get single test run
 router.get('/test-runs/:id', async (req, res) => {
   try {
+    // Check if execution_order column exists before using it
+    let hasExecutionOrder = false;
+    try {
+      await TestResult.sequelize.query(
+        'SELECT execution_order FROM test_results LIMIT 1',
+        { type: TestResult.sequelize.QueryTypes.SELECT }
+      );
+      hasExecutionOrder = true;
+    } catch (colError) {
+      // Column doesn't exist - will use fallback ordering
+      hasExecutionOrder = false;
+    }
+
+    // Build order clause based on whether column exists
+    const orderClause = hasExecutionOrder ? [
+      [literal('CASE WHEN "execution_order" IS NULL THEN 1 ELSE 0 END'), 'ASC'],
+      ['execution_order', 'ASC'],
+      ['api_spec_id', 'ASC'],
+      ['test_name', 'ASC']
+    ] : [
+      ['api_spec_id', 'ASC'],
+      ['test_name', 'ASC']
+    ];
+
     const testRun = await TestRun.findByPk(req.params.id, {
       include: [
         {
@@ -450,15 +474,18 @@ router.get('/test-runs/:id', async (req, res) => {
             model: ApiSpec,
             as: 'apiSpec',
             attributes: ['id', 'name']
-          }]
+          }],
+          order: orderClause
         }
       ]
     });
+
     if (!testRun) {
       return res.status(404).json({ error: 'Test run not found' });
     }
     res.json(testRun);
   } catch (error) {
+    console.error('Error loading test run:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -543,8 +570,36 @@ router.post('/test-runs/execute', async (req, res) => {
       }
     }
 
-    const results = await executeTests(projectId, name, testOptions);
-    res.status(201).json(results);
+    // Create test run immediately with 'running' status so frontend can track progress
+    const testRun = await TestRun.create({
+      name: name,
+      status: 'running',
+      project_id: projectId,
+      total_tests: 0,
+      passed_tests: 0,
+      failed_tests: 0,
+      duration_ms: 0
+    });
+
+    // Execute tests asynchronously (don't await - let it run in background)
+    executeTests(projectId, name, { ...testOptions, testRunId: testRun.id })
+      .then(results => {
+        console.log(`[api] Test run ${testRun.id} completed: ${results.summary.passed} passed, ${results.summary.failed} failed`);
+      })
+      .catch(error => {
+        console.error(`[api] Test run ${testRun.id} failed:`, error);
+        // Update test run status to failed if execution fails
+        TestRun.update({ status: 'failed' }, { where: { id: testRun.id } }).catch(updateError => {
+          console.error('Error updating test run status:', updateError);
+        });
+      });
+
+    // Return test run ID immediately so frontend can poll for progress
+    res.status(201).json({
+      testRun: { id: testRun.id },
+      status: 'running',
+      message: 'Test execution started'
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -95,6 +95,36 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+/* Global input, textarea, and select styles - visible borders with primary color */
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+input[type="url"],
+textarea,
+select {
+    border: 2px solid var(--color-primary) !important;
+    border-radius: var(--radius-md);
+    transition: all var(--transition-fast);
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="date"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="search"]:focus,
+input[type="url"]:focus,
+textarea:focus,
+select:focus {
+    outline: none !important;
+    border-color: var(--color-primary) !important;
+    box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.25) !important;
+    border-width: 2px !important;
+}
+
 .app-container {
     max-width: 1400px;
     margin: 0 auto;
@@ -537,6 +567,8 @@ main {
 .test-item-body {
     flex: 1;
     min-width: 0;
+    width: 100%;
+    overflow: visible;
 }
 
 .test-item-row {
@@ -549,20 +581,26 @@ main {
 .test-item-name {
     font-weight: 500;
     color: var(--color-text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    line-height: 1.5;
+    flex: 1;
+    min-width: 0;
 }
 
 .test-item-endpoint {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--color-text-secondary);
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
     white-space: normal;
-    word-break: break-word;
+    word-break: break-all;
     overflow-wrap: anywhere;
-    margin-top: var(--spacing-xs);
-    line-height: 1.4;
+    margin-top: var(--spacing-sm);
+    line-height: 1.5;
+    padding: var(--spacing-xs) 0;
+    display: block;
+    width: 100%;
 }
 
 .method-badge {
@@ -643,16 +681,21 @@ main {
     padding: var(--spacing-xs);
     font-size: 12px;
     margin-left: var(--spacing-sm);
-    border: 1px solid var(--color-gray-300);
+    border: 2px solid var(--color-primary);
     border-radius: var(--radius-sm);
     background: var(--color-white);
     transition: border-color var(--transition-fast);
 }
 
+.test-delay-input {
+    border: 2px solid var(--color-primary) !important;
+}
+
 .test-delay-input:focus {
     outline: none;
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.1);
+    border-color: var(--color-primary) !important;
+    box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.25) !important;
+    border-width: 2px !important;
 }
 
 /* ============================================
@@ -681,12 +724,14 @@ main {
 .modal {
     background: var(--color-white);
     border-radius: var(--radius-lg);
-    width: 90%;
-    max-width: 600px;
-    max-height: 90vh;
+    width: 95%;
+    max-width: 1200px;
+    max-height: 95vh;
     overflow-y: auto;
     box-shadow: var(--shadow-xl);
     animation: modalSlideIn var(--transition-slow);
+    display: flex;
+    flex-direction: column;
 }
 
 @keyframes modalSlideIn {
@@ -737,6 +782,9 @@ main {
 
 .modal-body {
     padding: var(--spacing-xl);
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
 }
 
 /* ============================================
@@ -751,8 +799,9 @@ main {
     display: block;
     margin-bottom: var(--spacing-sm);
     color: var(--color-text-primary);
-    font-weight: 500;
-    font-size: 14px;
+    font-weight: 600;
+    font-size: 15px;
+    line-height: 1.5;
 }
 
 .form-group input,
@@ -760,7 +809,7 @@ main {
 .form-group select {
     width: 100%;
     padding: var(--spacing-md);
-    border: 1px solid var(--color-gray-300);
+    border: 2px solid var(--color-primary);
     border-radius: var(--radius-md);
     font-size: 14px;
     background: var(--color-white);
@@ -774,7 +823,8 @@ main {
 .form-group select:focus {
     outline: none;
     border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.1);
+    box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.25);
+    border-width: 2px;
 }
 
 .form-group textarea {
@@ -842,7 +892,7 @@ main {
 .filters input[type="date"],
 .filters select {
     padding: var(--spacing-sm) var(--spacing-md);
-    border: 1px solid var(--color-gray-300);
+    border: 2px solid var(--color-primary);
     border-radius: var(--radius-md);
     font-size: 14px;
     background: var(--color-white);
@@ -855,7 +905,8 @@ main {
 .filters select:focus {
     outline: none;
     border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.1);
+    box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.25);
+    border-width: 2px;
 }
 
 /* ============================================
@@ -1090,11 +1141,35 @@ main {
     border-color: var(--color-border) !important;
 }
 
+.dark-theme input[type="text"],
+.dark-theme input[type="number"],
+.dark-theme input[type="date"],
+.dark-theme input[type="email"],
+.dark-theme input[type="password"],
+.dark-theme input[type="search"],
+.dark-theme input[type="url"],
+.dark-theme textarea,
+.dark-theme select {
+    border: 2px solid var(--color-primary) !important;
+    background: var(--color-bg-secondary) !important;
+    color: var(--color-text-primary) !important;
+}
+
 .dark-theme .form-group input:focus,
 .dark-theme .form-group textarea:focus,
-.dark-theme .form-group select:focus {
+.dark-theme .form-group select:focus,
+.dark-theme input[type="text"]:focus,
+.dark-theme input[type="number"]:focus,
+.dark-theme input[type="date"]:focus,
+.dark-theme input[type="email"]:focus,
+.dark-theme input[type="password"]:focus,
+.dark-theme input[type="search"]:focus,
+.dark-theme input[type="url"]:focus,
+.dark-theme textarea:focus,
+.dark-theme select:focus {
     border-color: var(--color-primary) !important;
-    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.2) !important;
+    box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.3) !important;
+    border-width: 2px !important;
 }
 
 .dark-theme .test-item:hover {
@@ -1118,4 +1193,46 @@ main {
 .dark-theme .file-upload-area:hover {
     background: var(--color-bg-tertiary) !important;
     border-color: var(--color-primary) !important;
+}
+
+.dark-theme .test-item-name {
+    color: var(--color-text-primary) !important;
+}
+
+.dark-theme .test-item-endpoint {
+    color: var(--color-text-secondary) !important;
+}
+
+.dark-theme .selected-test-item {
+    background: var(--color-bg-tertiary) !important;
+    border-color: var(--color-border) !important;
+    color: var(--color-text-primary) !important;
+}
+
+.dark-theme .selected-test-item span {
+    color: var(--color-text-primary) !important;
+}
+
+.dark-theme .move-up,
+.dark-theme .move-down {
+    background: var(--color-gray-600) !important;
+    color: var(--color-text-inverse) !important;
+    border-color: var(--color-gray-500) !important;
+}
+
+.dark-theme .move-up:hover,
+.dark-theme .move-down:hover {
+    background: var(--color-gray-500) !important;
+    border-color: var(--color-gray-400) !important;
+}
+
+.dark-theme input::placeholder,
+.dark-theme textarea::placeholder {
+    color: var(--color-text-tertiary) !important;
+    opacity: 0.7;
+}
+
+.dark-theme #selected-tests-list {
+    background: var(--color-bg-secondary) !important;
+    border-color: var(--color-border) !important;
 }

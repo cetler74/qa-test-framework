@@ -68,11 +68,11 @@ function buildNestedTestHTML(items, collectionId, parentPath = [], level = 0) {
           </div>
           <div class="test-item-body" style="padding-left: ${indent}px;">
             <div class="test-item-row">
-              <span class="test-item-name">${item.name || 'Unnamed Test'}</span>
-              <span class="method-badge ${method}">${method}</span>
-              <input type="number" class="test-delay-input" placeholder="Delay s" min="0" style="width:70px; padding:4px; margin-left:8px;" title="Delay after this test (seconds)">
+              <span class="test-item-name" style="flex: 1; min-width: 200px;">${item.name || 'Unnamed Test'}</span>
+              <span class="method-badge ${method}" style="flex-shrink: 0;">${method}</span>
+              <input type="number" class="test-delay-input" placeholder="Delay s" min="0" style="width:80px; padding:6px; flex-shrink: 0;" title="Delay after this test (seconds)">
             </div>
-            <div class="test-item-endpoint">${url}</div>
+            <div class="test-item-endpoint" style="width: 100%; margin-top: 6px;">${url}</div>
           </div>
         </div>
       `;
@@ -83,8 +83,8 @@ function buildNestedTestHTML(items, collectionId, parentPath = [], level = 0) {
       
       if (hasTests) {
         html += `
-          <div class="test-group" style="padding-left: ${indent}px;" data-path="${pathString}">
-            <div class="test-group-header">
+          <div class="test-group" style="padding-left: ${indent}px; margin-bottom: 8px;" data-path="${pathString}">
+            <div class="test-group-header" style="padding: 12px; font-size: 14px;">
               <div class="test-item-left">
                 <input type="checkbox" class="group-checkbox" 
                        data-collection-id="${collectionId}" 
@@ -138,54 +138,54 @@ function showRunTestsModal() {
     ).join('');
     
     const content = `
-      <form id="run-tests-form">
-        <div class="form-group">
+      <form id="run-tests-form" style="display: flex; flex-direction: column; height: 100%;">
+        <div class="form-group" style="margin-bottom: 20px;">
           <label for="test-run-name">Test Run Name *</label>
-          <input type="text" id="test-run-name" placeholder="e.g., Release 1.0" required>
+          <input type="text" id="test-run-name" placeholder="e.g., Release 1.0" required style="width: 100%; padding: 10px; font-size: 14px;">
         </div>
-        <div class="form-group">
+        <div class="form-group" style="margin-bottom: 20px;">
           <label for="collection-select">Select API Collection *</label>
-          <select id="collection-select" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
+          <select id="collection-select" required style="width: 100%; padding: 10px; border: 2px solid var(--color-primary, #14b8a6); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937); font-size: 14px;">
             <option value="">Choose a collection...</option>
             ${collectionOptions}
           </select>
         </div>
-        <div class="form-group" id="test-selection-section" style="display: none;">
-          <label>Select Tests to Run</label>
-          <div style="margin-bottom: 10px;">
+        <div class="form-group" id="test-selection-section" style="display: none; flex: 1; flex-direction: column; min-height: 0;">
+          <label style="margin-bottom: 12px; display: block;">Select Tests to Run</label>
+          <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
             <button type="button" class="btn btn-sm btn-secondary" id="select-all-tests">Select All</button>
             <button type="button" class="btn btn-sm btn-secondary" id="deselect-all-tests">Deselect All</button>
             <button type="button" class="btn btn-sm btn-secondary" id="expand-all-groups">Expand All</button>
             <button type="button" class="btn btn-sm btn-secondary" id="collapse-all-groups">Collapse All</button>
           </div>
-          <div id="test-selection-container" style="max-height: 500px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; padding: 15px; background: #fafafa;">
+          <div id="test-selection-container" style="max-height: 600px; overflow-y: auto; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; padding: 15px; background: var(--color-gray-50, #fafafa);">
             <!-- Tests will be loaded here -->
           </div>
-          <div id="selected-tests-order" style="margin-top: 15px;">
-            <label>Selected Tests Order (drag to reorder):</label>
-            <div id="selected-tests-list" style="min-height: 50px; border: 1px solid #ddd; border-radius: 4px; padding: 10px; background: white; margin-top: 5px;">
-              <p style="color: #999; font-style: italic;">No tests selected</p>
+          <div id="selected-tests-order" style="margin-top: 15px; flex-shrink: 0;">
+            <label style="margin-bottom: 8px; display: block;">Selected Tests Order (drag to reorder):</label>
+            <div id="selected-tests-list" style="min-height: 80px; max-height: 200px; overflow-y: auto; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; padding: 12px; background: var(--color-white, white); margin-top: 5px;">
+              <p style="color: var(--color-text-secondary, #6b7280); font-style: italic; margin: 0;">No tests selected</p>
             </div>
           </div>
         </div>
-        <div class="form-group">
+        <div class="form-group" style="margin-bottom: 20px; flex-shrink: 0;">
           <label for="env-select">Select Environment (optional)</label>
           <div style="display:flex; gap:10px; align-items: center;">
-            <select id="env-select" style="flex: 1; padding:8px; border:1px solid #ddd; border-radius:4px;">
+            <select id="env-select" style="flex: 1; padding:8px; border:2px solid var(--color-primary, #14b8a6); border-radius:4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);">
               <option value="">Choose environment...</option>
             </select>
             <button type="button" class="btn btn-sm btn-secondary" id="manage-envs-btn">Manage</button>
             <button type="button" class="btn btn-sm btn-secondary" id="create-env-btn">Create</button>
           </div>
-          <p style="font-size:12px; color:#666; margin-top:6px;">Environments store values for <code>{{endpoint}}</code>, <code>{{version}}</code> and <code>{{ixs}}</code>. Selecting one will pre-fill these variables.</p>
+          <p style="font-size:12px; color: var(--color-text-secondary, #6b7280); margin-top:6px;">Environments store values for <code>{{endpoint}}</code>, <code>{{version}}</code> and <code>{{ixs}}</code>. Selecting one will pre-fill these variables.</p>
         </div>
 
         <div class="form-group" id="collection-vars-section" style="display: none;">
           <label>Collection Variables *</label>
-          <p style="font-size: 12px; color: #666; margin-bottom: 10px;">
+          <p style="font-size: 12px; color: var(--color-text-secondary, #6b7280); margin-bottom: 10px;">
             These variables are required by the selected collection. Please provide values for all variables.
           </p>
-          <div id="collection-vars-list" style="padding: 15px; background: #f8f9fa; border-radius: 4px; border: 1px solid #ddd;">
+          <div id="collection-vars-list" style="padding: 15px; background: var(--color-gray-50, #f8f9fa); border-radius: 4px; border: 1px solid var(--color-gray-300, #ddd);">
             <!-- Collection variables will be populated here -->
           </div>
         </div>
@@ -194,14 +194,14 @@ function showRunTestsModal() {
             <input type="checkbox" id="show-env-vars" onchange="toggleEnvVars()">
             Configure Additional Environment Variables (Optional)
           </label>
-          <div id="env-vars-section" style="display: none; margin-top: 10px; padding: 15px; background: #f8f9fa; border-radius: 4px;">
-            <p style="font-size: 12px; color: #666; margin-bottom: 10px;">
+          <div id="env-vars-section" style="display: none; margin-top: 10px; padding: 15px; background: var(--color-gray-50, #f8f9fa); border-radius: 4px;">
+            <p style="font-size: 12px; color: var(--color-text-secondary, #6b7280); margin-bottom: 10px;">
               Set additional environment variables that will override collection variables during test execution.
             </p>
             <div id="env-vars-list">
               <div class="env-var-item" style="display: flex; gap: 10px; margin-bottom: 10px;">
-                <input type="text" placeholder="Variable name" class="env-var-key" style="flex: 1; padding: 8px;">
-                <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px;">
+                <input type="text" placeholder="Variable name" class="env-var-key" style="flex: 1; padding: 8px; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);">
+                <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);">
                 <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
               </div>
             </div>
@@ -210,10 +210,10 @@ function showRunTestsModal() {
         </div>
         <div class="form-group">
           <label for="delay-between-tests">Delay between tests (seconds)</label>
-          <input type="number" id="delay-between-tests" min="0" placeholder="e.g., 2" style="width: 120px; padding: 6px;">
-          <p style="font-size:12px; color:#666; margin-top:6px;">If set, waits this many seconds before running the next test. Per-test delays override this value.</p>
+          <input type="number" id="delay-between-tests" min="0" placeholder="e.g., 2" style="width: 120px; padding: 6px; border: 2px solid var(--color-primary, #14b8a6);">
+          <p style="font-size:12px; color: var(--color-text-secondary, #6b7280); margin-top:6px;">If set, waits this many seconds before running the next test. Per-test delays override this value.</p>
         </div>
-        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--color-gray-200, #e5e7eb); flex-shrink: 0;">
           <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
           <button type="submit" class="btn btn-primary">Run Tests</button>
         </div>
@@ -224,7 +224,8 @@ function showRunTestsModal() {
     populateEnvSelect();
     
     let selectedCollection = null;
-    let selectedTestsOrder = []; // Array of {collectionId, path, name, method}
+    let selectedTestsOrder = []; // Array of {collectionId, path, name, method, testId}
+    let testIdCounter = 1; // Counter for generating unique test IDs
     
     // Helper function to extract variables from collection
     function extractCollectionVariables(collection) {
@@ -408,7 +409,7 @@ function showRunTestsModal() {
               <input type="text" class="collection-var-value" data-var-name="${varName}" 
                      placeholder="Enter value for ${varName}" 
                      value="${defaultValue}"
-                     style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                     style="flex: 1; padding: 8px; border: 2px solid var(--color-primary, #14b8a6); border-radius: 4px;">
               <span class="collection-var-source" style="font-size:12px;color:#1976d2;margin-left:8px;display:none;"></span>
             </div>
           `;
@@ -418,7 +419,7 @@ function showRunTestsModal() {
         let scriptVarsInfo = '';
         if (collectionVars.scriptSet && collectionVars.scriptSet.length > 0) {
           scriptVarsInfo = `
-            <div style="margin-top: 15px; padding: 10px; background: #e3f2fd; border-radius: 4px; font-size: 12px; color: #1976d2;">
+            <div style="margin-top: 15px; padding: 10px; background: var(--color-info, #3b82f6); background-opacity: 0.1; border-radius: 4px; font-size: 12px; color: var(--color-info, #3b82f6);">
               <strong>Note:</strong> The following variables are automatically set by test scripts and don't require input:
               <code style="background: rgba(255,255,255,0.7); padding: 2px 6px; border-radius: 3px; margin-left: 5px;">
                 ${collectionVars.scriptSet.join(', ')}
@@ -493,8 +494,9 @@ function showRunTestsModal() {
       const testHTML = buildNestedTestHTML(items, collectionId);
       
       document.getElementById('test-selection-container').innerHTML = testHTML;
-      document.getElementById('test-selection-section').style.display = 'block';
+      document.getElementById('test-selection-section').style.display = 'flex';
       selectedTestsOrder = [];
+      testIdCounter = 1; // Reset test ID counter when selecting a new collection
       updateSelectedTestsList();
       
       // Setup event listeners for groups and tests
@@ -549,11 +551,13 @@ function showRunTestsModal() {
       if (isChecked) {
         // Add to selected tests order if not already there
         if (!selectedTestsOrder.find(t => t.collectionId === collectionId && t.path === path)) {
+          const testId = `TEST-${testIdCounter++}`;
           selectedTestsOrder.push({
             collectionId: collectionId,
             path: path,
             name: name,
-            method: method
+            method: method,
+            testId: testId
           });
         }
       } else {
@@ -571,18 +575,18 @@ function showRunTestsModal() {
       const listContainer = document.getElementById('selected-tests-list');
       
       if (selectedTestsOrder.length === 0) {
-        listContainer.innerHTML = '<p style="color: #999; font-style: italic;">No tests selected</p>';
+        listContainer.innerHTML = '<p style="color: var(--color-text-secondary, #6b7280); font-style: italic;">No tests selected</p>';
         return;
       }
       
       listContainer.innerHTML = selectedTestsOrder.map((test, index) => `
-        <div class="selected-test-item" data-index="${index}" style="display: flex; align-items: center; padding: 8px; margin: 5px 0; background: #f0f0f0; border-radius: 4px; cursor: move;">
-          <span style="margin-right: 10px; color: #666;">${index + 1}.</span>
+        <div class="selected-test-item" data-index="${index}" style="display: flex; align-items: center; padding: 8px; margin: 5px 0; background: var(--color-gray-100, #f0f0f0); border-radius: 4px; cursor: move; border: 1px solid var(--color-gray-200, #e5e7eb);">
+          <span style="margin-right: 10px; font-weight: bold; color: #14b8a6;">${test.testId || `TEST-${index + 1}`}</span>
           <span class="method-badge ${test.method}">${test.method}</span>
-          <span style="flex: 1; margin-left: 10px;">${test.name}</span>
-          <button type="button" class="btn btn-sm btn-secondary move-up" data-index="${index}" style="padding: 2px 8px; margin: 0 2px;">↑</button>
-          <button type="button" class="btn btn-sm btn-secondary move-down" data-index="${index}" style="padding: 2px 8px; margin: 0 2px;">↓</button>
-          <button type="button" class="btn btn-sm btn-danger remove-test" data-index="${index}" style="padding: 2px 8px; margin-left: 5px;">×</button>
+          <span style="flex: 1; margin-left: 10px; color: var(--color-text-primary, #1f2937);">${test.name}</span>
+          <button type="button" class="btn btn-sm btn-secondary move-up" data-index="${index}" style="padding: 4px 10px; margin: 0 2px; background: var(--color-gray-300, #d1d5db); color: var(--color-text-primary, #1f2937); border: 1px solid var(--color-gray-400, #9ca3af); border-radius: 4px; cursor: pointer; font-weight: bold; min-width: 32px;">↑</button>
+          <button type="button" class="btn btn-sm btn-secondary move-down" data-index="${index}" style="padding: 4px 10px; margin: 0 2px; background: var(--color-gray-300, #d1d5db); color: var(--color-text-primary, #1f2937); border: 1px solid var(--color-gray-400, #9ca3af); border-radius: 4px; cursor: pointer; font-weight: bold; min-width: 32px;">↓</button>
+          <button type="button" class="btn btn-sm btn-danger remove-test" data-index="${index}" style="padding: 4px 10px; margin-left: 5px; background: var(--color-error, #ef4444); color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; min-width: 32px;">×</button>
         </div>
       `).join('');
       
@@ -792,11 +796,17 @@ function showRunTestsModal() {
       
       hideModal();
       
-      // Show loading
+      // Show loading with progress tracking
       const loadingContent = `
-        <div class="loading">
+        <div class="loading" style="text-align: center; padding: 20px;">
           <h3>Running Tests...</h3>
-          <p>Please wait while tests are executed.</p>
+          <div id="test-progress-info" style="margin: 20px 0;">
+            <p id="test-progress-text">Initializing test execution...</p>
+            <div style="width: 100%; background: var(--color-gray-200, #e5e7eb); border-radius: 10px; height: 24px; margin: 15px 0; overflow: hidden;">
+              <div id="test-progress-bar" style="width: 0%; background: var(--color-primary, #14b8a6); height: 100%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: 600;">0%</div>
+            </div>
+            <p id="test-current-test" style="font-size: 14px; color: var(--color-text-secondary, #6b7280); margin-top: 10px;"></p>
+          </div>
         </div>
       `;
       showModal('Running Tests', loadingContent);
@@ -806,7 +816,11 @@ function showRunTestsModal() {
           projectId: parseInt(projectId),
           selectedTests: selectedTests, // Format: { collectionId: [[path1], [path2], ...] }
           // Preserve the exact order of selected tests across collections so backend can execute in this sequence
-          selectedTestsOrdered: selectedTestsOrder.map(t => ({ collectionId: t.collectionId, path: t.path.split('.').map(p => parseInt(p)) })),
+          selectedTestsOrdered: selectedTestsOrder.map(t => ({ 
+            collectionId: t.collectionId, 
+            path: t.path.split('.').map(p => parseInt(p)),
+            testId: t.testId || `TEST-${selectedTestsOrder.indexOf(t) + 1}`
+          })),
           name: testRunName
         };
         
@@ -834,12 +848,109 @@ function showRunTestsModal() {
           body: requestBody
         });
         
-        hideModal();
-        alert(`Tests completed! ${result.summary.passed} passed, ${result.summary.failed} failed.`);
+        // Start polling for progress immediately
+        const testRunId = result.testRun.id;
+        console.log('[frontend] Starting progress polling for test run:', testRunId);
         
-        // Navigate to test runs view
-        showView('test-runs');
-        loadTestRuns();
+        // Poll immediately first time, then every second
+        const pollProgress = async () => {
+          try {
+            const testRun = await apiRequest(`/test-runs/${testRunId}`);
+            const totalTests = testRun.total_tests || 0;
+            const completedTests = (testRun.passed_tests || 0) + (testRun.failed_tests || 0);
+            const progress = totalTests > 0 ? Math.round((completedTests / totalTests) * 100) : 0;
+            
+            console.log('[frontend] Progress update:', { totalTests, completedTests, progress, status: testRun.status, passed: testRun.passed_tests, failed: testRun.failed_tests });
+            
+            // Update progress bar - try to find elements in modal
+            const modalBody = document.getElementById('modal-body');
+            if (!modalBody) {
+              console.warn('[frontend] Modal body not found');
+              return;
+            }
+            
+            const progressBar = document.getElementById('test-progress-bar');
+            const progressText = document.getElementById('test-progress-text');
+            const currentTestText = document.getElementById('test-current-test');
+            
+            if (!progressBar || !progressText) {
+              console.warn('[frontend] Progress elements not found in DOM. Modal body exists:', !!modalBody);
+              // Try to find by querySelector as fallback
+              const bar = modalBody.querySelector('#test-progress-bar');
+              const text = modalBody.querySelector('#test-progress-text');
+              if (bar && text) {
+                bar.style.width = `${progress}%`;
+                bar.textContent = `${progress}%`;
+                text.textContent = `Progress: ${completedTests} of ${totalTests} tests completed`;
+                const currentText = modalBody.querySelector('#test-current-test');
+                if (currentText) {
+                  const passed = testRun.passed_tests || 0;
+                  const failed = testRun.failed_tests || 0;
+                  if (completedTests < totalTests) {
+                    currentText.textContent = `Running... (${passed} passed, ${failed} failed)`;
+                  } else {
+                    currentText.textContent = `Completed: ${passed} passed, ${failed} failed`;
+                  }
+                }
+              }
+              return;
+            }
+            
+            progressBar.style.width = `${progress}%`;
+            progressBar.textContent = `${progress}%`;
+            progressText.textContent = `Progress: ${completedTests} of ${totalTests} tests completed`;
+            
+            // Show passed/failed counts
+            const passed = testRun.passed_tests || 0;
+            const failed = testRun.failed_tests || 0;
+            if (currentTestText) {
+              if (completedTests < totalTests) {
+                currentTestText.textContent = `Running... (${passed} passed, ${failed} failed)`;
+              } else {
+                currentTestText.textContent = `Completed: ${passed} passed, ${failed} failed`;
+              }
+            }
+            
+            // Check if execution is complete
+            if (testRun.status !== 'running') {
+              if (pollInterval) {
+                clearInterval(pollInterval);
+              }
+              if (window.currentTestPollInterval) {
+                clearInterval(window.currentTestPollInterval);
+                delete window.currentTestPollInterval;
+              }
+              hideModal();
+              
+              const passed = testRun.passed_tests || 0;
+              const failed = testRun.failed_tests || 0;
+              alert(`Tests completed! ${passed} passed, ${failed} failed.`);
+              
+              // Navigate to test runs view
+              showView('test-runs');
+              loadTestRuns();
+            }
+          } catch (pollError) {
+            console.error('Error polling test progress:', pollError);
+            // Continue polling even if one request fails
+          }
+        };
+        
+        // Poll immediately, then every second
+        pollProgress();
+        const pollInterval = setInterval(pollProgress, 1000);
+        
+        // Store interval ID so we can clear it if needed
+        window.currentTestPollInterval = pollInterval;
+        
+        // Set timeout to stop polling after 10 minutes (safety measure)
+        setTimeout(() => {
+          if (pollInterval) {
+            clearInterval(pollInterval);
+            delete window.currentTestPollInterval;
+          }
+        }, 600000);
+        
       } catch (error) {
         hideModal();
         alert('Error running tests: ' + error.message);
@@ -866,8 +977,8 @@ function addEnvVar() {
     newItem.className = 'env-var-item';
     newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
     newItem.innerHTML = `
-      <input type="text" placeholder="Variable name (e.g., bearer_token)" class="env-var-key" style="flex: 1; padding: 8px;">
-      <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px;">
+      <input type="text" placeholder="Variable name (e.g., bearer_token)" class="env-var-key" style="flex: 1; padding: 8px; border: 2px solid var(--color-primary, #14b8a6);">
+      <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px; border: 2px solid var(--color-primary, #14b8a6);">
       <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
     `;
     envVarsList.appendChild(newItem);
@@ -949,8 +1060,8 @@ function onEnvSelected(e) {
           newItem.className = 'env-var-item';
           newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
           newItem.innerHTML = `
-            <input type="text" placeholder="Variable name (optional)" class="env-var-key" style="flex: 1; padding: 8px;" value="token">
-            <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px;" value="${env.token}">
+            <input type="text" placeholder="Variable name (optional)" class="env-var-key" style="flex: 1; padding: 8px; border: 2px solid var(--color-primary, #14b8a6);" value="token">
+            <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px; border: 2px solid var(--color-primary, #14b8a6);" value="${env.token}">
             <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
           `;
           envList.appendChild(newItem);
@@ -994,8 +1105,8 @@ function onEnvSelected(e) {
           newItem.className = 'env-var-item';
           newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
           newItem.innerHTML = `
-            <input type="text" placeholder="Variable name (optional)" class="env-var-key" style="flex: 1; padding: 8px;" value="${k}">
-            <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px;" value="${val}">
+            <input type="text" placeholder="Variable name (optional)" class="env-var-key" style="flex: 1; padding: 8px; border: 2px solid var(--color-primary, #14b8a6);" value="${k}">
+            <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px; border: 2px solid var(--color-primary, #14b8a6);" value="${val}">
             <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
           `;
           envList.appendChild(newItem);
@@ -1039,11 +1150,11 @@ function showCreateEnvModal(existingEnv = null) {
     <form id="create-env-form">
       <div class="form-group">
         <label>Name</label>
-        <input id="env-name" required style="width:100%;padding:8px;margin-bottom:8px" value="${existingName}">
+        <input id="env-name" required style="width:100%;padding:8px;margin-bottom:8px;border:2px solid var(--color-primary, #14b8a6);" value="${existingName}">
       </div>
       <div class="form-group">
         <label>Variables (optional)</label>
-        <div id="create-env-vars-list" style="padding:8px;background:#f8f9fa;border-radius:4px;border:1px solid #ddd;">
+        <div id="create-env-vars-list" style="padding:8px;background: var(--color-gray-50, #f8f9fa);border-radius:4px;border:1px solid var(--color-gray-300, #ddd);">
           <!-- Vars inserted here -->
         </div>
         <div style="margin-top:8px;">
@@ -1067,8 +1178,8 @@ function showCreateEnvModal(existingEnv = null) {
     div.className = 'create-env-var-item';
     div.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;';
     div.innerHTML = `
-      <input type="text" placeholder="Variable name" class="create-env-var-key" style="flex:1;padding:8px;" value="${(key||'')}">
-      <input type="text" placeholder="Value" class="create-env-var-value" style="flex:1;padding:8px;" value="${(value||'')}">
+      <input type="text" placeholder="Variable name" class="create-env-var-key" style="flex:1;padding:8px;border:2px solid var(--color-primary, #14b8a6);" value="${(key||'')}">
+      <input type="text" placeholder="Value" class="create-env-var-value" style="flex:1;padding:8px;border:2px solid var(--color-primary, #14b8a6);" value="${(value||'')}">
       <button type="button" class="btn btn-secondary" style="padding:6px 8px;" onclick="this.closest('.create-env-var-item').remove();">Remove</button>
     `;
     list.appendChild(div);
@@ -1137,7 +1248,7 @@ function showManageEnvsModal() {
     return `
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
         <strong style="flex:1">${e.name}</strong>
-        <div style="font-size:12px;color:#666;flex:3">${details}</div>
+        <div style="font-size:12px;color: var(--color-text-secondary, #6b7280);flex:3">${details}</div>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-sm btn-secondary edit-env" data-id="${e.id}">Edit</button>
           <button class="btn btn-sm btn-danger delete-env" data-id="${e.id}">Delete</button>

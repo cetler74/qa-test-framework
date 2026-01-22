@@ -2,6 +2,7 @@ const handlebars = require('handlebars');
 const fs = require('fs');
 const path = require('path');
 const { TestRun, TestResult, Project, ApiSpec } = require('../models');
+const { literal } = require('sequelize');
 
 // Ensure reports directory exists
 const reportsDir = process.env.REPORTS_DIR || './reports';
@@ -459,6 +460,7 @@ const reportTemplate = `
                 <div class="test-item">
                     <div class="test-item-header" data-detail-id="{{this.groupIndex}}_{{this.itemIndex}}">
                         <div>
+                            {{#if this.test_id}}<span style="margin-right: 10px; font-weight: bold; color: #14b8a6;">{{this.test_id}}</span>{{/if}}
                             <span class="method-badge {{this.method}}">{{this.method}}</span>
                             <span class="test-item-name">{{this.test_name}}</span>
                         </div>
@@ -576,6 +578,30 @@ async function generateReport(testRunId) {
       throw new Error('Test run not found');
     }
 
+    // Check if execution_order column exists before using it
+    let hasExecutionOrder = false;
+    try {
+      await TestResult.sequelize.query(
+        'SELECT execution_order FROM test_results LIMIT 1',
+        { type: TestResult.sequelize.QueryTypes.SELECT }
+      );
+      hasExecutionOrder = true;
+    } catch (colError) {
+      // Column doesn't exist - will use fallback ordering
+      hasExecutionOrder = false;
+    }
+
+    // Build order clause based on whether column exists
+    const orderClause = hasExecutionOrder ? [
+      [literal('CASE WHEN "execution_order" IS NULL THEN 1 ELSE 0 END'), 'ASC'],
+      ['execution_order', 'ASC'], // Sort by execution order first (preserves test execution sequence)
+      ['api_spec_id', 'ASC'], // Fallback to API spec if execution_order is null (for legacy data)
+      ['test_name', 'ASC'] // Final fallback
+    ] : [
+      ['api_spec_id', 'ASC'],
+      ['test_name', 'ASC']
+    ];
+
     // Fetch test results
     const testResults = await TestResult.findAll({
       where: { test_run_id: testRunId },
@@ -587,7 +613,7 @@ async function generateReport(testRunId) {
           required: false
         }
       ],
-      order: [['api_spec_id', 'ASC'], ['test_name', 'ASC']]
+      order: orderClause
     });
 
     // Group test results by API spec

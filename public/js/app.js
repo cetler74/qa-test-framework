@@ -363,7 +363,18 @@ async function viewTestRun(testRunId) {
   try {
     const testRun = await apiRequest(`/test-runs/${testRunId}`);
     
-    document.getElementById('test-run-detail-name').textContent = testRun.name;
+    // Set test run name and date/time at the top with labels
+    const nameElement = document.getElementById('test-run-detail-name');
+    nameElement.innerHTML = `
+      <div style="margin-bottom: 12px; font-size: inherit;">
+        <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Name:</span>
+        <span style="margin-left: 8px;">${testRun.name}</span>
+      </div>
+      <div style="font-size: inherit;">
+        <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Date:</span>
+        <span style="margin-left: 8px;">${formatDateTime(testRun.created_at)}</span>
+      </div>
+    `;
     
     const info = document.getElementById('test-run-info');
     info.innerHTML = `
@@ -387,10 +398,38 @@ async function viewTestRun(testRunId) {
     
     const resultsList = document.getElementById('test-results-list');
     if (testRun.testResults && testRun.testResults.length > 0) {
+      // Recalculate statistics from actual test results if database counts are wrong
+      const actualTotal = testRun.testResults.length;
+      const actualPassed = testRun.testResults.filter(r => r.status === 'passed').length;
+      const actualFailed = testRun.testResults.filter(r => r.status === 'failed').length;
+      
+      // Update stats if they don't match
+      if (testRun.total_tests !== actualTotal || testRun.passed_tests !== actualPassed || testRun.failed_tests !== actualFailed) {
+        info.innerHTML = `
+          <div class="stat-card">
+            <div class="stat-value">${actualTotal}</div>
+            <div class="stat-label">Total Tests</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" style="color: #4caf50;">${actualPassed}</div>
+            <div class="stat-label">Passed</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" style="color: #f44336;">${actualFailed}</div>
+            <div class="stat-label">Failed</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${(testRun.duration_ms / 1000).toFixed(2)}s</div>
+            <div class="stat-label">Duration</div>
+          </div>
+        `;
+      }
+      
       resultsList.innerHTML = testRun.testResults.map(result => `
         <div class="test-result-item">
           <div class="test-result-header">
             <div>
+              ${result.test_id ? `<span style="margin-right: 8px; font-weight: bold; color: #14b8a6;">${result.test_id}</span>` : ''}
               <span class="method-badge ${result.method}">${result.method}</span>
               <strong>${result.test_name}</strong>
             </div>

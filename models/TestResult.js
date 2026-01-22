@@ -63,6 +63,14 @@ const TestResult = sequelize.define('TestResult', {
       key: 'id'
     }
   },
+  execution_order: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  test_id: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
