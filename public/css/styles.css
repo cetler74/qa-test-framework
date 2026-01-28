@@ -246,6 +246,12 @@ main {
     letter-spacing: -0.025em;
 }
 
+.view-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
 /* ============================================
    BUTTONS
    ============================================ */
@@ -1059,7 +1065,8 @@ main {
 .dark-theme .project-info,
 .dark-theme .modal,
 .dark-theme .test-run-detail-content,
-.dark-theme .test-result-item {
+.dark-theme .test-result-item,
+.dark-theme .ui-tests-record-section {
     background: var(--color-bg-secondary) !important;
     border-color: var(--color-border) !important;
     color: var(--color-text-primary) !important;
@@ -1235,4 +1242,204 @@ main {
 .dark-theme #selected-tests-list {
     background: var(--color-bg-secondary) !important;
     border-color: var(--color-border) !important;
+}
+
+/* Run UI Tests page: test list + Complete / Select */
+.run-ui-tests-page {
+    max-width: 720px;
+    margin-top: var(--spacing-lg);
+}
+.run-ui-tests-intro {
+    color: var(--color-text-secondary);
+    margin-bottom: var(--spacing-xl);
+}
+.run-ui-tests-options {
+    display: flex;
+    gap: var(--spacing-xl);
+    margin-bottom: var(--spacing-lg);
+}
+.run-ui-tests-options .radio-label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--color-text-primary);
+}
+.run-ui-tests-options input[type="radio"] {
+    width: 18px;
+    height: 18px;
+}
+.test-list-container {
+    margin-bottom: var(--spacing-xl);
+}
+.test-list-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-md);
+}
+.test-list-select-actions {
+    margin-bottom: var(--spacing-sm);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+.test-list-select-actions .btn-link {
+    padding: 0;
+    min-height: 0;
+    background: none;
+    border: none;
+    color: var(--color-primary);
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+.test-list-select-actions .btn-link:hover {
+    text-decoration: underline;
+}
+.test-list-select-sep {
+    color: var(--color-gray-400);
+    font-size: 0.875rem;
+}
+.playwright-test-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    border: 1px solid var(--color-gray-200);
+    border-radius: var(--radius-lg);
+    background: var(--color-gray-50);
+    overflow: hidden;
+}
+.playwright-test-list.selectable .playwright-test-item {
+    padding-left: var(--spacing-lg);
+}
+.playwright-test-item {
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-bottom: 1px solid var(--color-gray-200);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+.playwright-test-item:last-child {
+    border-bottom: none;
+}
+.playwright-test-name {
+    color: var(--color-text-primary);
+}
+.run-ui-tests-form .form-group {
+    margin-bottom: var(--spacing-lg);
+}
+.run-ui-tests-form .form-group label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: var(--spacing-sm);
+    color: var(--color-text-primary);
+}
+.run-ui-tests-form .form-group input {
+    width: 100%;
+    padding: var(--spacing-md) var(--spacing-lg);
+    border: 1px solid var(--color-gray-300);
+    border-radius: var(--radius-md);
+    font-size: 1rem;
+}
+.run-ui-tests-form .form-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-xl);
+}
+.run-ui-tests-form .form-actions .btn {
+    flex-shrink: 0;
+}
+
+/* UI Tests: prominent recording section */
+.ui-tests-record-section {
+    margin-bottom: var(--spacing-2xl);
+    padding: var(--spacing-xl);
+    background: var(--color-gray-50);
+    border: 1px solid var(--color-gray-200);
+    border-radius: var(--radius-lg);
+}
+.ui-tests-record-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0 0 var(--spacing-sm);
+}
+.ui-tests-record-desc {
+    color: var(--color-text-secondary);
+    margin: 0 0 var(--spacing-lg);
+    font-size: 0.9375rem;
+}
+.ui-tests-record-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+}
+.ui-tests-runs-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: var(--spacing-md);
+}
+
+/* Add / Edit Recorded Test */
+.recorded-test-page {
+    max-width: 800px;
+    margin-top: var(--spacing-lg);
+}
+.recorded-test-intro {
+    color: var(--color-text-secondary);
+    margin-bottom: var(--spacing-xl);
+}
+.recorded-test-intro code {
+    background: var(--color-gray-100);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+}
+.input-with-button {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+}
+.input-with-button input {
+    flex: 1;
+}
+.recorded-test-page .form-group label .required {
+    color: var(--color-error, #dc2626);
+}
+.recorded-test-page textarea {
+    width: 100%;
+    padding: var(--spacing-md);
+    border: 1px solid var(--color-gray-300);
+    border-radius: var(--radius-md);
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    resize: vertical;
+}
+.recorded-test-page .form-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-xl);
+}
+.recorded-tests-list {
+    margin-top: var(--spacing-lg);
+}
+.recorded-tests-list .list-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md) var(--spacing-lg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-sm);
+    background: var(--color-bg-secondary);
+}
+.recorded-tests-list .list-item-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+.recorded-tests-list .list-item-actions .btn {
+    padding: var(--spacing-xs) var(--spacing-md);
+    font-size: 13px;
 }

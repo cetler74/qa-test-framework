@@ -1,0 +1,11 @@
+{
+  "watch": ["server.js", "routes", "services", "models", "config", "public"],
+  "ext": "js,mjs,cjs,json",
+  "ignore": [
+    "reports/**",
+    "uploads/**",
+    "node_modules/**",
+    ".git/**"
+  ]
+}
+

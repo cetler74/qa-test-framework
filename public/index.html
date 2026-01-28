@@ -5,8 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DEO/EPS -- QA Testing Tool</title>
     <link rel="stylesheet" href="/css/styles.css">
-    <!-- Heroicons for modern icon system -->
-    <script src="https://cdn.jsdelivr.net/npm/heroicons@2.0.18/24/outline/index.js" type="module"></script>
 </head>
 <body>
     <div class="app-container">
@@ -39,6 +37,12 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                     </svg>
                     Test Runs
+                </button>
+                <button class="nav-btn" data-view="ui-tests">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                    UI Tests
                 </button>
                 <!-- Theme toggle -->
                 <button id="theme-toggle" class="nav-btn" title="Toggle theme">
@@ -175,6 +179,152 @@
                 <div id="test-runs-list"></div>
             </div>
 
+            <!-- UI Tests View -->
+            <div id="ui-tests-view" class="view">
+                <div class="view-header">
+                    <h2>UI Tests (Playwright)</h2>
+                    <div class="view-header-actions">
+                        <button class="btn btn-secondary" id="manage-recorded-tests-btn">Manage recorded tests</button>
+                        <button class="btn btn-secondary" id="add-recorded-test-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                            </svg>
+                            Add recorded test
+                        </button>
+                        <button class="btn btn-primary" id="run-ui-tests-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Run UI Tests
+                        </button>
+                    </div>
+                </div>
+                <div class="ui-tests-record-section">
+                    <h3 class="ui-tests-record-title">Record a test</h3>
+                    <p class="ui-tests-record-desc">Define a test by recording browser actions with Playwright Codegen, then paste the generated code here.</p>
+                    <div class="ui-tests-record-actions">
+                        <button class="btn btn-primary" id="add-recorded-test-btn-main">Add recorded test</button>
+                        <button class="btn btn-secondary" id="manage-recorded-tests-btn-main">Manage recorded tests</button>
+                    </div>
+                </div>
+                <h3 class="ui-tests-runs-title">Test runs</h3>
+                <div id="playwright-runs-list"></div>
+            </div>
+
+            <!-- Add / Edit Recorded Test view -->
+            <div id="add-recorded-test-view" class="view">
+                <div class="view-header">
+                    <button class="btn btn-secondary" id="back-from-recorded-test">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Back to UI Tests
+                    </button>
+                    <h2 id="recorded-test-form-title">Add recorded test</h2>
+                </div>
+                <div class="recorded-test-page">
+                    <p class="recorded-test-intro">Use Playwright Codegen to record: run <code>npx playwright codegen &lt;your-url&gt;</code> in a terminal, perform actions, then copy the generated code from the Inspector and paste below.</p>
+                    <div class="form-group">
+                        <label for="recorded-test-codegen-url">Copy command (optional)</label>
+                        <div class="input-with-button">
+                            <input type="url" id="recorded-test-codegen-url" placeholder="https://example.com" readonly />
+                            <button type="button" class="btn btn-secondary" id="copy-codegen-cmd-btn">Copy command</button>
+                        </div>
+                    </div>
+                    <form id="recorded-test-form">
+                        <input type="hidden" id="recorded-test-id" value="" />
+                        <div class="form-group">
+                            <label for="recorded-test-name">Test name <span class="required">*</span></label>
+                            <input type="text" id="recorded-test-name" required placeholder="e.g. Login flow" />
+                        </div>
+                        <div class="form-group">
+                            <label for="recorded-test-base-url">Base URL (optional)</label>
+                            <input type="url" id="recorded-test-base-url" placeholder="https://example.com" />
+                        </div>
+                        <div class="form-group">
+                            <label for="recorded-test-spec">Generated spec (paste from Codegen) <span class="required">*</span></label>
+                            <textarea id="recorded-test-spec" rows="14" placeholder="Paste the test code from Playwright Inspector here (test(..., async ({ page }) => { ... }))" spellcheck="false"></textarea>
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-secondary" id="recorded-test-cancel">Cancel</button>
+                            <button type="submit" class="btn btn-primary" id="recorded-test-save">Save</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Recorded tests list (manage) -->
+            <div id="recorded-tests-list-view" class="view">
+                <div class="view-header">
+                    <button class="btn btn-secondary" id="back-from-recorded-tests-list">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Back to UI Tests
+                    </button>
+                    <h2>Recorded tests</h2>
+                    <button class="btn btn-primary" id="recorded-tests-list-add-new">Add recorded test</button>
+                </div>
+                <div id="recorded-tests-list-container" class="recorded-tests-list"></div>
+            </div>
+
+            <!-- Run UI Tests page: list of tests + Complete / Select test list -->
+            <div id="run-ui-tests-view" class="view">
+                <div class="view-header">
+                    <button class="btn btn-secondary" id="back-from-run-ui-tests">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Back to UI Tests
+                    </button>
+                    <h2>Run UI Tests</h2>
+                </div>
+                <div class="run-ui-tests-page">
+                    <p class="run-ui-tests-intro">Choose which tests to run, then start the run.</p>
+                    <div class="run-ui-tests-options">
+                        <label class="radio-label"><input type="radio" name="test-list-type" value="full" checked /> Complete test list</label>
+                        <label class="radio-label"><input type="radio" name="test-list-type" value="selected" /> Select test list</label>
+                    </div>
+                    <div id="playwright-test-list-container" class="test-list-container"></div>
+                    <form id="run-ui-tests-page-form" class="run-ui-tests-form">
+                        <div class="form-group">
+                            <label for="run-ui-tests-name">Run name</label>
+                            <input type="text" id="run-ui-tests-name" required placeholder="e.g. 5G API Sprint check" />
+                        </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-base-url">Base URL</label>
+                            <input type="url" id="run-ui-tests-base-url" placeholder="https://5gapisprint.meoempresas.pt/apis" />
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-secondary" id="run-ui-tests-cancel">Cancel</button>
+                            <button type="submit" class="btn btn-primary">Run</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- UI Test Run Detail View -->
+            <div id="ui-test-detail-view" class="view">
+                <div class="view-header">
+                    <button class="btn btn-secondary" id="back-to-ui-tests">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Back to UI Tests
+                    </button>
+                    <h2 id="ui-test-detail-name"></h2>
+                </div>
+                <div class="test-run-detail-content">
+                    <div class="test-run-info" id="ui-test-info"></div>
+                    <div class="test-run-actions">
+                        <button class="btn btn-primary" id="view-ui-report-btn">View Report</button>
+                        <button class="btn btn-secondary" id="download-ui-report-btn">Download Report</button>
+                    </div>
+                    <div id="playwright-results-list"></div>
+                </div>
+            </div>
+
             <!-- Test Run Detail View -->
             <div id="test-run-detail-view" class="view">
                 <div class="view-header">
@@ -228,6 +378,7 @@
     <script src="/js/projectManager.js"></script>
     <script src="/js/testRunner.js"></script>
     <script src="/js/reportViewer.js"></script>
+    <script src="/js/uiTests.js"></script>
 </body>
 </html>
 

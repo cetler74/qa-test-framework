@@ -154,6 +154,9 @@ async function loadViewData(view) {
     case 'test-runs':
       loadTestRuns();
       break;
+    case 'ui-tests':
+      if (typeof loadPlaywrightRuns === 'function') loadPlaywrightRuns();
+      break;
   }
 }
 

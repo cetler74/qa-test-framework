@@ -22,6 +22,11 @@ MAX_FILE_SIZE=10485760
 
 # Report Configuration
 REPORTS_DIR=./reports
+
+# Playwright / UI Tests (optional)
+PLAYWRIGHT_BASE_URL=https://5gapisprint.meoempresas.pt/apis
+PLAYWRIGHT_TIMEOUT_MS=30000
+PLAYWRIGHT_HEADLESS=true
 ```
 
 **Important**: Replace `your_actual_password_here` with your actual PostgreSQL password.
@@ -35,8 +40,8 @@ npm run migrate
 ```
 
 This will:
-- Create the `qa_framework` database if it doesn't exist
-- Create all necessary tables
+- Create the database if it doesn't exist (name from `DB_NAME` in `.env`)
+- Create all necessary tables (including `playwright_runs`, `playwright_results`, and `playwright_recorded_tests` for UI tests)
 
 ## 3. Start the Server
 
@@ -65,6 +70,17 @@ DB_PASSWORD=your_password_here
 ```
 
 If your password contains special characters, make sure to quote it or escape them properly.
+
+### Error: "Connection refused"
+
+This means PostgreSQL is not running or the connection details are incorrect.
+
+**Solution**: 
+- Make sure PostgreSQL is running
+- Verify `DB_HOST`, `DB_PORT`, and `DB_USER` in your `.env` file
+- Check that your PostgreSQL user has permission to create databases
+
+pe them properly.
 
 ### Error: "Connection refused"
 
