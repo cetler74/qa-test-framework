@@ -208,6 +208,52 @@
     loadPlaywrightRuns();
   });
 
+  let currentCodegenSlug = null;
+  let autoRefreshInterval = null;
+
+  function stopAutoRefresh() {
+    if (autoRefreshInterval) {
+      clearInterval(autoRefreshInterval);
+      autoRefreshInterval = null;
+    }
+    const autoRefreshBtn = document.getElementById('auto-refresh-codegen-btn');
+    if (autoRefreshBtn) {
+      autoRefreshBtn.textContent = 'Auto-refresh: OFF';
+      autoRefreshBtn.classList.remove('btn-primary');
+      autoRefreshBtn.classList.add('btn-secondary');
+    }
+  }
+
+  function startAutoRefresh() {
+    stopAutoRefresh();
+    const autoRefreshBtn = document.getElementById('auto-refresh-codegen-btn');
+    if (!currentCodegenSlug || !autoRefreshBtn) return;
+    autoRefreshBtn.textContent = 'Auto-refresh: ON';
+    autoRefreshBtn.classList.remove('btn-secondary');
+    autoRefreshBtn.classList.add('btn-primary');
+    autoRefreshInterval = setInterval(() => {
+      loadCodegenOutput(currentCodegenSlug, false);
+    }, 2000); // Check every 2 seconds
+  }
+
+  async function loadCodegenOutput(slug, showAlert = true) {
+    if (!slug) return;
+    try {
+      const res = await apiRequest(`/playwright-recorded-tests/codegen-output/${slug}`);
+      const specInput = document.getElementById('recorded-test-spec');
+      if (specInput && res.content) {
+        specInput.value = res.content;
+        if (showAlert) {
+          alert('Generated code loaded successfully!');
+        }
+      }
+    } catch (err) {
+      if (showAlert && !err.message.includes('not found')) {
+        alert('Error loading generated code: ' + err.message);
+      }
+    }
+  }
+
   function showAddRecordedTestView(editId) {
     const form = document.getElementById('recorded-test-form');
     const idInput = document.getElementById('recorded-test-id');
@@ -216,7 +262,18 @@
     const baseUrlInput = document.getElementById('recorded-test-base-url');
     const specInput = document.getElementById('recorded-test-spec');
     const codegenUrlInput = document.getElementById('recorded-test-codegen-url');
+    const loadBtn = document.getElementById('load-codegen-output-btn');
+    const autoRefreshBtn = document.getElementById('auto-refresh-codegen-btn');
     if (!form) return;
+    
+    // Reset codegen state when opening form (unless editing)
+    if (!editId) {
+      currentCodegenSlug = null;
+      stopAutoRefresh();
+      if (loadBtn) loadBtn.style.display = 'none';
+      if (autoRefreshBtn) autoRefreshBtn.style.display = 'none';
+    }
+    
     idInput.value = editId || '';
     titleEl.textContent = editId ? 'Edit recorded test' : 'Add recorded test';
     nameInput.value = '';
@@ -232,9 +289,16 @@
         })
         .catch(err => alert('Error loading recorded test: ' + err.message));
     } else {
+      // Load default URL from config, but make it editable
       apiRequest('/playwright-config').then(c => {
-        codegenUrlInput.value = (c.baseUrl || '').trim() || 'https://example.com';
-      }).catch(() => { codegenUrlInput.value = 'https://example.com'; });
+        const defaultUrl = (c.baseUrl || '').trim() || 'https://example.com';
+        codegenUrlInput.value = defaultUrl;
+        // Also set it in base URL field for convenience
+        if (baseUrlInput) baseUrlInput.value = defaultUrl;
+      }).catch(() => { 
+        codegenUrlInput.value = 'https://example.com';
+        if (baseUrlInput) baseUrlInput.value = 'https://example.com';
+      });
     }
     showView('add-recorded-test');
   }
@@ -242,12 +306,68 @@
   document.getElementById('add-recorded-test-btn')?.addEventListener('click', () => showAddRecordedTestView());
   document.getElementById('add-recorded-test-btn-main')?.addEventListener('click', () => showAddRecordedTestView());
   document.getElementById('back-from-recorded-test')?.addEventListener('click', () => {
+    stopAutoRefresh();
+    currentCodegenSlug = null;
     showView('ui-tests');
     loadPlaywrightRuns();
   });
   document.getElementById('recorded-test-cancel')?.addEventListener('click', () => {
+    stopAutoRefresh();
+    currentCodegenSlug = null;
     showView('ui-tests');
     loadPlaywrightRuns();
+  });
+
+  document.getElementById('launch-codegen-btn')?.addEventListener('click', async () => {
+    const urlInput = document.getElementById('recorded-test-codegen-url');
+    const baseUrlInput = document.getElementById('recorded-test-base-url');
+    const url = (urlInput?.value || '').trim();
+    if (!url) {
+      alert('Please enter a Base URL for recording');
+      return;
+    }
+    try {
+      const res = await apiRequest('/playwright-recorded-tests/launch-codegen', {
+        method: 'POST',
+        body: { baseUrl: url }
+      });
+      // Store the slug for loading the output
+      currentCodegenSlug = res.slug;
+      // Show the load button
+      const loadBtn = document.getElementById('load-codegen-output-btn');
+      const autoRefreshBtn = document.getElementById('auto-refresh-codegen-btn');
+      if (loadBtn) loadBtn.style.display = 'inline-block';
+      if (autoRefreshBtn) autoRefreshBtn.style.display = 'inline-block';
+      
+      // Also update base URL field if empty
+      if (baseUrlInput && !baseUrlInput.value.trim()) {
+        baseUrlInput.value = url;
+      }
+      
+      alert(res.message || 'Codegen launched! Browser and Inspector should open. Record your interactions, then click "Load generated code" to load the test code.');
+    } catch (err) {
+      alert('Error launching Codegen: ' + err.message);
+    }
+  });
+
+  document.getElementById('load-codegen-output-btn')?.addEventListener('click', () => {
+    if (currentCodegenSlug) {
+      loadCodegenOutput(currentCodegenSlug, true);
+    } else {
+      alert('No codegen session active. Click "Launch Codegen" first.');
+    }
+  });
+
+  document.getElementById('auto-refresh-codegen-btn')?.addEventListener('click', () => {
+    if (!currentCodegenSlug) {
+      alert('No codegen session active. Click "Launch Codegen" first.');
+      return;
+    }
+    if (autoRefreshInterval) {
+      stopAutoRefresh();
+    } else {
+      startAutoRefresh();
+    }
   });
 
   document.getElementById('copy-codegen-cmd-btn')?.addEventListener('click', () => {
@@ -259,6 +379,7 @@
 
   document.getElementById('recorded-test-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    stopAutoRefresh();
     const idInput = document.getElementById('recorded-test-id');
     const name = document.getElementById('recorded-test-name')?.value?.trim();
     const baseUrl = document.getElementById('recorded-test-base-url')?.value?.trim() || null;
@@ -274,6 +395,7 @@
         await apiRequest('/playwright-recorded-tests', { method: 'POST', body: { name, spec_content: spec, base_url: baseUrl } });
         alert('Recorded test saved. It will appear in the test list when you run UI tests.');
       }
+      currentCodegenSlug = null;
       showView('ui-tests');
       loadPlaywrightRuns();
     } catch (err) {

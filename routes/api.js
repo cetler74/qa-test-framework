@@ -867,16 +867,41 @@ router.post('/playwright-recorded-tests/launch-codegen', async (req, res) => {
         error: 'Cannot launch Codegen: no display available. Use paste-and-save: run "npx playwright codegen <url>" locally, then paste the generated code here.'
       });
     }
-    const child = spawn('npx', ['playwright', 'codegen', '--output', outputPath, url], {
+    const isWin = process.platform === 'win32';
+    const command = isWin ? 'npx.cmd' : 'npx';
+    const args = ['playwright', 'codegen', '--output', outputPath, url];
+    const child = spawn(command, args, {
       stdio: 'ignore',
       detached: true,
+      shell: isWin,
       cwd: path.join(__dirname, '..')
     });
     child.unref();
+    // Return relative path for security (client can request it via API)
+    const relativePath = path.relative(path.join(__dirname, '..'), outputPath);
     res.status(202).json({
-      message: 'Browser and Inspector opened. When done, close the Inspector; then use "Add recorded test" and paste the content of the generated file.',
-      outputPath: outputPath
+      message: 'Browser and Inspector opened. Record your interactions, then click "Load generated code" to load the test code.',
+      outputPath: relativePath,
+      slug: slug
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Read generated codegen file
+router.get('/playwright-recorded-tests/codegen-output/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    if (!slug || typeof slug !== 'string' || slug.includes('..') || slug.includes('/')) {
+      return res.status(400).json({ error: 'Invalid slug' });
+    }
+    const outputPath = path.join(__dirname, '..', 'e2e', 'recorded', `${slug}.spec.js`);
+    if (!fs.existsSync(outputPath)) {
+      return res.status(404).json({ error: 'Generated file not found. Codegen may still be running or the file was not created.' });
+    }
+    const content = fs.readFileSync(outputPath, 'utf8');
+    res.json({ content, outputPath: path.relative(path.join(__dirname, '..'), outputPath) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

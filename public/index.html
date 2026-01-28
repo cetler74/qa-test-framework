@@ -224,11 +224,12 @@
                     <h2 id="recorded-test-form-title">Add recorded test</h2>
                 </div>
                 <div class="recorded-test-page">
-                    <p class="recorded-test-intro">Use Playwright Codegen to record: run <code>npx playwright codegen &lt;your-url&gt;</code> in a terminal, perform actions, then copy the generated code from the Inspector and paste below.</p>
+                    <p class="recorded-test-intro">Use Playwright Codegen to record browser interactions. Click "Launch Codegen" to open the browser and Inspector automatically, or copy the command to run it manually in a terminal.</p>
                     <div class="form-group">
-                        <label for="recorded-test-codegen-url">Copy command (optional)</label>
+                        <label for="recorded-test-codegen-url">Base URL for recording</label>
                         <div class="input-with-button">
-                            <input type="url" id="recorded-test-codegen-url" placeholder="https://example.com" readonly />
+                            <input type="url" id="recorded-test-codegen-url" placeholder="https://example.com" />
+                            <button type="button" class="btn btn-primary" id="launch-codegen-btn">Launch Codegen</button>
                             <button type="button" class="btn btn-secondary" id="copy-codegen-cmd-btn">Copy command</button>
                         </div>
                     </div>
@@ -244,7 +245,11 @@
                         </div>
                         <div class="form-group">
                             <label for="recorded-test-spec">Generated spec (paste from Codegen) <span class="required">*</span></label>
-                            <textarea id="recorded-test-spec" rows="14" placeholder="Paste the test code from Playwright Inspector here (test(..., async ({ page }) => { ... }))" spellcheck="false"></textarea>
+                            <div class="input-with-button" style="margin-bottom: 8px;">
+                                <button type="button" class="btn btn-secondary" id="load-codegen-output-btn" style="display: none;">Load generated code</button>
+                                <button type="button" class="btn btn-secondary" id="auto-refresh-codegen-btn" style="display: none;">Auto-refresh: OFF</button>
+                            </div>
+                            <textarea id="recorded-test-spec" rows="14" placeholder="Paste the test code from Playwright Inspector here, or click 'Launch Codegen' and then 'Load generated code' to automatically load it (test(..., async ({ page }) => { ... }))" spellcheck="false"></textarea>
                         </div>
                         <div class="form-actions">
                             <button type="button" class="btn btn-secondary" id="recorded-test-cancel">Cancel</button>

@@ -1401,9 +1401,14 @@ main {
     display: flex;
     gap: var(--spacing-sm);
     align-items: center;
+    flex-wrap: wrap;
 }
 .input-with-button input {
     flex: 1;
+    min-width: 200px;
+}
+.input-with-button button {
+    white-space: nowrap;
 }
 .recorded-test-page .form-group label .required {
     color: var(--color-error, #dc2626);
