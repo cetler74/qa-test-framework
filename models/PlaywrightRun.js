@@ -19,6 +19,14 @@ const PlaywrightRun = sequelize.define('PlaywrightRun', {
     type: DataTypes.STRING(500),
     allowNull: true
   },
+  project_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'projects',
+      key: 'id'
+    }
+  },
   total_tests: {
     type: DataTypes.INTEGER,
     allowNull: true

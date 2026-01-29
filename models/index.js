@@ -8,6 +8,7 @@ const ProjectApiSpec = require('./ProjectApiSpec');
 const PlaywrightRun = require('./PlaywrightRun');
 const PlaywrightResult = require('./PlaywrightResult');
 const PlaywrightRecordedTest = require('./PlaywrightRecordedTest');
+const ProjectRecordedTest = require('./ProjectRecordedTest');
 
 // Define associations
 Project.belongsToMany(ApiSpec, {
@@ -69,6 +70,30 @@ PlaywrightResult.belongsTo(PlaywrightRun, {
   as: 'playwrightRun'
 });
 
+Project.hasMany(PlaywrightRun, {
+  foreignKey: 'project_id',
+  as: 'playwrightRuns'
+});
+
+PlaywrightRun.belongsTo(Project, {
+  foreignKey: 'project_id',
+  as: 'project'
+});
+
+Project.belongsToMany(PlaywrightRecordedTest, {
+  through: ProjectRecordedTest,
+  foreignKey: 'project_id',
+  otherKey: 'recorded_test_id',
+  as: 'recordedTests'
+});
+
+PlaywrightRecordedTest.belongsToMany(Project, {
+  through: ProjectRecordedTest,
+  foreignKey: 'recorded_test_id',
+  otherKey: 'project_id',
+  as: 'projects'
+});
+
 module.exports = {
   sequelize,
   Project,
@@ -79,6 +104,7 @@ module.exports = {
   ProjectApiSpec,
   PlaywrightRun,
   PlaywrightResult,
-  PlaywrightRecordedTest
+  PlaywrightRecordedTest,
+  ProjectRecordedTest
 };
 

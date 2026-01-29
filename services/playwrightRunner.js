@@ -1,12 +1,105 @@
 const { chromium } = require('playwright');
+
+
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
-const { PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest } = require('../models');
+const { PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest } = require('../models');
 const playwrightConfig = require('../config/playwright');
 const uiTestsConfig = require('../e2e/ui-tests.config');
 
 const REPORTS_DIR = path.join(__dirname, '..', 'reports');
+
+/**
+ * Parse recorded spec content to extract step descriptions (navigation, clicks, fills, checks, expectations).
+ * Returns an array of { description } in execution order, similar to precreated UI test validations.
+ * @param {string} specContent - Raw spec JS/TS content
+ * @returns {Array<{ description: string }>}
+ */
+function parseRecordedSpecSteps(specContent) {
+  if (!specContent || typeof specContent !== 'string') return [];
+  const steps = [];
+  const lines = specContent.split(/\r?\n/);
+  function extractStrings(line) {
+    const out = [];
+    let m;
+    const re = /['"](?:[^'"\\]|\\.)*['"]/g;
+    while ((m = re.exec(line)) !== null) out.push(m[0].slice(1, -1).replace(/\\(.)/g, '$1'));
+    return out;
+  }
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('import ') || trimmed.startsWith('test(')) continue;
+    const strings = extractStrings(line);
+    // getByRole('role', { name: 'X' }) -> strings[0]=role, strings[1]=name. Other patterns may have different order.
+    const roleName = strings.length >= 2 ? strings[1] : (strings[0] || '');
+    // page.goto('...')
+    if (/page\.goto\s*\(/.test(line)) {
+      const url = strings[0] || 'URL';
+      const short = url.replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '') || url;
+      steps.push({ description: `Navigate to ${short}` });
+      continue;
+    }
+    // expect(...).toContainText('...')
+    if (/expect\s*\(.*\)\.toContainText\s*\(/.test(line)) {
+      steps.push({ description: strings.length ? `Expect content to contain "${strings[strings.length - 1]}"` : 'Expect content' });
+      continue;
+    }
+    // getByRole('textbox', { name: 'X' }).fill('Y') -> strings: role, name, value (value is last)
+    if (/getByRole\s*\(\s*['"]textbox['"]/.test(line) && /\.fill\s*\(/.test(line)) {
+      const name = strings.length >= 2 ? strings[1] : (strings[0] || 'field');
+      const value = strings.length >= 3 ? strings[strings.length - 1] : (strings.length === 1 ? strings[0] : '');
+      const isPasswordLike = /palavra-passe|password|senha/i.test(name);
+      const displayValue = isPasswordLike ? '***' : (value ? `"${value}"` : 'text');
+      steps.push({ description: `Fill "${name}" with ${displayValue}` });
+      continue;
+    }
+    // getByRole('textbox', { name: 'X' }).press('Key')
+    if (/getByRole\s*\(\s*['"]textbox['"]/.test(line) && /\.press\s*\(/.test(line)) {
+      const name = strings.length >= 2 ? strings[1] : (strings[0] || 'field');
+      steps.push({ description: `Press key in "${name}"` });
+      continue;
+    }
+    // getByRole('checkbox', { name: 'X' }).check()
+    if (/getByRole\s*\(\s*['"]checkbox['"]/.test(line) && /\.check\s*\(/.test(line)) {
+      const name = roleName || 'checkbox';
+      steps.push({ description: `Check "${name}"` });
+      continue;
+    }
+    // getByRole('option', { name: 'X' }).click()
+    if (/getByRole\s*\(\s*['"]option['"]/.test(line) && /\.click\s*\(/.test(line)) {
+      const name = roleName || 'option';
+      steps.push({ description: `Select option "${name}"` });
+      continue;
+    }
+    // getByRole('button'|'link'|..., { name: 'X' }).click()
+    if (/getByRole\s*\(\s*['"](button|link|menuitem|tab)['"]/.test(line) && /\.click\s*\(/.test(line)) {
+      const role = (line.match(/getByRole\s*\(\s*['"](button|link|menuitem|tab)['"]/) || [])[1] || 'element';
+      const name = roleName || '';
+      steps.push({ description: `Click ${role} "${name}"` });
+      continue;
+    }
+    // getByRole('textbox', { name: 'X' }).click()
+    if (/getByRole\s*\(\s*['"]textbox['"]/.test(line) && /\.click\s*\(/.test(line)) {
+      const name = roleName || 'field';
+      steps.push({ description: `Click textbox "${name}"` });
+      continue;
+    }
+    // locator(...).filter({ hasText: 'X' }).click() -> first string is the selector, second is hasText
+    if (/\.filter\s*\(\s*\{\s*hasText\s*:/.test(line) && /\.click\s*\(/.test(line)) {
+      const text = strings.length >= 1 ? strings[strings.length - 1] : 'element';
+      steps.push({ description: `Click "${text}"` });
+      continue;
+    }
+    // Generic getByRole(..., { name: 'X' }).click()
+    if (/getByRole\s*\(/.test(line) && /\.click\s*\(/.test(line)) {
+      const name = roleName || 'element';
+      steps.push({ description: `Click "${name}"` });
+      continue;
+    }
+  }
+  return steps;
+}
 
 /** Build the full list of test ids and names (for UI and runOnly filtering). */
 function getPlaywrightTestList() {
@@ -32,16 +125,29 @@ function getPlaywrightTestList() {
 /**
  * Combined list: built-in tests + recorded tests from DB.
  * Recorded entries have id like "recorded-<numericId>".
+ * @param {number} [projectId] - If set, only include recorded tests linked to this project (project_recorded_tests).
  * @returns {Promise<Array<{ id: string, name: string, base_url?: string }>>}
  */
-async function getPlaywrightTestListWithRecorded() {
+async function getPlaywrightTestListWithRecorded(projectId = null) {
   const builtIn = getPlaywrightTestList();
   let recorded = [];
   try {
-    const rows = await PlaywrightRecordedTest.findAll({
+    const options = {
       order: [['created_at', 'DESC']],
       attributes: ['id', 'name', 'base_url']
-    });
+    };
+    if (projectId) {
+      const links = await ProjectRecordedTest.findAll({
+        where: { project_id: projectId },
+        attributes: ['recorded_test_id']
+      });
+      const ids = links.map(l => l.recorded_test_id);
+      if (ids.length === 0) {
+        return [...builtIn];
+      }
+      options.where = { id: ids };
+    }
+    const rows = await PlaywrightRecordedTest.findAll(options);
     recorded = rows.map(r => ({
       id: `recorded-${r.id}`,
       name: `Recorded: ${r.name}`,
@@ -80,14 +186,20 @@ async function runPlaywrightTests(options = {}) {
   let failed = 0;
   let order = 0;
 
+  const hasBuiltInToRun = builtInRunOnly === null || builtInRunOnly.length > 0;
+  const filterValidations = uiTestsConfig.filterValidations || [];
+  const sections = uiTestsConfig.apiSections || [];
+  // Start with 0 total; we update with actual result count as tests complete (recorded specs can have multiple test() blocks).
+  await updateRunSummary(runId, 0, 0, 0, 0, 'running');
+
   const record = async (orderNum, testName, status, durationMs, endpoint, errorMessage, assertions) => {
     results.push({ test_name: testName, status, duration_ms: durationMs, endpoint, error_message: errorMessage, assertions, execution_order: orderNum });
     await recordResult(runId, orderNum, testName, status, durationMs, endpoint, errorMessage, assertions);
     total++;
     if (status === 'passed') passed++; else failed++;
+    // Use actual total so progress shows "X of X" (recorded specs can report more than one result).
+    await updateRunSummary(runId, total, passed, failed, Date.now() - startTime, 'running');
   };
-
-  const hasBuiltInToRun = builtInRunOnly === null || builtInRunOnly.length > 0;
   let browser;
   let page;
 
@@ -113,19 +225,23 @@ async function runPlaywrightTests(options = {}) {
   try {
     const t0 = Date.now();
     const popupWaitMs = 8000;
+    const validations = [];
     const btn = page.locator('button, a, [role="button"]').filter({ hasText: /CONCORDO/i }).first();
     await btn.waitFor({ state: 'visible', timeout: popupWaitMs }).catch(() => null);
     const visible = await btn.isVisible().catch(() => false);
+    validations.push({ description: 'Consent popup / CONCORDO button visible', passed: visible });
     if (visible) {
       await btn.scrollIntoViewIfNeeded().catch(() => {});
       await btn.click({ timeout: 5000 });
       await new Promise(r => setTimeout(r, 500));
-      await record(++order, 'Accept consent (CONCORDO)', 'passed', Date.now() - t0, page.url(), null, null);
+      validations.push({ description: 'CONCORDO button clicked', passed: true });
+      await record(++order, 'Accept consent (CONCORDO)', 'passed', Date.now() - t0, page.url(), null, { validations });
     } else {
-      await record(++order, 'Accept consent (CONCORDO)', 'failed', Date.now() - t0, page.url(), 'CONCORDO button not found in consent popup', { message: 'Consent button not present' });
+      validations.push({ description: 'CONCORDO button clicked', passed: false, detail: 'Button not found' });
+      await record(++order, 'Accept consent (CONCORDO)', 'failed', Date.now() - t0, page.url(), 'CONCORDO button not found in consent popup', { validations, message: 'Consent button not present' });
     }
   } catch (err) {
-    await record(++order, 'Accept consent (CONCORDO)', 'failed', 0, page.url(), err.message || String(err), null);
+    await record(++order, 'Accept consent (CONCORDO)', 'failed', 0, page.url(), err.message || String(err), { validations: [{ description: 'Accept consent', passed: false, detail: err.message || String(err) }] });
   }
   }
 
@@ -136,9 +252,14 @@ async function runPlaywrightTests(options = {}) {
     const response = await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
     const duration = Date.now() - t0;
     const ok = response && response.ok();
-    await record(++order, 'Page load', ok ? 'passed' : 'failed', duration, baseUrl, ok ? null : `HTTP ${response?.status()}`, { status: response?.status(), ok: !!ok });
+    const statusCode = response?.status();
+    const validations = [
+      { description: 'Navigation to base URL', passed: !!response },
+      { description: `HTTP response OK (status ${statusCode})`, passed: !!ok, detail: statusCode != null ? `Status: ${statusCode}` : undefined }
+    ];
+    await record(++order, 'Page load', ok ? 'passed' : 'failed', duration, baseUrl, ok ? null : `HTTP ${statusCode}`, { validations, status: statusCode, ok: !!ok });
   } catch (err) {
-    await record(++order, 'Page load', 'failed', 0, baseUrl, err.message || String(err), null);
+    await record(++order, 'Page load', 'failed', 0, baseUrl, err.message || String(err), { validations: [{ description: 'Page load', passed: false, detail: err.message || String(err) }] });
   }
   }
 
@@ -153,14 +274,18 @@ async function runPlaywrightTests(options = {}) {
     const testName = `Filter: ${fv.categoryName} shows only expected sections`;
     const t0 = Date.now();
     try {
+      const validations = [];
       await page.goto(sectionBaseUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs }).catch(() => {});
       await new Promise(r => setTimeout(r, 1000));
+      validations.push({ description: 'Navigate to /apis', passed: true });
       // Clear filters first
       const clearAll = page.locator('a, button').filter({ hasText: /Limpar tudo/i }).first();
-      if (await clearAll.isVisible().catch(() => false)) {
+      const clearVisible = await clearAll.isVisible().catch(() => false);
+      if (clearVisible) {
         await clearAll.click({ timeout: 3000 }).catch(() => {});
         await new Promise(r => setTimeout(r, 800));
       }
+      validations.push({ description: 'Clear filters (Limpar tudo)', passed: true });
       // Find and check the category checkbox (e.g. "Device Location")
       const categoryRe = new RegExp(fv.categoryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       const checkbox = page.getByRole('checkbox', { name: categoryRe }).first();
@@ -173,8 +298,9 @@ async function runPlaywrightTests(options = {}) {
         await labelOrDiv.click({ timeout: 5000 }).catch(() => {});
         checked = true;
       }
+      validations.push({ description: `Filter option "${fv.categoryName}" found and selected`, passed: checked });
       if (!checked) {
-        await record(++order, testName, 'failed', Date.now() - t0, page.url(), `Filter option "${fv.categoryName}" not found or not clickable`, null);
+        await record(++order, testName, 'failed', Date.now() - t0, page.url(), `Filter option "${fv.categoryName}" not found or not clickable`, { validations });
         continue;
       }
       await new Promise(r => setTimeout(r, 1500));
@@ -182,22 +308,32 @@ async function runPlaywrightTests(options = {}) {
       const expectedSections = fv.expectedSections || [];
       const errors = [];
       for (const sec of expectedSections) {
-        if (!mainText.includes(sec.title)) errors.push(`Section "${sec.title}" not found`);
-        else if (sec.descriptionContains && !mainText.includes(sec.descriptionContains)) errors.push(`Section "${sec.title}" missing description: "${sec.descriptionContains}"`);
-        if (sec.envLabels) {
-          for (const env of sec.envLabels) {
-            if (!mainText.includes(env)) errors.push(`Section "${sec.title}" missing environment: ${env}`);
+        const secFound = mainText.includes(sec.title);
+        validations.push({ description: `Section "${sec.title}" found`, passed: secFound });
+        if (!secFound) errors.push(`Section "${sec.title}" not found`);
+        else {
+          if (sec.descriptionContains) {
+            const descOk = mainText.includes(sec.descriptionContains);
+            validations.push({ description: `Section "${sec.title}" contains expected description`, passed: descOk });
+            if (!descOk) errors.push(`Section "${sec.title}" missing description: "${sec.descriptionContains}"`);
+          }
+          if (sec.envLabels) {
+            for (const env of sec.envLabels) {
+              const envOk = mainText.includes(env);
+              validations.push({ description: `Section "${sec.title}" has environment: ${env}`, passed: envOk });
+              if (!envOk) errors.push(`Section "${sec.title}" missing environment: ${env}`);
+            }
           }
         }
       }
       const duration = Date.now() - t0;
       if (errors.length > 0) {
-        await record(++order, testName, 'failed', duration, page.url(), errors.join('; '), { expectedSections: fv.expectedSections, errors });
+        await record(++order, testName, 'failed', duration, page.url(), errors.join('; '), { validations, expectedSections: fv.expectedSections, errors });
       } else {
-        await record(++order, testName, 'passed', duration, page.url(), null, { category: fv.categoryName, sections: expectedSections.map(s => s.title) });
+        await record(++order, testName, 'passed', duration, page.url(), null, { validations, category: fv.categoryName, sections: expectedSections.map(s => s.title) });
       }
     } catch (err) {
-      await record(++order, testName, 'failed', Date.now() - t0, page.url(), err.message || String(err), null);
+      await record(++order, testName, 'failed', Date.now() - t0, page.url(), err.message || String(err), { validations: [{ description: 'Filter validation', passed: false, detail: err.message || String(err) }] });
     }
   }
 
@@ -210,8 +346,10 @@ async function runPlaywrightTests(options = {}) {
     const testName = `API section: ${section.name}`;
     const t0 = Date.now();
     try {
+      const validations = [];
       await page.goto(sectionBaseUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs }).catch(() => {});
       await new Promise(r => setTimeout(r, 800));
+      validations.push({ description: 'Navigate to /apis', passed: true });
 
       const linkText = section.linkText || section.name;
       const linkRe = new RegExp(linkText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
@@ -248,8 +386,9 @@ async function runPlaywrightTests(options = {}) {
         clicked = true;
         break;
       }
+      validations.push({ description: `Section link/card "${linkText}" found and clicked`, passed: clicked });
       if (!clicked) {
-        await record(++order, testName, 'failed', Date.now() - t0, page.url(), `Section box/link not found: ${linkText}`, null);
+        await record(++order, testName, 'failed', Date.now() - t0, page.url(), `Section box/link not found: ${linkText}`, { validations });
         continue;
       }
       await new Promise(r => setTimeout(r, 1000));
@@ -257,25 +396,32 @@ async function runPlaywrightTests(options = {}) {
       const excludedEndpoints = (uiTestsConfig.excludedEndpoints || []).map(u => u.replace(/\/$/, ''));
       const isExcludedUrl = (url) => excludedEndpoints.some(ex => url === ex || url.startsWith(ex + '/'));
 
-      if (isExcludedUrl(page.url())) {
-        await record(++order, testName, 'failed', Date.now() - t0, page.url(), 'Invalid endpoint (removed from tests): ' + page.url(), { excluded: true });
+      const urlExcluded = isExcludedUrl(page.url());
+      validations.push({ description: 'Page URL not excluded from tests', passed: !urlExcluded });
+      if (urlExcluded) {
+        await record(++order, testName, 'failed', Date.now() - t0, page.url(), 'Invalid endpoint (removed from tests): ' + page.url(), { validations, excluded: true });
         continue;
       }
 
       const envBtn = section.envButton || 'Sandbox';
       const envLink = page.getByRole('link', { name: new RegExp(envBtn, 'i') }).first();
-      if (await envLink.count() > 0) {
+      const envLinkCount = await envLink.count();
+      if (envLinkCount > 0) {
         const href = await envLink.getAttribute('href').catch(() => '');
         const resolvedHref = href ? new URL(href, sectionBaseUrl).href : '';
-        if (!resolvedHref || !excludedEndpoints.some(ex => resolvedHref.startsWith(ex.replace(/\/$/, '')))) {
+        const envExcluded = resolvedHref && excludedEndpoints.some(ex => resolvedHref.startsWith(ex.replace(/\/$/, '')));
+        if (!resolvedHref || !envExcluded) {
           await envLink.click({ timeout: 5000 }).catch(() => {});
           await new Promise(r => setTimeout(r, 1000));
         }
+        validations.push({ description: `Environment link "${envBtn}" found and selected`, passed: true });
       }
 
       const currentUrl = page.url();
-      if (isExcludedUrl(currentUrl)) {
-        await record(++order, testName, 'failed', Date.now() - t0, currentUrl, 'Invalid endpoint (removed from tests): ' + currentUrl, { excluded: true });
+      const currentExcluded = isExcludedUrl(currentUrl);
+      validations.push({ description: 'Current URL not excluded after navigation', passed: !currentExcluded });
+      if (currentExcluded) {
+        await record(++order, testName, 'failed', Date.now() - t0, currentUrl, 'Invalid endpoint (removed from tests): ' + currentUrl, { validations, excluded: true });
         continue;
       }
 
@@ -292,6 +438,8 @@ async function runPlaywrightTests(options = {}) {
         else if (await tabAsButton.count() > 0) tabEl = tabAsButton;
         else if (await tabAsLink.count() > 0) tabEl = tabAsLink;
 
+        const tabFound = !!tabEl;
+        validations.push({ description: `Tab "${tabName}" found`, passed: tabFound });
         if (!tabEl) {
           tabErrors.push(`Tab "${tabName}" not found`);
           continue;
@@ -302,20 +450,23 @@ async function runPlaywrightTests(options = {}) {
         const contentSelectors = '[role="tabpanel"], .tab-content, .tabpanel, [class*="tab-panel"], [class*="TabPanel"], main, [class*="content"]';
         const content = await page.locator(contentSelectors).first().innerText().catch(() => '');
         const hasContent = content && content.trim().length >= minContentLength;
+        let contentOk = hasContent;
         if (!hasContent) {
           const bodyText = await page.locator('body').innerText().catch(() => '');
-          if (!bodyText || bodyText.trim().length < minContentLength) tabErrors.push(`Tab "${tabName}" has no substantial content`);
+          contentOk = !!(bodyText && bodyText.trim().length >= minContentLength);
+          if (!contentOk) tabErrors.push(`Tab "${tabName}" has no substantial content`);
         }
+        validations.push({ description: `Tab "${tabName}" has substantial content`, passed: contentOk });
       }
 
       const duration = Date.now() - t0;
       if (tabErrors.length > 0) {
-        await record(++order, testName, 'failed', duration, page.url(), tabErrors.join('; '), { requiredTabs, tabErrors });
+        await record(++order, testName, 'failed', duration, page.url(), tabErrors.join('; '), { validations, requiredTabs, tabErrors });
       } else {
-        await record(++order, testName, 'passed', duration, page.url(), null, { requiredTabs });
+        await record(++order, testName, 'passed', duration, page.url(), null, { validations, requiredTabs });
       }
     } catch (err) {
-      await record(++order, testName, 'failed', Date.now() - t0, page.url(), err.message || String(err), null);
+      await record(++order, testName, 'failed', Date.now() - t0, page.url(), err.message || String(err), { validations: [{ description: 'API section test', passed: false, detail: err.message || String(err) }] });
     }
   }
 
@@ -426,6 +577,9 @@ module.exports = {
         }
       } catch (_) { /* ignore */ }
     }
+    // Parse spec content to get step descriptions (navigation, clicks, fills, etc.) for validations
+    const parsedSteps = parseRecordedSpecSteps(test.spec_content || '');
+
     if (report.length > 0) {
       for (const e of report) {
         const rawTitle = e.title || e.data?.title || test.name;
@@ -440,7 +594,34 @@ module.exports = {
         const finalError = (status !== 'passed' && errorMessage && rawStatus !== 'failed')
           ? `[${rawStatus}] ${errorMessage}`
           : errorMessage;
+        // Build validations: parsed spec steps (each action with description) + overall test result
+        const validations = [];
+        if (parsedSteps.length > 0) {
+          for (const step of parsedSteps) {
+            validations.push({
+              description: step.description,
+              passed: status === 'passed',
+              detail: undefined
+            });
+          }
+        }
+        // If report has test.step() steps, use those for per-step pass/fail when available
+        if (Array.isArray(e.steps) && e.steps.length > 0 && validations.length === 0) {
+          for (const step of e.steps) {
+            validations.push({
+              description: step.title || 'Step',
+              passed: !step.error,
+              detail: step.error || undefined
+            });
+          }
+        }
+        validations.push({
+          description: rawTitle || 'Test result',
+          passed: status === 'passed',
+          detail: status !== 'passed' ? (e.error?.message || e.data?.error?.message || finalError) : undefined
+        });
         await addRecord(title, status, durationMs, finalError, {
+          validations,
           source: 'recorded',
           recorded_test_id: String(recordedId),
           recorded_test_name: test.name,
@@ -455,7 +636,15 @@ module.exports = {
       const errorMessage = combinedOutput
         ? (combinedOutput.length > 2000 ? combinedOutput.slice(0, 2000) + '...' : combinedOutput)
         : (result.status !== 0 ? 'Playwright test run failed (no output captured)' : null);
+      const validations = [];
+      if (parsedSteps.length > 0) {
+        for (const step of parsedSteps) {
+          validations.push({ description: step.description, passed: status === 'passed', detail: undefined });
+        }
+      }
+      validations.push({ description: 'Recorded test run', passed: result.status === 0, detail: result.status !== 0 ? errorMessage : undefined });
       await addRecord(`Recorded: ${test.name}`, status, 0, errorMessage, {
+        validations,
         source: 'recorded',
         recorded_test_id: String(recordedId),
         recorded_test_name: test.name,
@@ -468,6 +657,20 @@ module.exports = {
     try { if (fs.existsSync(configPath)) fs.unlinkSync(configPath); } catch (_) {}
     try { if (fs.existsSync(resultPath)) fs.unlinkSync(resultPath); } catch (_) {}
   }
+}
+
+/** Flatten nested steps from Playwright JSON report into a list of { title, error? }. */
+function flattenReportSteps(steps) {
+  if (!Array.isArray(steps) || steps.length === 0) return [];
+  const list = [];
+  for (const s of steps) {
+    const errMsg = s.error && (typeof s.error === 'string' ? s.error : s.error.message || JSON.stringify(s.error));
+    list.push({ title: s.title || 'Step', error: errMsg || null });
+    if (Array.isArray(s.steps) && s.steps.length > 0) {
+      list.push(...flattenReportSteps(s.steps));
+    }
+  }
+  return list;
 }
 
 function flattenPlaywrightJsonReport(report) {
@@ -485,10 +688,11 @@ function flattenPlaywrightJsonReport(report) {
             const status = (lastResult && lastResult.status) ? String(lastResult.status).toLowerCase() : (t.ok ? 'passed' : 'failed');
             const durationMs = lastResult && typeof lastResult.duration === 'number' ? lastResult.duration : 0;
             const errorMessage = lastResult && lastResult.error ? (lastResult.error.message || JSON.stringify(lastResult.error)) : null;
-            out.push({ title: testTitle, status, durationMs, error: errorMessage ? { message: errorMessage } : null });
+            const steps = lastResult && Array.isArray(lastResult.steps) ? flattenReportSteps(lastResult.steps) : [];
+            out.push({ title: testTitle, status, durationMs, error: errorMessage ? { message: errorMessage } : null, steps });
           });
         } else {
-          out.push({ title: specTitle, status: spec.ok ? 'passed' : 'failed' });
+          out.push({ title: specTitle, status: spec.ok ? 'passed' : 'failed', steps: [] });
         }
       });
     }

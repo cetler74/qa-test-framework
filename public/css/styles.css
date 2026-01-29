@@ -472,6 +472,39 @@ main {
     color: var(--color-text-inverse);
 }
 
+.run-type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-right: 10px;
+    flex-shrink: 0;
+}
+.run-type-badge svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+.run-type-badge.run-type-api {
+    background: #0d9488;
+    color: #fff;
+}
+.run-type-badge.run-type-api svg {
+    stroke: #fff;
+}
+.run-type-badge.run-type-ui {
+    background: #6366f1;
+    color: #fff;
+}
+.run-type-badge.run-type-ui svg {
+    stroke: #fff;
+}
+
 /* ============================================
    PROJECT DETAIL
    ============================================ */
@@ -1099,6 +1132,15 @@ main {
     background: var(--color-warning) !important;
 }
 
+.dark-theme .run-type-badge.run-type-api {
+    background: #0d9488 !important;
+    color: #fff !important;
+}
+.dark-theme .run-type-badge.run-type-ui {
+    background: #6366f1 !important;
+    color: #fff !important;
+}
+
 .dark-theme #test-selection-container,
 .dark-theme #selected-tests-list,
 .dark-theme #collection-vars-list,
@@ -1207,6 +1249,43 @@ main {
 }
 
 .dark-theme .test-item-endpoint {
+    color: var(--color-text-secondary) !important;
+}
+
+/* Tests that will run section - dark mode */
+.dark-theme .test-list-container {
+    color: var(--color-text-primary);
+}
+.dark-theme .test-list-title {
+    color: var(--color-text-primary) !important;
+}
+.dark-theme .playwright-test-list {
+    background: var(--color-bg-secondary) !important;
+    border-color: var(--color-border) !important;
+}
+.dark-theme .playwright-test-item {
+    border-bottom-color: var(--color-border) !important;
+    color: var(--color-text-primary);
+}
+.dark-theme .playwright-test-name {
+    color: var(--color-text-primary) !important;
+}
+.dark-theme .test-list-select-actions .btn-link {
+    color: var(--color-primary-light) !important;
+}
+.dark-theme .test-list-select-actions .btn-link:hover {
+    color: var(--color-primary) !important;
+}
+.dark-theme .test-list-select-sep {
+    color: var(--color-text-tertiary) !important;
+}
+.dark-theme .playwright-test-list .playwright-test-cb {
+    accent-color: var(--color-primary);
+}
+.dark-theme .run-ui-tests-options .radio-label {
+    color: var(--color-text-primary) !important;
+}
+.dark-theme .run-ui-tests-intro {
     color: var(--color-text-secondary) !important;
 }
 
@@ -1380,6 +1459,15 @@ main {
     font-weight: 600;
     color: var(--color-text-primary);
     margin-bottom: var(--spacing-md);
+}
+.ui-tests-runs-note {
+    color: var(--color-text-secondary);
+    font-size: 0.9375rem;
+    margin: var(--spacing-lg) 0 0;
+    padding: var(--spacing-md);
+    background: var(--color-gray-50);
+    border-radius: var(--radius-md);
+    border-left: 4px solid var(--color-primary);
 }
 
 /* Add / Edit Recorded Test */

@@ -133,8 +133,15 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            Run Tests
+                            Run API tests
                         </button>
+                        <button class="btn btn-primary" id="run-ui-test-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                            Run UI Test
+                        </button>
+                        <button class="btn btn-secondary" id="manage-project-recorded-tests-btn">Manage recorded tests</button>
                     </div>
                     <div class="project-api-specs">
                         <h3>API Specs in Project</h3>
@@ -172,6 +179,11 @@
                         <select id="project-filter">
                             <option value="">All Projects</option>
                         </select>
+                        <select id="test-run-type-filter" title="Filter by test type">
+                            <option value="all">All</option>
+                            <option value="api">API</option>
+                            <option value="ui">UI</option>
+                        </select>
                         <button class="btn" id="apply-filters-btn">Apply</button>
                         <button class="btn btn-secondary" id="clear-filters-btn">Clear</button>
                     </div>
@@ -208,8 +220,7 @@
                         <button class="btn btn-secondary" id="manage-recorded-tests-btn-main">Manage recorded tests</button>
                     </div>
                 </div>
-                <h3 class="ui-tests-runs-title">Test runs</h3>
-                <div id="playwright-runs-list"></div>
+                <p class="ui-tests-runs-note">View all test runs (API and UI) in <strong>Test Runs</strong> in the navigation.</p>
             </div>
 
             <!-- Add / Edit Recorded Test view -->
@@ -243,6 +254,12 @@
                             <label for="recorded-test-base-url">Base URL (optional)</label>
                             <input type="url" id="recorded-test-base-url" placeholder="https://example.com" />
                         </div>
+                        <div class="form-group" id="recorded-test-add-to-project-wrap">
+                            <label for="recorded-test-add-to-project">Also add to project (optional)</label>
+                            <select id="recorded-test-add-to-project">
+                                <option value="">None</option>
+                            </select>
+                        </div>
                         <div class="form-group">
                             <label for="recorded-test-spec">Generated spec (paste from Codegen) <span class="required">*</span></label>
                             <div class="input-with-button" style="margin-bottom: 8px;">
@@ -257,6 +274,21 @@
                         </div>
                     </form>
                 </div>
+            </div>
+
+            <!-- Project recorded tests (manage which recorded tests are in this project) -->
+            <div id="project-recorded-tests-view" class="view">
+                <div class="view-header">
+                    <button class="btn btn-secondary" id="back-from-project-recorded-tests">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Back to Project
+                    </button>
+                    <h2 id="project-recorded-tests-title">Recorded tests in project</h2>
+                    <button class="btn btn-primary" id="add-recorded-test-to-project-btn">Add recorded test to project</button>
+                </div>
+                <div id="project-recorded-tests-list" class="recorded-tests-list"></div>
             </div>
 
             <!-- Recorded tests list (manage) -->
@@ -293,6 +325,12 @@
                     </div>
                     <div id="playwright-test-list-container" class="test-list-container"></div>
                     <form id="run-ui-tests-page-form" class="run-ui-tests-form">
+                        <div class="form-group" id="run-ui-tests-project-wrap" style="display: none;">
+                            <label for="run-ui-tests-project-select">Project *</label>
+                            <select id="run-ui-tests-project-select">
+                                <option value="">Select project...</option>
+                            </select>
+                        </div>
                         <div class="form-group">
                             <label for="run-ui-tests-name">Run name</label>
                             <input type="text" id="run-ui-tests-name" required placeholder="e.g. 5G API Sprint check" />

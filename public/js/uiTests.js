@@ -96,10 +96,24 @@
     const container = document.getElementById('playwright-test-list-container');
     const nameInput = document.getElementById('run-ui-tests-name');
     const urlInput = document.getElementById('run-ui-tests-base-url');
+    const projectSelectWrap = document.getElementById('run-ui-tests-project-wrap');
+    const projectSelect = document.getElementById('run-ui-tests-project-select');
+    const projectId = window._runUiTestsProjectId ? String(window._runUiTestsProjectId) : null;
+    if (projectSelectWrap) {
+      projectSelectWrap.style.display = projectId ? 'none' : 'block';
+    }
+    if (projectSelect) {
+      if (projectId) {
+        projectSelect.removeAttribute('required');
+      } else {
+        projectSelect.setAttribute('required', 'required');
+      }
+    }
     if (!container) return;
     try {
+      const listUrl = projectId ? `/playwright-tests/list?projectId=${projectId}` : '/playwright-tests/list';
       const [tests, config] = await Promise.all([
-        apiRequest('/playwright-tests/list'),
+        apiRequest(listUrl),
         apiRequest('/playwright-config').catch(() => ({}))
       ]);
       testList = tests;
@@ -109,6 +123,13 @@
       radios.forEach(r => r.addEventListener('change', () => {
         renderTestList(document.querySelector('input[name="test-list-type"]:checked').value === 'selected');
       }));
+      if (!projectId) {
+        const sel = document.getElementById('run-ui-tests-project-select');
+        if (sel) {
+          const projects = await apiRequest('/projects');
+          sel.innerHTML = '<option value="">Select project...</option>' + projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        }
+      }
     } catch (err) {
       container.innerHTML = `<p class="error-message">Error loading test list: ${err.message}</p>`;
     }
@@ -146,18 +167,31 @@
     }
   }
 
-  function showRunUiTestsPage() {
+  function showRunUiTestsPage(projectId) {
+    window._runUiTestsProjectId = projectId || null;
     showView('run-ui-tests');
     loadRunUiTestsPage();
   }
 
-  document.getElementById('run-ui-tests-page-form')?.addEventListener('submit', async (e) => {
+  function handleRunUiTestsSubmit(e) {
     e.preventDefault();
     const name = document.getElementById('run-ui-tests-name')?.value?.trim();
     const baseUrlInput = document.getElementById('run-ui-tests-base-url')?.value?.trim();
-    if (!name) return;
+    if (!name) {
+      alert('Please enter a run name.');
+      return;
+    }
     const listType = document.querySelector('input[name="test-list-type"]:checked')?.value || 'full';
-    const body = { name, suite: listType };
+    let projectId = window._runUiTestsProjectId;
+    if (!projectId) {
+      const sel = document.getElementById('run-ui-tests-project-select');
+      projectId = sel ? sel.value : null;
+    }
+    if (!projectId) {
+      alert('Please select a project.');
+      return;
+    }
+    const body = { name, suite: listType, projectId: Number(projectId) };
     if (baseUrlInput) body.baseUrl = baseUrlInput;
     if (listType === 'selected') {
       const checked = document.querySelectorAll('.playwright-test-cb:checked');
@@ -167,36 +201,82 @@
         return;
       }
     }
-    try {
-      const res = await apiRequest('/playwright-runs/execute', { method: 'POST', body });
-      showView('ui-tests');
-      loadPlaywrightRuns();
-      if (res.playwrightRun && res.playwrightRun.id) {
+    const loadingContent = `
+      <div class="loading" style="text-align: center; padding: 20px;">
+        <h3>Running Tests...</h3>
+        <div id="test-progress-info" style="margin: 20px 0;">
+          <p id="test-progress-text">Initializing test execution...</p>
+          <div style="width: 100%; background: var(--color-gray-200, #e5e7eb); border-radius: 10px; height: 24px; margin: 15px 0; overflow: hidden;">
+            <div id="test-progress-bar" style="width: 0%; background: var(--color-primary, #14b8a6); height: 100%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: 600;">0%</div>
+          </div>
+          <p id="test-current-test" style="font-size: 14px; color: var(--color-text-secondary, #6b7280); margin-top: 10px;"></p>
+        </div>
+      </div>
+    `;
+    showModal('Running Tests', loadingContent);
+
+    (async () => {
+      try {
+        const res = await apiRequest('/playwright-runs/execute', { method: 'POST', body });
+        const runId = res.playwrightRun && res.playwrightRun.id;
+        if (!runId) {
+          hideModal();
+          alert('Error: No run id returned.');
+          return;
+        }
         let pollCount = 0;
-        const maxPoll = 60;
-        const poll = async () => {
+        const maxPoll = 120;
+        const pollProgress = async () => {
           try {
-            const run = await apiRequest(`/playwright-runs/${res.playwrightRun.id}`);
+            const run = await apiRequest(`/playwright-runs/${runId}`);
+            const totalTests = run.total_tests || 0;
+            const completedTests = (run.passed_tests || 0) + (run.failed_tests || 0);
+            const progress = totalTests > 0 ? Math.round((completedTests / totalTests) * 100) : 0;
+            const progressBar = document.getElementById('test-progress-bar');
+            const progressText = document.getElementById('test-progress-text');
+            const currentTestText = document.getElementById('test-current-test');
+            if (progressBar) {
+              progressBar.style.width = `${progress}%`;
+              progressBar.textContent = `${progress}%`;
+            }
+            if (progressText) {
+              progressText.textContent = totalTests > 0
+                ? `Progress: ${completedTests} of ${totalTests} tests completed`
+                : 'Starting...';
+            }
+            if (currentTestText) {
+              const passed = run.passed_tests || 0;
+              const failed = run.failed_tests || 0;
+              if (run.status === 'running' && completedTests < totalTests) {
+                currentTestText.textContent = `Running... (${passed} passed, ${failed} failed)`;
+              } else {
+                currentTestText.textContent = `Completed: ${passed} passed, ${failed} failed`;
+              }
+            }
             if (run.status !== 'running' || ++pollCount >= maxPoll) {
-              loadPlaywrightRuns();
-              if (run.status !== 'running') viewPlaywrightRun(res.playwrightRun.id);
+              hideModal();
+              if (typeof window.loadTestRuns === 'function') window.loadTestRuns();
+              showView('test-runs');
+              if (run.status !== 'running') viewPlaywrightRun(runId);
               return;
             }
-            setTimeout(poll, 1500);
+            setTimeout(pollProgress, 1500);
           } catch (err) {
             if (isServerUnavailable(err)) {
-              loadPlaywrightRuns();
+              hideModal();
+              if (typeof window.loadTestRuns === 'function') window.loadTestRuns();
               return;
             }
-            loadPlaywrightRuns();
+            setTimeout(pollProgress, 1500);
           }
         };
-        setTimeout(poll, 1500);
+        setTimeout(pollProgress, 500);
+      } catch (err) {
+        hideModal();
+        alert('Error starting UI tests: ' + err.message);
       }
-    } catch (err) {
-      alert('Error starting UI tests: ' + err.message);
-    }
-  });
+    })();
+  }
 
   document.getElementById('run-ui-tests-cancel')?.addEventListener('click', () => {
     showView('ui-tests');
@@ -264,7 +344,12 @@
     const codegenUrlInput = document.getElementById('recorded-test-codegen-url');
     const loadBtn = document.getElementById('load-codegen-output-btn');
     const autoRefreshBtn = document.getElementById('auto-refresh-codegen-btn');
+    const addToProjectWrap = document.getElementById('recorded-test-add-to-project-wrap');
+    const addToProjectSelect = document.getElementById('recorded-test-add-to-project');
     if (!form) return;
+    
+    if (addToProjectWrap) addToProjectWrap.style.display = editId ? 'none' : 'block';
+    if (addToProjectSelect) addToProjectSelect.innerHTML = '<option value="">None</option>';
     
     // Reset codegen state when opening form (unless editing)
     if (!editId) {
@@ -289,16 +374,20 @@
         })
         .catch(err => alert('Error loading recorded test: ' + err.message));
     } else {
-      // Load default URL from config, but make it editable
+      // Load default URL from config and projects for "Also add to project"
       apiRequest('/playwright-config').then(c => {
         const defaultUrl = (c.baseUrl || '').trim() || 'https://example.com';
         codegenUrlInput.value = defaultUrl;
-        // Also set it in base URL field for convenience
         if (baseUrlInput) baseUrlInput.value = defaultUrl;
       }).catch(() => { 
         codegenUrlInput.value = 'https://example.com';
         if (baseUrlInput) baseUrlInput.value = 'https://example.com';
       });
+      apiRequest('/projects').then(projects => {
+        if (addToProjectSelect && Array.isArray(projects) && projects.length > 0) {
+          addToProjectSelect.innerHTML = '<option value="">None</option>' + projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+        }
+      }).catch(() => {});
     }
     showView('add-recorded-test');
   }
@@ -384,6 +473,8 @@
     const name = document.getElementById('recorded-test-name')?.value?.trim();
     const baseUrl = document.getElementById('recorded-test-base-url')?.value?.trim() || null;
     const spec = document.getElementById('recorded-test-spec')?.value?.trim();
+    const addToProjectEl = document.getElementById('recorded-test-add-to-project');
+    const addToProjectId = addToProjectEl?.value?.trim() || null;
     if (!name) { alert('Test name is required'); return; }
     if (!spec) { alert('Generated spec is required'); return; }
     const editId = idInput?.value?.trim() || null;
@@ -392,7 +483,9 @@
         await apiRequest(`/playwright-recorded-tests/${editId}`, { method: 'PUT', body: { name, spec_content: spec, base_url: baseUrl } });
         alert('Recorded test updated.');
       } else {
-        await apiRequest('/playwright-recorded-tests', { method: 'POST', body: { name, spec_content: spec, base_url: baseUrl } });
+        const body = { name, spec_content: spec, base_url: baseUrl };
+        if (addToProjectId) body.addToProjectIds = [Number(addToProjectId)];
+        await apiRequest('/playwright-recorded-tests', { method: 'POST', body });
         alert('Recorded test saved. It will appear in the test list when you run UI tests.');
       }
       currentCodegenSlug = null;
@@ -465,6 +558,113 @@
   });
   document.getElementById('recorded-tests-list-add-new')?.addEventListener('click', () => showAddRecordedTestView());
 
+  // Project recorded tests (Option B: list linked to project, add from pool, remove link)
+  async function loadProjectRecordedTestsView(projectId) {
+    const listEl = document.getElementById('project-recorded-tests-list');
+    const titleEl = document.getElementById('project-recorded-tests-title');
+    if (!listEl) return;
+    try {
+      const [project, recorded] = await Promise.all([
+        apiRequest(`/projects/${projectId}`),
+        apiRequest(`/projects/${projectId}/recorded-tests`)
+      ]);
+      if (titleEl) titleEl.textContent = `Recorded tests in "${project.name}"`;
+      if (recorded.length === 0) {
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <p>No recorded tests in this project. Add from the global pool below.</p>
+          </div>
+        `;
+      } else {
+        listEl.innerHTML = recorded.map(t => `
+          <div class="list-item">
+            <div class="list-item-info">
+              <h3>${escapeHtml(t.name)}</h3>
+              <p>${t.base_url ? escapeHtml(t.base_url) : ''} • ${formatDateTime(t.created_at)}</p>
+            </div>
+            <div class="list-item-actions">
+              <button type="button" class="btn btn-danger btn-sm remove-from-project-recorded" data-recorded-id="${t.id}">Remove from project</button>
+            </div>
+          </div>
+        `).join('');
+        listEl.querySelectorAll('.remove-from-project-recorded').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            if (!confirm('Remove this recorded test from the project? (The test stays in the global pool.)')) return;
+            try {
+              await apiRequest(`/projects/${projectId}/recorded-tests/${btn.getAttribute('data-recorded-id')}`, { method: 'DELETE' });
+              loadProjectRecordedTestsView(projectId);
+            } catch (err) {
+              alert('Error: ' + err.message);
+            }
+          });
+        });
+      }
+    } catch (err) {
+      listEl.innerHTML = `<p class="error-message">Error loading: ${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  function showProjectRecordedTestsView(projectId) {
+    window._projectRecordedTestsProjectId = projectId;
+    showView('project-recorded-tests');
+    loadProjectRecordedTestsView(projectId);
+  }
+
+  document.getElementById('back-from-project-recorded-tests')?.addEventListener('click', () => {
+    const projectId = window._projectRecordedTestsProjectId;
+    window._projectRecordedTestsProjectId = null;
+    if (projectId && typeof window.viewProject === 'function') {
+      window.viewProject(projectId);
+    } else {
+      showView('projects');
+    }
+  });
+
+  document.getElementById('add-recorded-test-to-project-btn')?.addEventListener('click', async () => {
+    const projectId = window._projectRecordedTestsProjectId;
+    if (!projectId) return;
+    try {
+      const [allRecorded, inProject] = await Promise.all([
+        apiRequest('/playwright-recorded-tests'),
+        apiRequest(`/projects/${projectId}/recorded-tests`)
+      ]);
+      const inIds = new Set((inProject || []).map(t => t.id));
+      const available = (allRecorded || []).filter(t => !inIds.has(t.id));
+      if (available.length === 0) {
+        alert('All recorded tests are already in this project. Add new tests from "UI Tests" → "Add recorded test".');
+        return;
+      }
+      const options = available.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+      showModal('Add recorded test to project', `
+        <p style="margin-bottom: 12px;">Select a recorded test from the global pool to add to this project.</p>
+        <div class="form-group">
+          <label for="add-to-project-recorded-select">Recorded test</label>
+          <select id="add-to-project-recorded-select" style="width: 100%; padding: 8px;">
+            ${options}
+          </select>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px;">
+          <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-overlay').classList.remove('active')">Cancel</button>
+          <button type="button" class="btn btn-primary" id="add-to-project-recorded-confirm">Add</button>
+        </div>
+      `);
+      document.getElementById('add-to-project-recorded-confirm')?.addEventListener('click', async () => {
+        const sel = document.getElementById('add-to-project-recorded-select');
+        const recordedId = sel ? sel.value : null;
+        if (!recordedId) return;
+        try {
+          await apiRequest(`/projects/${projectId}/recorded-tests/${recordedId}`, { method: 'POST' });
+          document.getElementById('modal-overlay').classList.remove('active');
+          loadProjectRecordedTestsView(projectId);
+        } catch (err) {
+          alert('Error: ' + err.message);
+        }
+      });
+    } catch (err) {
+      alert('Error loading recorded tests: ' + err.message);
+    }
+  });
+
 async function viewPlaywrightRun(id) {
   try {
     const run = await apiRequest(`/playwright-runs/${id}`);
@@ -484,7 +684,15 @@ async function viewPlaywrightRun(id) {
     const resultsEl = document.getElementById('playwright-results-list');
     const results = (run.results || []).slice().sort((a, b) => (a.execution_order || 0) - (b.execution_order || 0));
     if (results.length > 0) {
-      resultsEl.innerHTML = results.map(r => `
+      resultsEl.innerHTML = results.map(r => {
+        const validationsHtml = (r.assertions && Array.isArray(r.assertions.validations))
+          ? `<div style="margin-top: 8px;"><strong style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Validations</strong><ul style="list-style: none; padding: 0; margin: 4px 0 0 0;">${r.assertions.validations.map(v => `
+            <li style="display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; margin-bottom: 4px; border-radius: 6px; background: #fff; border: 1px solid #e5e7eb; border-left: 4px solid ${v.passed ? '#10b981' : '#ef4444'};">
+              <span style="flex-shrink: 0; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; background: ${v.passed ? '#d1fae5' : '#fee2e2'}; color: ${v.passed ? '#065f46' : '#991b1b'};">${v.passed ? 'Passed' : 'Failed'}</span>
+              <div><span style="font-size: 13px;">${v.description}</span>${v.detail ? `<div style="font-size: 11px; color: #6b7280; margin-top: 2px;">${v.detail}</div>` : ''}</div>
+            </li>`).join('')}</ul></div>`
+          : (r.assertions ? `<pre style="font-size: 12px; margin-top: 8px; padding: 8px; background: #f9fafb; border-radius: 6px;">${JSON.stringify(r.assertions, null, 2)}</pre>` : '');
+        return `
         <div class="test-result-item">
           <div class="test-result-header">
             <div><strong>${r.test_name}</strong>${r.endpoint ? ` <span style="font-size: 12px; color: #6b7280;">${r.endpoint}</span>` : ''}</div>
@@ -493,10 +701,11 @@ async function viewPlaywrightRun(id) {
           <div class="test-result-details">
             ${r.duration_ms != null ? `<p><strong>Duration:</strong> ${r.duration_ms} ms</p>` : ''}
             ${r.error_message ? `<p style="color: #dc2626;"><strong>Error:</strong> ${r.error_message}</p>` : ''}
-            ${r.assertions ? `<pre style="font-size: 12px; margin-top: 8px; padding: 8px; background: #f9fafb; border-radius: 6px;">${JSON.stringify(r.assertions, null, 2)}</pre>` : ''}
+            ${validationsHtml}
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     } else {
       resultsEl.innerHTML = `<div class="empty-state"><p>${run.status === 'running' ? 'Test run in progress...' : 'No results'}</p></div>`;
     }
@@ -510,7 +719,11 @@ async function viewPlaywrightRun(id) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('run-ui-tests-btn')?.addEventListener('click', showRunUiTestsPage);
+  document.getElementById('run-ui-tests-btn')?.addEventListener('click', () => showRunUiTestsPage());
+  const runForm = document.getElementById('run-ui-tests-page-form');
+  if (runForm) {
+    runForm.addEventListener('submit', handleRunUiTestsSubmit);
+  }
   document.getElementById('back-to-ui-tests')?.addEventListener('click', () => {
     showView('ui-tests');
     loadPlaywrightRuns();
@@ -527,4 +740,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.viewPlaywrightRun = viewPlaywrightRun;
   window.loadPlaywrightRuns = loadPlaywrightRuns;
+  window.showRunUiTestsPage = showRunUiTestsPage;
+  window.showProjectRecordedTestsView = showProjectRecordedTestsView;
 })();

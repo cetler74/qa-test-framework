@@ -50,6 +50,15 @@ const reportTemplate = `
         .detail-section { margin-bottom: 16px; }
         .detail-label { font-size: 12px; color: #6b7280; text-transform: uppercase; margin-bottom: 8px; font-weight: 500; }
         .detail-value { background: white; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-all; border: 1px solid #e5e7eb; }
+        .validations-list { list-style: none; padding: 0; margin: 0; }
+        .validations-list li { display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px; margin-bottom: 6px; border-radius: 8px; background: white; border: 1px solid #e5e7eb; }
+        .validations-list li.passed { border-left: 4px solid #10b981; }
+        .validations-list li.failed { border-left: 4px solid #ef4444; }
+        .validation-badge { flex-shrink: 0; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+        .validation-badge.passed { background: #d1fae5; color: #065f46; }
+        .validation-badge.failed { background: #fee2e2; color: #991b1b; }
+        .validation-desc { flex: 1; font-size: 14px; color: #1f2937; }
+        .validation-detail { font-size: 12px; color: #6b7280; margin-top: 4px; }
         .footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid #e5e7eb; text-align: center; color: #6b7280; font-size: 13px; }
     </style>
 </head>
@@ -107,8 +116,26 @@ const reportTemplate = `
                     {{#if this.error_message}}
                     <div class="detail-section"><div class="detail-label">Error</div><div class="detail-value" style="color:#dc2626;background:#fef2f2;">{{this.error_message}}</div></div>
                     {{/if}}
+                    {{#if this.assertions.validations}}
+                    <div class="detail-section">
+                        <div class="detail-label">Validations</div>
+                        <ul class="validations-list">
+                            {{#each this.assertions.validations}}
+                            <li class="{{#if this.passed}}passed{{else}}failed{{/if}}">
+                                <span class="validation-badge {{#if this.passed}}passed{{else}}failed{{/if}}">{{#if this.passed}}Passed{{else}}Failed{{/if}}</span>
+                                <div>
+                                    <div class="validation-desc">{{this.description}}</div>
+                                    {{#if this.detail}}<div class="validation-detail">{{this.detail}}</div>{{/if}}
+                                </div>
+                            </li>
+                            {{/each}}
+                        </ul>
+                    </div>
+                    {{/if}}
                     {{#if this.assertions}}
+                    {{#unless this.assertions.validations}}
                     <div class="detail-section"><div class="detail-label">Details</div><div class="detail-value">{{json this.assertions}}</div></div>
+                    {{/unless}}
                     {{/if}}
                 </div>
             </div>

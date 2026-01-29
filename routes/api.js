@@ -4,7 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-const { Project, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest } = require('../models');
+const { Project, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest } = require('../models');
 const SequelizeLib = require('sequelize');
 const { Op, literal } = require('sequelize');
 const { convertToPostmanCollection, parsePostmanCollection } = require('../services/apiSpecConverter');
@@ -146,6 +146,50 @@ router.delete('/projects/:projectId/api-specs/:apiSpecId', async (req, res) => {
       where: { project_id: projectId, api_spec_id: apiSpecId }
     });
     res.json({ message: 'API spec removed from project' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get recorded tests linked to a project (Option B: from junction table)
+router.get('/projects/:id/recorded-tests', async (req, res) => {
+  try {
+    const project = await Project.findByPk(req.params.id, {
+      include: [{ model: PlaywrightRecordedTest, as: 'recordedTests', through: { attributes: [] }, attributes: ['id', 'name', 'base_url', 'created_at'] }]
+    });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    res.json(project.recordedTests || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add recorded test to project (link in project_recorded_tests)
+router.post('/projects/:projectId/recorded-tests/:recordedTestId', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.projectId, 10);
+    const recordedTestId = parseInt(req.params.recordedTestId, 10);
+    const project = await Project.findByPk(projectId);
+    const recorded = await PlaywrightRecordedTest.findByPk(recordedTestId);
+    if (!project || !recorded) return res.status(404).json({ error: 'Project or recorded test not found' });
+    await ProjectRecordedTest.findOrCreate({
+      where: { project_id: projectId, recorded_test_id: recordedTestId }
+    });
+    res.json({ message: 'Recorded test added to project' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Remove recorded test from project (unlink only; does not delete the global recorded test)
+router.delete('/projects/:projectId/recorded-tests/:recordedTestId', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.projectId, 10);
+    const recordedTestId = parseInt(req.params.recordedTestId, 10);
+    await ProjectRecordedTest.destroy({
+      where: { project_id: projectId, recorded_test_id: recordedTestId }
+    });
+    res.json({ message: 'Recorded test removed from project' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -399,53 +443,114 @@ router.delete('/collections/:id', async (req, res) => {
 
 // ==================== TEST RUNS ====================
 
-// Get all test runs
+// Normalize a TestRun or PlaywrightRun to unified shape { id, name, status, project_id, project, runType, created_at, ... }
+function toUnifiedRun(row, runType) {
+  const project = row.project || (row.get && row.get('project'));
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    project_id: row.project_id ?? project?.id ?? null,
+    project: project ? { id: project.id, name: project.name } : null,
+    runType,
+    created_at: row.created_at,
+    total_tests: row.total_tests ?? null,
+    passed_tests: row.passed_tests ?? null,
+    failed_tests: row.failed_tests ?? null,
+    duration_ms: row.duration_ms ?? null,
+    base_url: row.base_url ?? null
+  };
+}
+
+// Get all test runs (optionally unified: type=api|ui|all)
 router.get('/test-runs', async (req, res) => {
   try {
-    const { projectId, name, startDate, endDate } = req.query;
-    const where = {};
+    const { projectId, name, startDate, endDate, type = 'api' } = req.query;
+    const runType = type === 'all' || type === 'ui' ? type : 'api';
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+    const offset = parseInt(req.query.offset, 10) || 0;
 
-    if (projectId) {
-      where.project_id = projectId;
+    // Build shared date filter (for merging when type=all)
+    const dateFilter = (colPrefix) => {
+      const out = {};
+      if (startDate && endDate) {
+        const s = new Date(startDate);
+        const e = new Date(endDate);
+        out[Op.and] = [SequelizeLib.where(SequelizeLib.col(colPrefix + 'created_at'), { [Op.between]: [s, e] })];
+      } else if (startDate) {
+        const s = new Date(startDate);
+        out[Op.and] = [SequelizeLib.where(SequelizeLib.col(colPrefix + 'created_at'), { [Op.gte]: s })];
+      } else if (endDate) {
+        const e = new Date(endDate);
+        out[Op.and] = [SequelizeLib.where(SequelizeLib.col(colPrefix + 'created_at'), { [Op.lte]: e })];
+      }
+      return out;
+    };
+
+    if (runType === 'api' || runType === 'all') {
+      const where = {};
+      if (projectId) where.project_id = projectId;
+      if (name) {
+        const lower = name.toLowerCase();
+        where[Op.and] = where[Op.and] || [];
+        where[Op.and].push(SequelizeLib.where(SequelizeLib.fn('LOWER', SequelizeLib.col('TestRun.name')), { [Op.like]: `%${lower}%` }));
+      }
+      const df = dateFilter('TestRun.');
+      if (df[Op.and]) { where[Op.and] = where[Op.and] || []; where[Op.and].push(...df[Op.and]); }
+
+      const testRuns = await TestRun.findAll({
+        where,
+        include: [{ model: Project, as: 'project', attributes: ['id', 'name'] }],
+        order: [['created_at', 'DESC']],
+        limit: runType === 'all' ? 100 : limit,
+        offset: runType === 'all' ? 0 : offset
+      });
+
+      if (runType === 'api') {
+        return res.json(testRuns);
+      }
+      // runType === 'all': collect API runs, then fetch UI runs and merge
+      const apiRows = testRuns.map(r => toUnifiedRun(r.get ? r.get({ plain: true }) : r, 'api'));
+      const uiWhere = {};
+      if (projectId) uiWhere.project_id = projectId;
+      if (name) {
+        uiWhere[Op.and] = uiWhere[Op.and] || [];
+        uiWhere[Op.and].push(SequelizeLib.where(SequelizeLib.fn('LOWER', SequelizeLib.col('PlaywrightRun.name')), { [Op.like]: `%${(name || '').toLowerCase()}%` }));
+      }
+      const dfUi = dateFilter('PlaywrightRun.');
+      if (dfUi[Op.and]) { uiWhere[Op.and] = uiWhere[Op.and] || []; uiWhere[Op.and].push(...dfUi[Op.and]); }
+
+      const playwrightRuns = await PlaywrightRun.findAll({
+        where: uiWhere,
+        include: [{ model: Project, as: 'project', attributes: ['id', 'name'] }],
+        order: [['created_at', 'DESC']],
+        limit: 100,
+        offset: 0
+      });
+      const uiRows = playwrightRuns.map(r => toUnifiedRun(r.get ? r.get({ plain: true }) : r, 'ui'));
+      const merged = [...apiRows, ...uiRows].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
+      return res.json(merged);
     }
 
+    // runType === 'ui'
+    const where = {};
+    if (projectId) where.project_id = projectId;
     if (name) {
-      // Case-insensitive substring match on TestRun.name (qualify to avoid ambiguity with joined tables)
       const lower = name.toLowerCase();
       where[Op.and] = where[Op.and] || [];
-      where[Op.and].push(SequelizeLib.where(SequelizeLib.fn('LOWER', SequelizeLib.col('TestRun.name')), { [Op.like]: `%${lower}%` }));
+      where[Op.and].push(SequelizeLib.where(SequelizeLib.fn('LOWER', SequelizeLib.col('PlaywrightRun.name')), { [Op.like]: `%${lower}%` }));
     }
+    const dfUi2 = dateFilter('PlaywrightRun.');
+    if (dfUi2[Op.and]) { where[Op.and] = where[Op.and] || []; where[Op.and].push(...dfUi2[Op.and]); }
 
-    // Date filters (qualified to TestRun.created_at to avoid ambiguity)
-    if (startDate && endDate) {
-      const s = new Date(startDate);
-      const e = new Date(endDate);
-      where[Op.and] = where[Op.and] || [];
-      where[Op.and].push(SequelizeLib.where(SequelizeLib.col('TestRun.created_at'), { [Op.between]: [s, e] }));
-    } else if (startDate) {
-      const s = new Date(startDate);
-      where[Op.and] = where[Op.and] || [];
-      where[Op.and].push(SequelizeLib.where(SequelizeLib.col('TestRun.created_at'), { [Op.gte]: s }));
-    } else if (endDate) {
-      const e = new Date(endDate);
-      where[Op.and] = where[Op.and] || [];
-      where[Op.and].push(SequelizeLib.where(SequelizeLib.col('TestRun.created_at'), { [Op.lte]: e }));
-    }
-
-    console.info('[GET /test-runs] query=', req.query, 'where=', where);
-
-    const testRuns = await TestRun.findAll({
+    const playwrightRuns = await PlaywrightRun.findAll({
       where,
-      include: [{
-        model: Project,
-        as: 'project',
-        attributes: ['id', 'name']
-      }],
+      include: [{ model: Project, as: 'project', attributes: ['id', 'name'] }],
       order: [['created_at', 'DESC']],
-      limit: req.query.limit ? parseInt(req.query.limit) : 50,
-      offset: req.query.offset ? parseInt(req.query.offset) : 0
+      limit,
+      offset
     });
-    res.json(testRuns);
+    res.json(playwrightRuns.map(r => toUnifiedRun(r.get ? r.get({ plain: true }) : r, 'ui')));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -689,35 +794,40 @@ router.get('/playwright-config', (req, res) => {
   res.json({ baseUrl: playwrightConfig.baseUrl });
 });
 
-// Get list of Playwright tests (built-in + recorded) for Run UI Tests page
+// Get list of Playwright tests (built-in + recorded) for Run UI Tests page. Optional projectId: only recorded tests linked to that project.
 router.get('/playwright-tests/list', async (req, res) => {
   try {
-    const list = await getPlaywrightTestListWithRecorded();
+    const projectId = req.query.projectId ? parseInt(req.query.projectId, 10) : null;
+    const list = await getPlaywrightTestListWithRecorded(projectId);
     res.json(list);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Execute Playwright UI tests
+// Execute Playwright UI tests (projectId required so run is project-scoped)
 router.post('/playwright-runs/execute', async (req, res) => {
   try {
-    const { name, baseUrl, suite, selectedTestIds } = req.body;
+    const { projectId, name, baseUrl, suite, selectedTestIds } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'name is required' });
+    }
+    if (!projectId) {
+      return res.status(400).json({ error: 'projectId is required for UI test runs' });
     }
     const url = baseUrl || playwrightConfig.baseUrl;
     let runOnly = null;
     if (suite === 'selected' && Array.isArray(selectedTestIds) && selectedTestIds.length > 0) {
       runOnly = selectedTestIds;
     } else if (suite === 'full') {
-      const fullList = await getPlaywrightTestListWithRecorded();
+      const fullList = await getPlaywrightTestListWithRecorded(projectId);
       runOnly = fullList.length > 0 ? fullList.map(t => t.id) : null;
     }
     const run = await PlaywrightRun.create({
       name,
       status: 'running',
       base_url: url,
+      project_id: projectId,
       total_tests: 0,
       passed_tests: 0,
       failed_tests: 0,
@@ -823,10 +933,10 @@ router.get('/playwright-recorded-tests', async (req, res) => {
   }
 });
 
-// Create recorded test
+// Create recorded test (optional addToProjectIds: array of project ids to link to)
 router.post('/playwright-recorded-tests', async (req, res) => {
   try {
-    const { name, spec_content, base_url } = req.body;
+    const { name, spec_content, base_url, addToProjectIds } = req.body;
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ error: 'name is required' });
     }
@@ -843,6 +953,12 @@ router.post('/playwright-recorded-tests', async (req, res) => {
       spec_content: normalizedSpec,
       base_url: base_url && typeof base_url === 'string' ? base_url.trim() || null : null
     });
+    const projectIds = Array.isArray(addToProjectIds) ? addToProjectIds.filter(id => Number.isInteger(Number(id))) : [];
+    for (const projectId of projectIds) {
+      await ProjectRecordedTest.findOrCreate({
+        where: { project_id: projectId, recorded_test_id: test.id }
+      }).catch(() => {});
+    }
     res.status(201).json(test);
   } catch (error) {
     res.status(500).json({ error: error.message });
