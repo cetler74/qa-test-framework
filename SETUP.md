@@ -5,7 +5,7 @@
 Create a `.env` file in the root directory with the following content:
 
 ```env
-# Database Configuration
+# Database Configuration (set DB_NAME to your PostgreSQL database, e.g. linkuup_db or qa_framework)
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=qa_framework
@@ -55,6 +55,22 @@ Or for development with auto-reload:
 npm run dev
 ```
 
+## 4. Optional: UI Tests (Playwright)
+
+If you want to run UI tests from the **UI Tests** section:
+
+1. Install Playwright browsers (required once per machine):
+   ```bash
+   npx playwright install chromium
+   ```
+
+2. In `.env` you can set (optional; defaults are in README):
+   - `PLAYWRIGHT_BASE_URL` – default URL to test
+   - `PLAYWRIGHT_TIMEOUT_MS` – timeout in ms (default: 30000)
+   - `PLAYWRIGHT_HEADLESS` – `true` or `false` (default: true)
+
+See **Playwright / UI Tests** in [README.md](README.md) for running and recording UI tests.
+
 ## Troubleshooting
 
 ### Error: "client password must be a string"
@@ -70,17 +86,6 @@ DB_PASSWORD=your_password_here
 ```
 
 If your password contains special characters, make sure to quote it or escape them properly.
-
-### Error: "Connection refused"
-
-This means PostgreSQL is not running or the connection details are incorrect.
-
-**Solution**: 
-- Make sure PostgreSQL is running
-- Verify `DB_HOST`, `DB_PORT`, and `DB_USER` in your `.env` file
-- Check that your PostgreSQL user has permission to create databases
-
-pe them properly.
 
 ### Error: "Connection refused"
 

@@ -31,7 +31,7 @@ npm install
 cp .env.example .env
 ```
 
-4. Update the `.env` file with your database credentials:
+4. Update the `.env` file with your database credentials (use your actual PostgreSQL database name; e.g. `linkuup_db` or `qa_framework`):
 ```env
 DB_HOST=localhost
 DB_PORT=5432
@@ -69,6 +69,7 @@ This migration script will:
   - `002_add_execution_order_and_test_id.sql` - Adds execution order and test ID tracking columns
   - `003_playwright_tables.sql` - Creates playwright_runs and playwright_results for UI tests
   - `004_playwright_recorded_tests.sql` - Creates playwright_recorded_tests for recorded Codegen specs
+  - `005_project_scoped_ui_tests.sql` - Adds project_id to playwright_runs and project_recorded_tests junction table
 
 ### Migration Files
 
@@ -77,6 +78,9 @@ The `migrations/` directory contains SQL migration files that are executed in al
 - **000_create_database.sql** - Database creation instructions (handled by migration script)
 - **001_create_tables.sql** - Creates all base tables and indexes
 - **002_add_execution_order_and_test_id.sql** - Adds `execution_order` and `test_id` columns to `test_results` table for test ordering and identification
+- **003_playwright_tables.sql** - Creates `playwright_runs` and `playwright_results` for UI test runs
+- **004_playwright_recorded_tests.sql** - Creates `playwright_recorded_tests` for saved Codegen specs
+- **005_project_scoped_ui_tests.sql** - Adds `project_id` to playwright_runs and creates `project_recorded_tests` junction table
 
 ### Manual Database Setup (Alternative)
 
@@ -96,6 +100,9 @@ psql -U postgres -d qa_framework
 ```sql
 \i migrations/001_create_tables.sql
 \i migrations/002_add_execution_order_and_test_id.sql
+\i migrations/003_playwright_tables.sql
+\i migrations/004_playwright_recorded_tests.sql
+\i migrations/005_project_scoped_ui_tests.sql
 ```
 
 ### Database Schema
@@ -222,7 +229,8 @@ Note: "Launch Codegen" from the app (if added) requires a display (e.g. local or
 
 ```
 .
-├── config/          # Database configuration
+├── config/          # Database and Playwright configuration (database.js, playwright.js)
+├── e2e/             # Playwright E2E tests (recorded specs in e2e/recorded/, config in ui-tests.config.js)
 ├── migrations/      # Database migration scripts
 ├── models/          # Sequelize models
 ├── public/          # Frontend files (HTML, CSS, JS)
@@ -304,6 +312,18 @@ The application uses PostgreSQL with the following main tables:
   - `execution_order` - Preserves the order tests were executed (added in migration 002)
   - `test_id` - Unique identifier for each test, e.g., TEST-1, TEST-2 (added in migration 002)
   - `created_at`
+
+- **playwright_runs** - UI test run metadata (migration 003; migration 005 adds `project_id`)
+  - `id`, `name`, `status`, `base_url`, `total_tests`, `passed_tests`, `failed_tests`, `duration_ms`, `project_id`, `created_at`
+
+- **playwright_results** - Individual UI test results (migration 003)
+  - `id`, `playwright_run_id`, `test_name`, `status`, `duration_ms`, `error_message`, `created_at`
+
+- **playwright_recorded_tests** - Saved Codegen specs (migration 004)
+  - `id`, `name`, `spec_content`, `base_url`, `created_at`, `updated_at`
+
+- **project_recorded_tests** - Many-to-many: projects ↔ recorded UI tests (migration 005)
+  - `id`, `project_id`, `recorded_test_id`, `added_at`
 
 ## Environment Variables
 
