@@ -5,7 +5,7 @@
 Create a `.env` file in the root directory with the following content:
 
 ```env
-# Database Configuration
+# Database Configuration (set DB_NAME to your PostgreSQL database, e.g. linkuup_db or qa_framework)
 DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=qa_framework
@@ -22,6 +22,11 @@ MAX_FILE_SIZE=10485760
 
 # Report Configuration
 REPORTS_DIR=./reports
+
+# Playwright / UI Tests (optional)
+PLAYWRIGHT_BASE_URL=https://5gapisprint.meoempresas.pt/apis
+PLAYWRIGHT_TIMEOUT_MS=30000
+PLAYWRIGHT_HEADLESS=true
 ```
 
 **Important**: Replace `your_actual_password_here` with your actual PostgreSQL password.
@@ -35,8 +40,8 @@ npm run migrate
 ```
 
 This will:
-- Create the `qa_framework` database if it doesn't exist
-- Create all necessary tables
+- Create the database if it doesn't exist (name from `DB_NAME` in `.env`)
+- Create all necessary tables (including `playwright_runs`, `playwright_results`, and `playwright_recorded_tests` for UI tests)
 
 ## 3. Start the Server
 
@@ -49,6 +54,22 @@ Or for development with auto-reload:
 ```bash
 npm run dev
 ```
+
+## 4. Optional: UI Tests (Playwright)
+
+If you want to run UI tests from the **UI Tests** section:
+
+1. Install Playwright browsers (required once per machine):
+   ```bash
+   npx playwright install chromium
+   ```
+
+2. In `.env` you can set (optional; defaults are in README):
+   - `PLAYWRIGHT_BASE_URL` – default URL to test
+   - `PLAYWRIGHT_TIMEOUT_MS` – timeout in ms (default: 30000)
+   - `PLAYWRIGHT_HEADLESS` – `true` or `false` (default: true)
+
+See **Playwright / UI Tests** in [README.md](README.md) for running and recording UI tests.
 
 ## Troubleshooting
 

@@ -21,9 +21,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// Start server (bind to all interfaces so localhost and 127.0.0.1 work)
+const HOST = process.env.HOST || '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`Server running at http://localhost:${PORT} (and http://127.0.0.1:${PORT})`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 

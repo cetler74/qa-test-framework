@@ -13,8 +13,29 @@ document.addEventListener('DOMContentLoaded', () => {
   // Add API spec to project button
   document.getElementById('add-api-spec-btn')?.addEventListener('click', showAddApiSpecToProjectModal);
   
-  // Run tests button
+  // Run API tests button
   document.getElementById('run-tests-btn')?.addEventListener('click', showRunTestsModal);
+  
+  // Run UI Test button (from project): open run UI tests flow with project context
+  document.getElementById('run-ui-test-btn')?.addEventListener('click', () => {
+    const projectId = document.getElementById('run-ui-test-btn')?.getAttribute('data-project-id');
+    if (!projectId) {
+      alert('Please select a project first.');
+      return;
+    }
+    if (typeof window.showRunUiTestsPage === 'function') {
+      window.showRunUiTestsPage(Number(projectId));
+    }
+  });
+  
+  // Manage recorded tests for this project
+  document.getElementById('manage-project-recorded-tests-btn')?.addEventListener('click', () => {
+    const projectId = document.getElementById('manage-project-recorded-tests-btn')?.getAttribute('data-project-id');
+    if (!projectId) return;
+    if (typeof window.showProjectRecordedTestsView === 'function') {
+      window.showProjectRecordedTestsView(Number(projectId));
+    }
+  });
 });
 
 // Create Project
@@ -123,6 +144,10 @@ window.viewProject = async (projectId) => {
     document.getElementById('add-api-spec-btn').setAttribute('data-project-id', projectId);
     document.getElementById('upload-postman-collection-btn').setAttribute('data-project-id', projectId);
     document.getElementById('run-tests-btn').setAttribute('data-project-id', projectId);
+    const runUiTestBtn = document.getElementById('run-ui-test-btn');
+    const manageProjectRecordedBtn = document.getElementById('manage-project-recorded-tests-btn');
+    if (runUiTestBtn) runUiTestBtn.setAttribute('data-project-id', projectId);
+    if (manageProjectRecordedBtn) manageProjectRecordedBtn.setAttribute('data-project-id', projectId);
     
     // Load API specs in project
     const apiSpecsList = document.getElementById('project-api-specs-list');

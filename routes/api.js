@@ -4,13 +4,30 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-const { Project, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec } = require('../models');
+const { Project, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest } = require('../models');
 const SequelizeLib = require('sequelize');
 const { Op, literal } = require('sequelize');
 const { convertToPostmanCollection, parsePostmanCollection } = require('../services/apiSpecConverter');
 const { upload, validateAndParseApiSpec, validatePostmanCollection } = require('../services/fileUpload');
 const { executeTests } = require('../services/testRunner');
 const { generateReport } = require('../services/reportGenerator');
+const { runPlaywrightTests, getPlaywrightTestListWithRecorded } = require('../services/playwrightRunner');
+const { generatePlaywrightReport } = require('../services/playwrightReportGenerator');
+const playwrightConfig = require('../config/playwright');
+const { validateSpecContent } = require('../services/recordedTestValidation');
+
+function normalizeRecordedSpecTitle(specContent, recordedName) {
+  if (typeof specContent !== 'string') return specContent;
+  const name = typeof recordedName === 'string' ? recordedName.trim() : '';
+  if (!name) return specContent;
+
+  // Replace first test('...') title with the recorded name for nicer result labels.
+  // Supports: test('x', ...), test("x", ...), test(`x`, ...)
+  const quoted = JSON.stringify(name); // produces a valid JS string literal with quotes + escaping
+  const re = /\btest\s*\(\s*(?:'[^']*'|"[^"]*"|`[^`]*`)\s*,/;
+  if (!re.test(specContent)) return specContent;
+  return specContent.replace(re, `test(${quoted},`);
+}
 
 // ==================== PROJECTS ====================
 
@@ -129,6 +146,50 @@ router.delete('/projects/:projectId/api-specs/:apiSpecId', async (req, res) => {
       where: { project_id: projectId, api_spec_id: apiSpecId }
     });
     res.json({ message: 'API spec removed from project' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get recorded tests linked to a project (Option B: from junction table)
+router.get('/projects/:id/recorded-tests', async (req, res) => {
+  try {
+    const project = await Project.findByPk(req.params.id, {
+      include: [{ model: PlaywrightRecordedTest, as: 'recordedTests', through: { attributes: [] }, attributes: ['id', 'name', 'base_url', 'created_at'] }]
+    });
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    res.json(project.recordedTests || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add recorded test to project (link in project_recorded_tests)
+router.post('/projects/:projectId/recorded-tests/:recordedTestId', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.projectId, 10);
+    const recordedTestId = parseInt(req.params.recordedTestId, 10);
+    const project = await Project.findByPk(projectId);
+    const recorded = await PlaywrightRecordedTest.findByPk(recordedTestId);
+    if (!project || !recorded) return res.status(404).json({ error: 'Project or recorded test not found' });
+    await ProjectRecordedTest.findOrCreate({
+      where: { project_id: projectId, recorded_test_id: recordedTestId }
+    });
+    res.json({ message: 'Recorded test added to project' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Remove recorded test from project (unlink only; does not delete the global recorded test)
+router.delete('/projects/:projectId/recorded-tests/:recordedTestId', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.projectId, 10);
+    const recordedTestId = parseInt(req.params.recordedTestId, 10);
+    await ProjectRecordedTest.destroy({
+      where: { project_id: projectId, recorded_test_id: recordedTestId }
+    });
+    res.json({ message: 'Recorded test removed from project' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -382,53 +443,114 @@ router.delete('/collections/:id', async (req, res) => {
 
 // ==================== TEST RUNS ====================
 
-// Get all test runs
+// Normalize a TestRun or PlaywrightRun to unified shape { id, name, status, project_id, project, runType, created_at, ... }
+function toUnifiedRun(row, runType) {
+  const project = row.project || (row.get && row.get('project'));
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    project_id: row.project_id ?? project?.id ?? null,
+    project: project ? { id: project.id, name: project.name } : null,
+    runType,
+    created_at: row.created_at,
+    total_tests: row.total_tests ?? null,
+    passed_tests: row.passed_tests ?? null,
+    failed_tests: row.failed_tests ?? null,
+    duration_ms: row.duration_ms ?? null,
+    base_url: row.base_url ?? null
+  };
+}
+
+// Get all test runs (optionally unified: type=api|ui|all)
 router.get('/test-runs', async (req, res) => {
   try {
-    const { projectId, name, startDate, endDate } = req.query;
-    const where = {};
+    const { projectId, name, startDate, endDate, type = 'api' } = req.query;
+    const runType = type === 'all' || type === 'ui' ? type : 'api';
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+    const offset = parseInt(req.query.offset, 10) || 0;
 
-    if (projectId) {
-      where.project_id = projectId;
+    // Build shared date filter (for merging when type=all)
+    const dateFilter = (colPrefix) => {
+      const out = {};
+      if (startDate && endDate) {
+        const s = new Date(startDate);
+        const e = new Date(endDate);
+        out[Op.and] = [SequelizeLib.where(SequelizeLib.col(colPrefix + 'created_at'), { [Op.between]: [s, e] })];
+      } else if (startDate) {
+        const s = new Date(startDate);
+        out[Op.and] = [SequelizeLib.where(SequelizeLib.col(colPrefix + 'created_at'), { [Op.gte]: s })];
+      } else if (endDate) {
+        const e = new Date(endDate);
+        out[Op.and] = [SequelizeLib.where(SequelizeLib.col(colPrefix + 'created_at'), { [Op.lte]: e })];
+      }
+      return out;
+    };
+
+    if (runType === 'api' || runType === 'all') {
+      const where = {};
+      if (projectId) where.project_id = projectId;
+      if (name) {
+        const lower = name.toLowerCase();
+        where[Op.and] = where[Op.and] || [];
+        where[Op.and].push(SequelizeLib.where(SequelizeLib.fn('LOWER', SequelizeLib.col('TestRun.name')), { [Op.like]: `%${lower}%` }));
+      }
+      const df = dateFilter('TestRun.');
+      if (df[Op.and]) { where[Op.and] = where[Op.and] || []; where[Op.and].push(...df[Op.and]); }
+
+      const testRuns = await TestRun.findAll({
+        where,
+        include: [{ model: Project, as: 'project', attributes: ['id', 'name'] }],
+        order: [['created_at', 'DESC']],
+        limit: runType === 'all' ? 100 : limit,
+        offset: runType === 'all' ? 0 : offset
+      });
+
+      if (runType === 'api') {
+        return res.json(testRuns);
+      }
+      // runType === 'all': collect API runs, then fetch UI runs and merge
+      const apiRows = testRuns.map(r => toUnifiedRun(r.get ? r.get({ plain: true }) : r, 'api'));
+      const uiWhere = {};
+      if (projectId) uiWhere.project_id = projectId;
+      if (name) {
+        uiWhere[Op.and] = uiWhere[Op.and] || [];
+        uiWhere[Op.and].push(SequelizeLib.where(SequelizeLib.fn('LOWER', SequelizeLib.col('PlaywrightRun.name')), { [Op.like]: `%${(name || '').toLowerCase()}%` }));
+      }
+      const dfUi = dateFilter('PlaywrightRun.');
+      if (dfUi[Op.and]) { uiWhere[Op.and] = uiWhere[Op.and] || []; uiWhere[Op.and].push(...dfUi[Op.and]); }
+
+      const playwrightRuns = await PlaywrightRun.findAll({
+        where: uiWhere,
+        include: [{ model: Project, as: 'project', attributes: ['id', 'name'] }],
+        order: [['created_at', 'DESC']],
+        limit: 100,
+        offset: 0
+      });
+      const uiRows = playwrightRuns.map(r => toUnifiedRun(r.get ? r.get({ plain: true }) : r, 'ui'));
+      const merged = [...apiRows, ...uiRows].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
+      return res.json(merged);
     }
 
+    // runType === 'ui'
+    const where = {};
+    if (projectId) where.project_id = projectId;
     if (name) {
-      // Case-insensitive substring match on TestRun.name (qualify to avoid ambiguity with joined tables)
       const lower = name.toLowerCase();
       where[Op.and] = where[Op.and] || [];
-      where[Op.and].push(SequelizeLib.where(SequelizeLib.fn('LOWER', SequelizeLib.col('TestRun.name')), { [Op.like]: `%${lower}%` }));
+      where[Op.and].push(SequelizeLib.where(SequelizeLib.fn('LOWER', SequelizeLib.col('PlaywrightRun.name')), { [Op.like]: `%${lower}%` }));
     }
+    const dfUi2 = dateFilter('PlaywrightRun.');
+    if (dfUi2[Op.and]) { where[Op.and] = where[Op.and] || []; where[Op.and].push(...dfUi2[Op.and]); }
 
-    // Date filters (qualified to TestRun.created_at to avoid ambiguity)
-    if (startDate && endDate) {
-      const s = new Date(startDate);
-      const e = new Date(endDate);
-      where[Op.and] = where[Op.and] || [];
-      where[Op.and].push(SequelizeLib.where(SequelizeLib.col('TestRun.created_at'), { [Op.between]: [s, e] }));
-    } else if (startDate) {
-      const s = new Date(startDate);
-      where[Op.and] = where[Op.and] || [];
-      where[Op.and].push(SequelizeLib.where(SequelizeLib.col('TestRun.created_at'), { [Op.gte]: s }));
-    } else if (endDate) {
-      const e = new Date(endDate);
-      where[Op.and] = where[Op.and] || [];
-      where[Op.and].push(SequelizeLib.where(SequelizeLib.col('TestRun.created_at'), { [Op.lte]: e }));
-    }
-
-    console.info('[GET /test-runs] query=', req.query, 'where=', where);
-
-    const testRuns = await TestRun.findAll({
+    const playwrightRuns = await PlaywrightRun.findAll({
       where,
-      include: [{
-        model: Project,
-        as: 'project',
-        attributes: ['id', 'name']
-      }],
+      include: [{ model: Project, as: 'project', attributes: ['id', 'name'] }],
       order: [['created_at', 'DESC']],
-      limit: req.query.limit ? parseInt(req.query.limit) : 50,
-      offset: req.query.offset ? parseInt(req.query.offset) : 0
+      limit,
+      offset
     });
-    res.json(testRuns);
+    res.json(playwrightRuns.map(r => toUnifiedRun(r.get ? r.get({ plain: true }) : r, 'ui')));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -660,6 +782,298 @@ router.get('/test-runs/:id/report/download', async (req, res) => {
         console.error('Error downloading report:', err);
       }
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== PLAYWRIGHT / UI TESTS ====================
+
+// Get Playwright config (for UI default base URL)
+router.get('/playwright-config', (req, res) => {
+  res.json({ baseUrl: playwrightConfig.baseUrl });
+});
+
+// Get list of Playwright tests (built-in + recorded) for Run UI Tests page. Optional projectId: only recorded tests linked to that project.
+router.get('/playwright-tests/list', async (req, res) => {
+  try {
+    const projectId = req.query.projectId ? parseInt(req.query.projectId, 10) : null;
+    const list = await getPlaywrightTestListWithRecorded(projectId);
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Execute Playwright UI tests (projectId required so run is project-scoped)
+router.post('/playwright-runs/execute', async (req, res) => {
+  try {
+    const { projectId, name, baseUrl, suite, selectedTestIds } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    if (!projectId) {
+      return res.status(400).json({ error: 'projectId is required for UI test runs' });
+    }
+    const url = baseUrl || playwrightConfig.baseUrl;
+    let runOnly = null;
+    if (suite === 'selected' && Array.isArray(selectedTestIds) && selectedTestIds.length > 0) {
+      runOnly = selectedTestIds;
+    } else if (suite === 'full') {
+      const fullList = await getPlaywrightTestListWithRecorded(projectId);
+      runOnly = fullList.length > 0 ? fullList.map(t => t.id) : null;
+    }
+    const run = await PlaywrightRun.create({
+      name,
+      status: 'running',
+      base_url: url,
+      project_id: projectId,
+      total_tests: 0,
+      passed_tests: 0,
+      failed_tests: 0,
+      duration_ms: 0
+    });
+    runPlaywrightTests({
+      playwrightRunId: run.id,
+      baseUrl: url,
+      headless: playwrightConfig.headless,
+      timeoutMs: playwrightConfig.timeoutMs,
+      runOnly
+    })
+      .then(() => console.log(`[api] Playwright run ${run.id} completed`))
+      .catch((err) => {
+        console.error(`[api] Playwright run ${run.id} failed:`, err);
+        PlaywrightRun.update({ status: 'failed' }, { where: { id: run.id } }).catch(() => {});
+      });
+    res.status(201).json({ playwrightRun: { id: run.id }, status: 'running', message: 'UI test execution started' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// List Playwright runs
+router.get('/playwright-runs', async (req, res) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
+    const offset = req.query.offset ? parseInt(req.query.offset, 10) : 0;
+    const runs = await PlaywrightRun.findAll({
+      order: [['created_at', 'DESC']],
+      limit: Math.min(limit, 100),
+      offset
+    });
+    res.json(runs);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get single Playwright run with results
+router.get('/playwright-runs/:id', async (req, res) => {
+  try {
+    const run = await PlaywrightRun.findByPk(req.params.id, {
+      include: [{ model: PlaywrightResult, as: 'results', order: [['execution_order', 'ASC']] }]
+    });
+    if (!run) return res.status(404).json({ error: 'Playwright run not found' });
+    res.json(run);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Playwright report (HTML)
+router.get('/playwright-runs/:id/report', async (req, res) => {
+  try {
+    const { html } = await generatePlaywrightReport(req.params.id);
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (error) {
+    if (error.message && error.message.toLowerCase().includes('not found')) {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Playwright report download
+router.get('/playwright-runs/:id/report/download', async (req, res) => {
+  try {
+    const { filePath, fileName } = await generatePlaywrightReport(req.params.id);
+    res.download(filePath, fileName, (err) => {
+      if (err) console.error('Error downloading report:', err);
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete Playwright run
+router.delete('/playwright-runs/:id', async (req, res) => {
+  try {
+    const run = await PlaywrightRun.findByPk(req.params.id);
+    if (!run) return res.status(404).json({ error: 'Playwright run not found' });
+    await run.destroy();
+    res.json({ message: 'Playwright run deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== PLAYWRIGHT RECORDED TESTS (Codegen paste-and-save) ====================
+
+// List recorded tests
+router.get('/playwright-recorded-tests', async (req, res) => {
+  try {
+    const tests = await PlaywrightRecordedTest.findAll({
+      order: [['created_at', 'DESC']],
+      attributes: ['id', 'name', 'base_url', 'created_at']
+    });
+    res.json(tests);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create recorded test (optional addToProjectIds: array of project ids to link to)
+router.post('/playwright-recorded-tests', async (req, res) => {
+  try {
+    const { name, spec_content, base_url, addToProjectIds } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+    const validation = validateSpecContent(spec_content);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+    const normalizedSpec = normalizeRecordedSpecTitle(
+      typeof spec_content === 'string' ? spec_content.trim() : '',
+      name
+    );
+    const test = await PlaywrightRecordedTest.create({
+      name: name.trim(),
+      spec_content: normalizedSpec,
+      base_url: base_url && typeof base_url === 'string' ? base_url.trim() || null : null
+    });
+    const projectIds = Array.isArray(addToProjectIds) ? addToProjectIds.filter(id => Number.isInteger(Number(id))) : [];
+    for (const projectId of projectIds) {
+      await ProjectRecordedTest.findOrCreate({
+        where: { project_id: projectId, recorded_test_id: test.id }
+      }).catch(() => {});
+    }
+    res.status(201).json(test);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Optional: launch Playwright codegen (requires display)
+router.post('/playwright-recorded-tests/launch-codegen', async (req, res) => {
+  try {
+    const { baseUrl } = req.body;
+    const url = (baseUrl && typeof baseUrl === 'string' ? baseUrl.trim() : playwrightConfig.baseUrl) || 'https://example.com';
+    const { spawn } = require('child_process');
+    const slug = `recorded-${Date.now()}`;
+    const outputPath = path.join(__dirname, '..', 'e2e', 'recorded', `${slug}.spec.js`);
+    const e2eRecorded = path.join(__dirname, '..', 'e2e', 'recorded');
+    if (!fs.existsSync(e2eRecorded)) {
+      fs.mkdirSync(e2eRecorded, { recursive: true });
+    }
+    const hasDisplay = process.platform === 'win32' || process.env.DISPLAY;
+    if (!hasDisplay) {
+      return res.status(503).json({
+        error: 'Cannot launch Codegen: no display available. Use paste-and-save: run "npx playwright codegen <url>" locally, then paste the generated code here.'
+      });
+    }
+    const isWin = process.platform === 'win32';
+    const command = isWin ? 'npx.cmd' : 'npx';
+    const args = ['playwright', 'codegen', '--output', outputPath, url];
+    const child = spawn(command, args, {
+      stdio: 'ignore',
+      detached: true,
+      shell: isWin,
+      cwd: path.join(__dirname, '..')
+    });
+    child.unref();
+    // Return relative path for security (client can request it via API)
+    const relativePath = path.relative(path.join(__dirname, '..'), outputPath);
+    res.status(202).json({
+      message: 'Browser and Inspector opened. Record your interactions, then click "Load generated code" to load the test code.',
+      outputPath: relativePath,
+      slug: slug
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Read generated codegen file
+router.get('/playwright-recorded-tests/codegen-output/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    if (!slug || typeof slug !== 'string' || slug.includes('..') || slug.includes('/')) {
+      return res.status(400).json({ error: 'Invalid slug' });
+    }
+    const outputPath = path.join(__dirname, '..', 'e2e', 'recorded', `${slug}.spec.js`);
+    if (!fs.existsSync(outputPath)) {
+      return res.status(404).json({ error: 'Generated file not found. Codegen may still be running or the file was not created.' });
+    }
+    const content = fs.readFileSync(outputPath, 'utf8');
+    res.json({ content, outputPath: path.relative(path.join(__dirname, '..'), outputPath) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get single recorded test
+router.get('/playwright-recorded-tests/:id', async (req, res) => {
+  try {
+    const test = await PlaywrightRecordedTest.findByPk(req.params.id);
+    if (!test) return res.status(404).json({ error: 'Recorded test not found' });
+    res.json(test);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update recorded test
+router.put('/playwright-recorded-tests/:id', async (req, res) => {
+  try {
+    const test = await PlaywrightRecordedTest.findByPk(req.params.id);
+    if (!test) return res.status(404).json({ error: 'Recorded test not found' });
+    const { name, spec_content, base_url } = req.body;
+    if (name !== undefined) {
+      if (typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'name must be a non-empty string' });
+      }
+      test.name = name.trim();
+    }
+    if (spec_content !== undefined) {
+      const validation = validateSpecContent(spec_content);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
+      }
+      const normalizedSpec = normalizeRecordedSpecTitle(
+        typeof spec_content === 'string' ? spec_content.trim() : test.spec_content,
+        test.name
+      );
+      test.spec_content = normalizedSpec;
+    }
+    if (base_url !== undefined) {
+      test.base_url = base_url && typeof base_url === 'string' ? base_url.trim() || null : null;
+    }
+    await test.save();
+    res.json(test);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete recorded test
+router.delete('/playwright-recorded-tests/:id', async (req, res) => {
+  try {
+    const test = await PlaywrightRecordedTest.findByPk(req.params.id);
+    if (!test) return res.status(404).json({ error: 'Recorded test not found' });
+    await test.destroy();
+    res.json({ message: 'Recorded test deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

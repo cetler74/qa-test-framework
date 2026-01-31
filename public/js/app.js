@@ -123,10 +123,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const start = document.getElementById('start-date');
       const end = document.getElementById('end-date');
       const project = document.getElementById('project-filter');
+      const typeFilter = document.getElementById('test-run-type-filter');
       if (search) search.value = '';
       if (start) start.value = '';
       if (end) end.value = '';
       if (project) project.value = '';
+      if (typeFilter) typeFilter.value = 'all';
       loadTestRuns();
     });
   }
@@ -154,16 +156,19 @@ async function loadViewData(view) {
     case 'test-runs':
       loadTestRuns();
       break;
+    case 'ui-tests':
+      // UI test runs are shown only in Test Runs; no list to load here
+      break;
   }
 }
 
-// Dashboard
+// Dashboard (unified recent runs: API + UI with type badge)
 async function loadDashboard() {
   try {
     const [projects, apiSpecs, testRuns] = await Promise.all([
       apiRequest('/projects'),
       apiRequest('/api-specs'),
-      apiRequest('/test-runs?limit=5')
+      apiRequest('/test-runs?limit=5&type=all')
     ]);
 
     document.getElementById('total-projects').textContent = projects.length;
@@ -181,15 +186,20 @@ async function loadDashboard() {
         </div>
       `;
     } else {
-      recentRunsList.innerHTML = testRuns.map(run => `
-        <div class="list-item" onclick="viewTestRun(${run.id})">
+      recentRunsList.innerHTML = testRuns.map(run => {
+        const runType = run.runType || 'api';
+        const onClick = runType === 'ui' ? `viewPlaywrightRun(${run.id})` : `viewTestRun(${run.id})`;
+        const typeBadge = getRunTypeBadgeHtml(runType);
+        return `
+        <div class="list-item" onclick="${onClick}" style="cursor: pointer;">
           <div class="list-item-info">
-            <h3>${run.name}</h3>
+            <h3>${typeBadge} ${run.name}</h3>
             <p>Project: ${run.project?.name || 'Unknown'} • ${formatDateTime(run.created_at)}</p>
           </div>
           <span class="status-badge ${run.status}">${run.status}</span>
         </div>
-      `).join('');
+      `;
+      }).join('');
     }
   } catch (error) {
     console.error('Error loading dashboard:', error);
@@ -298,24 +308,38 @@ function formatDateTime(dateInput) {
   return `${dd}/${mm}/${yyyy}, ${time}`;
 }
 
-// Test Runs
+// Run type badge HTML: icon + color label for API vs UI
+function getRunTypeBadgeHtml(runType) {
+  const type = runType === 'ui' ? 'ui' : 'api';
+  const label = type === 'ui' ? 'UI' : 'API';
+  const apiIcon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>';
+  const uiIcon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>';
+  const icon = type === 'ui' ? uiIcon : apiIcon;
+  return `<span class="run-type-badge run-type-${type}">${icon}${label}</span>`;
+}
+
+// Test Runs (unified API + UI; type filter and runType badge)
 async function loadTestRuns() {
   try {
     // Populate projects dropdown
     const projects = await apiRequest('/projects');
     const projectFilter = document.getElementById('project-filter');
-    const currentProject = projectFilter.value || '';
-    projectFilter.innerHTML = `<option value="">All Projects</option>` + projects.map(p => `
-      <option value="${p.id}" ${p.id == currentProject ? 'selected' : ''}>${p.name}</option>
-    `).join('');
+    const currentProject = projectFilter?.value || '';
+    if (projectFilter) {
+      projectFilter.innerHTML = `<option value="">All Projects</option>` + projects.map(p => `
+        <option value="${p.id}" ${p.id == currentProject ? 'selected' : ''}>${p.name}</option>
+      `).join('');
+    }
 
-    // Read filter values
     const name = document.getElementById('test-run-search')?.value.trim();
     const projectId = document.getElementById('project-filter')?.value;
     const startDate = document.getElementById('start-date')?.value;
     const endDate = document.getElementById('end-date')?.value;
+    const typeFilter = document.getElementById('test-run-type-filter');
+    const type = typeFilter?.value || 'all';
 
     const params = new URLSearchParams();
+    params.append('type', type);
     if (projectId) params.append('projectId', projectId);
     if (name) params.append('name', name);
     if (startDate) params.append('startDate', startDate);
@@ -323,10 +347,9 @@ async function loadTestRuns() {
     params.append('limit', '50');
 
     const endpoint = `/test-runs?${params.toString()}`;
-    console.info('[loadTestRuns] fetching', endpoint);
     const testRuns = await apiRequest(endpoint);
     const testRunsList = document.getElementById('test-runs-list');
-    
+
     if (testRuns.length === 0) {
       testRunsList.innerHTML = `
         <div class="empty-state">
@@ -338,18 +361,24 @@ async function loadTestRuns() {
         </div>
       `;
     } else {
-      testRunsList.innerHTML = testRuns.map(run => `
-        <div class="list-item" onclick="viewTestRun(${run.id})" style="cursor: pointer;">
+      testRunsList.innerHTML = testRuns.map(run => {
+        const runType = run.runType || 'api';
+        const projectName = run.project?.name || (run.project_id ? 'Unknown' : 'No project');
+        const onClick = runType === 'ui' ? `viewPlaywrightRun(${run.id})` : `viewTestRun(${run.id})`;
+        const typeBadge = getRunTypeBadgeHtml(runType);
+        return `
+        <div class="list-item" onclick="${onClick}" style="cursor: pointer;">
           <div class="list-item-info">
-            <h3>${run.name}</h3>
-            <p>Project: ${run.project?.name || 'Unknown'} • ${formatDateTime(run.created_at)}</p>
+            <h3>${typeBadge} ${run.name}</h3>
+            <p>Project: ${projectName} • ${formatDateTime(run.created_at)}</p>
             <p style="font-size: 12px; color: #666; margin-top: 5px;">
-              ${run.passed_tests || 0} passed, ${run.failed_tests || 0} failed of ${run.total_tests || 0} total
+              ${run.passed_tests != null ? run.passed_tests : 0} passed, ${run.failed_tests != null ? run.failed_tests : 0} failed of ${run.total_tests != null ? run.total_tests : 0} total
             </p>
           </div>
           <span class="status-badge ${run.status}">${run.status}</span>
         </div>
-      `).join('');
+      `;
+      }).join('');
     }
   } catch (error) {
     console.error('Error loading test runs:', error);
@@ -481,6 +510,7 @@ window.viewProject = (projectId) => {
 };
 
 window.viewTestRun = viewTestRun;
+window.loadTestRuns = loadTestRuns;
 
 window.editProject = (projectId) => {
   // Handled in projectManager.js
