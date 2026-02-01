@@ -9,6 +9,12 @@ const PlaywrightRun = require('./PlaywrightRun');
 const PlaywrightResult = require('./PlaywrightResult');
 const PlaywrightRecordedTest = require('./PlaywrightRecordedTest');
 const ProjectRecordedTest = require('./ProjectRecordedTest');
+const Flow = require('./Flow');
+const FlowTask = require('./FlowTask');
+const Schedule = require('./Schedule');
+const SoapOperation = require('./SoapOperation');
+const FuzzRun = require('./FuzzRun');
+const FuzzResult = require('./FuzzResult');
 
 // Define associations
 Project.belongsToMany(ApiSpec, {
@@ -94,6 +100,106 @@ PlaywrightRecordedTest.belongsToMany(Project, {
   as: 'projects'
 });
 
+Project.hasMany(Flow, {
+  foreignKey: 'project_id',
+  as: 'flows'
+});
+
+Flow.belongsTo(Project, {
+  foreignKey: 'project_id',
+  as: 'project'
+});
+
+Flow.hasMany(FlowTask, {
+  foreignKey: 'flow_id',
+  as: 'flowTasks'
+});
+
+FlowTask.belongsTo(Flow, {
+  foreignKey: 'flow_id',
+  as: 'flow'
+});
+
+TestRun.belongsTo(Flow, {
+  foreignKey: 'flow_id',
+  as: 'flow'
+});
+
+Flow.hasMany(TestRun, {
+  foreignKey: 'flow_id',
+  as: 'testRuns'
+});
+
+PlaywrightRun.belongsTo(Flow, {
+  foreignKey: 'flow_id',
+  as: 'flow'
+});
+
+Flow.hasMany(PlaywrightRun, {
+  foreignKey: 'flow_id',
+  as: 'playwrightRuns'
+});
+
+Project.hasMany(Schedule, {
+  foreignKey: 'project_id',
+  as: 'schedules'
+});
+
+Schedule.belongsTo(Project, {
+  foreignKey: 'project_id',
+  as: 'project'
+});
+
+Schedule.belongsTo(Flow, {
+  foreignKey: 'flow_id',
+  as: 'flow'
+});
+
+Flow.hasMany(Schedule, {
+  foreignKey: 'flow_id',
+  as: 'schedules'
+});
+
+Project.hasMany(FuzzRun, {
+  foreignKey: 'project_id',
+  as: 'fuzzRuns'
+});
+
+FuzzRun.belongsTo(Project, {
+  foreignKey: 'project_id',
+  as: 'project'
+});
+
+ApiSpec.hasMany(FuzzRun, {
+  foreignKey: 'api_spec_id',
+  as: 'fuzzRuns'
+});
+
+FuzzRun.belongsTo(ApiSpec, {
+  foreignKey: 'api_spec_id',
+  as: 'apiSpec'
+});
+
+FuzzRun.hasMany(FuzzResult, {
+  foreignKey: 'fuzz_run_id',
+  as: 'fuzzResults'
+});
+
+FuzzResult.belongsTo(FuzzRun, {
+  foreignKey: 'fuzz_run_id',
+  as: 'fuzzRun'
+});
+
+Flow.hasMany(FuzzRun, {
+  foreignKey: 'flow_id',
+  as: 'fuzzRuns'
+});
+
+FuzzRun.belongsTo(Flow, {
+  foreignKey: 'flow_id',
+  as: 'flow'
+});
+
 module.exports = {
   sequelize,
   Project,
@@ -105,6 +211,12 @@ module.exports = {
   PlaywrightRun,
   PlaywrightResult,
   PlaywrightRecordedTest,
-  ProjectRecordedTest
+  ProjectRecordedTest,
+  Flow,
+  FlowTask,
+  Schedule,
+  SoapOperation,
+  FuzzRun,
+  FuzzResult
 };
 

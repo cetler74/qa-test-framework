@@ -7,15 +7,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // View Report
 async function viewReport() {
-  const testRunId = document.getElementById('view-report-btn')?.getAttribute('data-test-run-id');
-  
-  if (!testRunId) {
+  const viewBtn = document.getElementById('view-report-btn');
+  const fuzzRunId = viewBtn?.getAttribute('data-fuzz-run-id');
+  const testRunId = viewBtn?.getAttribute('data-test-run-id');
+  const id = fuzzRunId || testRunId;
+  const isFuzz = !!fuzzRunId;
+
+  if (!id) {
     alert('No test run selected');
     return;
   }
-  
+
   try {
-    const response = await fetch(`/api/test-runs/${testRunId}/report`);
+    const reportUrl = isFuzz ? `/api/fuzz-runs/${id}/report` : `/api/test-runs/${id}/report`;
+    const response = await fetch(reportUrl);
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: response.statusText }));
@@ -44,29 +49,34 @@ async function viewReport() {
 
 // Download Report
 async function downloadReport() {
-  const testRunId = document.getElementById('download-report-btn')?.getAttribute('data-test-run-id') || 
-                    document.getElementById('view-report-btn')?.getAttribute('data-test-run-id');
-  
-  if (!testRunId) {
+  const viewBtn = document.getElementById('view-report-btn');
+  const downloadBtn = document.getElementById('download-report-btn');
+  const fuzzRunId = downloadBtn?.getAttribute('data-fuzz-run-id') || viewBtn?.getAttribute('data-fuzz-run-id');
+  const testRunId = downloadBtn?.getAttribute('data-test-run-id') || viewBtn?.getAttribute('data-test-run-id');
+  const id = fuzzRunId || testRunId;
+  const isFuzz = !!fuzzRunId;
+
+  if (!id) {
     alert('No test run selected');
     return;
   }
-  
+
   try {
-    const response = await fetch(`/api/test-runs/${testRunId}/report/download`);
-    
+    const reportUrl = isFuzz ? `/api/fuzz-runs/${id}/report/download` : `/api/test-runs/${id}/report/download`;
+    const response = await fetch(reportUrl);
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: response.statusText }));
       throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
     }
-    
+
     const blob = await response.blob();
-    
+
     // Create download link
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `test-report-${testRunId}-${Date.now()}.html`;
+    a.download = isFuzz ? `fuzz-report-${id}-${Date.now()}.html` : `test-report-${id}-${Date.now()}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

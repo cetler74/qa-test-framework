@@ -27,6 +27,14 @@ const PlaywrightRun = sequelize.define('PlaywrightRun', {
       key: 'id'
     }
   },
+  flow_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'flows',
+      key: 'id'
+    }
+  },
   total_tests: {
     type: DataTypes.INTEGER,
     allowNull: true

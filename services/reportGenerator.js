@@ -563,13 +563,19 @@ handlebars.registerHelper('now', () => {
  */
 async function generateReport(testRunId) {
   try {
-    // Fetch test run with related data
+    // Fetch test run with related data (include project's API specs for fallback when result has no api_spec_id)
     const testRun = await TestRun.findByPk(testRunId, {
       include: [
         {
           model: Project,
           as: 'project',
-          attributes: ['id', 'name', 'description']
+          attributes: ['id', 'name', 'description'],
+          include: [{
+            model: ApiSpec,
+            as: 'apiSpecs',
+            through: { attributes: [] },
+            attributes: ['id', 'name']
+          }]
         }
       ]
     });
@@ -616,10 +622,12 @@ async function generateReport(testRunId) {
       order: orderClause
     });
 
-    // Group test results by API spec
+    // Group test results by API spec (use project's single API spec as fallback when result has no api_spec_id)
+    const projectSpecs = testRun.project?.apiSpecs || [];
+    const fallbackSpecName = projectSpecs.length === 1 ? projectSpecs[0].name : null;
     const testResultsBySpec = {};
     testResults.forEach((result) => {
-      const specName = result.apiSpec?.name || 'Unknown API Spec';
+      const specName = result.apiSpec?.name || fallbackSpecName || 'Unknown API Spec';
       if (!testResultsBySpec[specName]) {
         testResultsBySpec[specName] = [];
       }

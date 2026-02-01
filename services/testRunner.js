@@ -114,6 +114,44 @@ function mergeCollections(collections, name = 'Merged Collection') {
 }
 
 /**
+ * Get all request item names from a Postman collection (flatten folders so we match execution results correctly).
+ * @param {object} collectionJson - Postman collection JSON (with item array; items can be requests or folders)
+ * @returns {string[]} Array of request names
+ */
+function getAllRequestNamesFromCollection(collectionJson) {
+  const names = [];
+  function walk(items) {
+    if (!items || !Array.isArray(items)) return;
+    for (const i of items) {
+      if (i.request && i.name) names.push(i.name);
+      if (i.item) walk(i.item);
+    }
+  }
+  walk(collectionJson?.item);
+  return names;
+}
+
+/**
+ * Find which collection (and its api_spec_id) an execution item belongs to by matching item name.
+ * Uses flattened request names so folder-based collections match correctly.
+ * @param {Array<{ collection_json: object, api_spec_id: number }>} collections - Collection model instances
+ * @param {string} executionItemName - execution.item.name from Newman
+ * @returns {{ apiSpecId: number | null }} apiSpecId if a collection matched
+ */
+function findCollectionForExecution(collections, executionItemName) {
+  for (const coll of collections) {
+    const names = getAllRequestNamesFromCollection(coll.collection_json);
+    const matched = names.some(
+      (name) => executionItemName === name || executionItemName.includes(name)
+    );
+    if (matched) {
+      return { apiSpecId: coll.api_spec_id };
+    }
+  }
+  return { apiSpecId: null };
+}
+
+/**
  * Run Postman collection tests using Newman
  * @param {object} collection - Postman collection object
  * @param {object} options - Test execution options
@@ -974,20 +1012,9 @@ async function executeTests(projectId, testRunName, options = {}) {
       // Only save results if they weren't already saved during sequential execution
       for (let execIndex = 0; execIndex < newmanResults.executions.length; execIndex++) {
       const execution = newmanResults.executions[execIndex];
-      // Try to find which collection this test belongs to
-      let collection = null;
-      let apiSpecId = null;
-      
-      for (const coll of collections) {
-        const items = coll.collection_json?.item || [];
-        const itemName = execution.item.name;
-        if (items.some(i => itemName.includes(i.name) || i.name === itemName)) {
-          collection = coll;
-          apiSpecId = coll.api_spec_id;
-          break;
-        }
-      }
-      
+      // Find which collection (api_spec_id) this test belongs to (flatten folders so we match request names)
+      const { apiSpecId } = findCollectionForExecution(collections, execution.item.name);
+
       // Get test_id and execution_order from the mapping
       // Try to match by item name first, then fall back to execution index
       const itemName = execution.item.name;

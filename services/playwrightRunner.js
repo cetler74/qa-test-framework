@@ -211,7 +211,14 @@ async function runPlaywrightTests(options = {}) {
       await updateRunSummary(runId, 1, 0, 1, Date.now() - startTime, 'failed');
       return { summary: { total: 1, passed: 0, failed: 1 }, results };
     }
-    const context = await browser.newContext({ baseURL: baseUrl });
+    // Use a desktop viewport so headless matches headed (headless default is small; site may use mobile layout).
+    const viewport = { width: 1280, height: 720 };
+    const contextOptions = { baseURL: baseUrl, viewport };
+    // In headless, use a normal Chrome user agent so sites don't hide consent/banners for "HeadlessChrome".
+    if (headless) {
+      contextOptions.userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    }
+    const context = await browser.newContext(contextOptions);
     context.setDefaultTimeout(timeoutMs);
     page = await context.newPage();
   }

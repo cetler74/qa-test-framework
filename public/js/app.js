@@ -31,21 +31,36 @@ async function apiRequest(endpoint, options = {}) {
   }
 }
 
-// View management
+// View management (store previous view so "Back" from Run UI Tests / UI Test Detail returns to it)
 function showView(viewId) {
+  const activeEl = document.querySelector('.view.active');
+  const currentId = activeEl && activeEl.id ? activeEl.id.replace(/-view$/, '') : null;
+  if (currentId && currentId !== viewId) {
+    window._uiTestsReturnView = currentId;
+  }
   document.querySelectorAll('.view').forEach(view => {
     view.classList.remove('active');
   });
   document.getElementById(`${viewId}-view`).classList.add('active');
   
-  // Update nav buttons
+  // Update nav buttons (Settings gets active when on api-specs or ui-tests)
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.classList.remove('active');
   });
-  const navBtn = document.querySelector(`[data-view="${viewId}"]`);
-  if (navBtn) {
-    navBtn.classList.add('active');
+  const navBtn = document.querySelector(`.main-nav .nav-btn[data-view="${viewId}"]`);
+  if (navBtn) navBtn.classList.add('active');
+  const settingsNavBtn = document.getElementById('settings-nav-btn');
+  if (settingsNavBtn && (viewId === 'api-specs' || viewId === 'ui-tests')) {
+    settingsNavBtn.classList.add('active');
   }
+  closeSettingsDropdown();
+}
+
+function closeSettingsDropdown() {
+  const menu = document.getElementById('settings-dropdown-menu');
+  const btn = document.getElementById('settings-nav-btn');
+  if (menu) menu.classList.remove('open');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
 }
 
 // Modal management
@@ -63,12 +78,37 @@ function hideModal() {
 document.addEventListener('DOMContentLoaded', () => {
   // Navigation
   document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      if (btn.id === 'settings-nav-btn') {
+        e.preventDefault();
+        e.stopPropagation();
+        const menu = document.getElementById('settings-dropdown-menu');
+        const isOpen = menu ? menu.classList.toggle('open') : false;
+        btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        return;
+      }
       const view = btn.getAttribute('data-view');
-      showView(view);
-      loadViewData(view);
+      if (view) {
+        showView(view);
+        loadViewData(view);
+      }
     });
   });
+
+  // Settings dropdown items
+  document.querySelectorAll('.settings-dropdown-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const view = item.getAttribute('data-view');
+      if (view) {
+        showView(view);
+        loadViewData(view);
+      }
+    });
+  });
+
+  // Close Settings dropdown when clicking outside
+  document.addEventListener('click', () => closeSettingsDropdown());
+  document.querySelector('.settings-dropdown')?.addEventListener('click', (e) => e.stopPropagation());
 
   // Modal close
   document.querySelector('.modal-close').addEventListener('click', hideModal);
@@ -139,6 +179,48 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.key === 'Enter') loadTestRuns();
     });
   }
+
+  const runHubProject = document.getElementById('run-hub-project');
+  const runHubType = document.querySelectorAll('input[name="run-hub-type"]');
+  const runHubFlow = document.getElementById('run-hub-flow');
+  const runHubGo = document.getElementById('run-hub-go');
+  if (runHubProject) {
+    runHubProject.addEventListener('change', async () => {
+      const projectId = runHubProject.value;
+      if (!runHubFlow) return;
+      runHubFlow.innerHTML = '<option value="">Select flow...</option>';
+      if (!projectId) return;
+      try {
+        const flows = await apiRequest(`/projects/${projectId}/flows`);
+        runHubFlow.innerHTML = '<option value="">Select flow...</option>' + (flows || []).map(f => `<option value="${f.id}" data-name="${(f.name || '').replace(/"/g, '&quot;')}">${(f.name || 'Unnamed').replace(/</g, '&lt;')}</option>`).join('');
+      } catch (e) {}
+    });
+  }
+  if (runHubType.length) {
+    runHubType.forEach(r => r.addEventListener('change', () => {
+      if (runHubFlow) runHubFlow.style.display = document.querySelector('input[name="run-hub-type"]:checked')?.value === 'flow' ? 'block' : 'none';
+    }));
+  }
+  if (runHubGo) {
+    runHubGo.addEventListener('click', async () => {
+      const projectId = document.getElementById('run-hub-project')?.value;
+      const type = document.querySelector('input[name="run-hub-type"]:checked')?.value;
+      const flowId = runHubFlow?.value;
+      if (!projectId) { alert('Select a project'); return; }
+      if (type === 'flow' && !flowId) { alert('Select a flow'); return; }
+      if (typeof viewProject !== 'function') { alert('Cannot run'); return; }
+      viewProject(Number(projectId));
+      if (type === 'api') {
+        setTimeout(() => document.getElementById('run-tests-btn')?.click(), 300);
+      } else if (type === 'ui') {
+        setTimeout(() => document.getElementById('run-ui-test-btn')?.click(), 300);
+      } else if (type === 'flow' && flowId) {
+        const opt = runHubFlow?.options[runHubFlow.selectedIndex];
+        const flowName = opt?.getAttribute('data-name') || opt?.text || 'Flow';
+        setTimeout(() => { if (typeof runFlow === 'function') runFlow(Number(flowId), flowName); }, 300);
+      }
+    });
+  }
 });
 
 // Load view data
@@ -162,18 +244,37 @@ async function loadViewData(view) {
   }
 }
 
-// Dashboard (unified recent runs: API + UI with type badge)
+// Dashboard (unified recent runs: API + UI with type badge, Quick Run, Next scheduled)
 async function loadDashboard() {
   try {
-    const [projects, apiSpecs, testRuns] = await Promise.all([
+    const [projects, apiSpecs, testRuns, schedules] = await Promise.all([
       apiRequest('/projects'),
       apiRequest('/api-specs'),
-      apiRequest('/test-runs?limit=5&type=all')
+      apiRequest('/test-runs?limit=5&type=all'),
+      apiRequest('/schedules?nextWithin=24').catch(() => [])
     ]);
 
     document.getElementById('total-projects').textContent = projects.length;
     document.getElementById('total-api-specs').textContent = apiSpecs.length;
     document.getElementById('total-test-runs').textContent = testRuns.length;
+
+    const runHubProject = document.getElementById('run-hub-project');
+    if (runHubProject) {
+      runHubProject.innerHTML = '<option value="">Select project...</option>' + (projects || []).map(p => `<option value="${p.id}">${(p.name || '').replace(/"/g, '&quot;')}</option>`).join('');
+    }
+
+    const nextScheduledList = document.getElementById('next-scheduled-list');
+    if (nextScheduledList) {
+      if (!schedules || schedules.length === 0) {
+        nextScheduledList.innerHTML = '<p class="empty-state">No scheduled runs in the next 24 hours.</p>';
+      } else {
+        nextScheduledList.innerHTML = schedules.map(s => {
+          const target = s.flow ? `Flow: ${s.flow.name}` : 'Whole project';
+          const next = s.next_run_at ? formatDateTime(s.next_run_at) : '–';
+          return `<div class="list-item" style="padding: 12px 16px;"><div class="list-item-info"><h3 style="font-size: 14px;">${(s.project?.name || 'Project')} – ${target}</h3><p style="font-size: 12px;">Next: ${next}</p></div></div>`;
+        }).join('');
+      }
+    }
 
     const recentRunsList = document.getElementById('recent-runs-list');
     if (testRuns.length === 0) {
@@ -188,13 +289,14 @@ async function loadDashboard() {
     } else {
       recentRunsList.innerHTML = testRuns.map(run => {
         const runType = run.runType || 'api';
-        const onClick = runType === 'ui' ? `viewPlaywrightRun(${run.id})` : `viewTestRun(${run.id})`;
+        const onClick = runType === 'ui' ? `viewPlaywrightRun(${run.id})` : runType === 'fuzz' ? `viewFuzzRun(${run.id})` : `viewTestRun(${run.id})`;
         const typeBadge = getRunTypeBadgeHtml(runType);
+        const flowLabel = run.flow?.name ? ` • Flow: ${run.flow.name}` : '';
         return `
         <div class="list-item" onclick="${onClick}" style="cursor: pointer;">
           <div class="list-item-info">
             <h3>${typeBadge} ${run.name}</h3>
-            <p>Project: ${run.project?.name || 'Unknown'} • ${formatDateTime(run.created_at)}</p>
+            <p>Project: ${run.project?.name || 'Unknown'}${flowLabel} • ${formatDateTime(run.created_at)}</p>
           </div>
           <span class="status-badge ${run.status}">${run.status}</span>
         </div>
@@ -308,13 +410,15 @@ function formatDateTime(dateInput) {
   return `${dd}/${mm}/${yyyy}, ${time}`;
 }
 
-// Run type badge HTML: icon + color label for API vs UI
+// Run type badge HTML: icon + color label for API vs UI vs SOAP vs Fuzz
 function getRunTypeBadgeHtml(runType) {
-  const type = runType === 'ui' ? 'ui' : 'api';
-  const label = type === 'ui' ? 'UI' : 'API';
+  const type = runType === 'ui' ? 'ui' : runType === 'soap' ? 'soap' : runType === 'fuzz' ? 'fuzz' : 'api';
+  const label = type === 'ui' ? 'UI' : type === 'soap' ? 'SOAP' : type === 'fuzz' ? 'Fuzz' : 'API';
   const apiIcon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>';
   const uiIcon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>';
-  const icon = type === 'ui' ? uiIcon : apiIcon;
+  const soapIcon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>';
+  const fuzzIcon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>';
+  const icon = type === 'ui' ? uiIcon : type === 'soap' ? soapIcon : type === 'fuzz' ? fuzzIcon : apiIcon;
   return `<span class="run-type-badge run-type-${type}">${icon}${label}</span>`;
 }
 
@@ -364,13 +468,14 @@ async function loadTestRuns() {
       testRunsList.innerHTML = testRuns.map(run => {
         const runType = run.runType || 'api';
         const projectName = run.project?.name || (run.project_id ? 'Unknown' : 'No project');
-        const onClick = runType === 'ui' ? `viewPlaywrightRun(${run.id})` : `viewTestRun(${run.id})`;
+        const onClick = runType === 'ui' ? `viewPlaywrightRun(${run.id})` : runType === 'fuzz' ? `viewFuzzRun(${run.id})` : `viewTestRun(${run.id})`;
         const typeBadge = getRunTypeBadgeHtml(runType);
+        const flowLabel = run.flow?.name ? ` • Flow: ${run.flow.name}` : '';
         return `
         <div class="list-item" onclick="${onClick}" style="cursor: pointer;">
           <div class="list-item-info">
             <h3>${typeBadge} ${run.name}</h3>
-            <p>Project: ${projectName} • ${formatDateTime(run.created_at)}</p>
+            <p>Project: ${projectName}${flowLabel} • ${formatDateTime(run.created_at)}</p>
             <p style="font-size: 12px; color: #666; margin-top: 5px;">
               ${run.passed_tests != null ? run.passed_tests : 0} passed, ${run.failed_tests != null ? run.failed_tests : 0} failed of ${run.total_tests != null ? run.total_tests : 0} total
             </p>
@@ -482,14 +587,92 @@ async function viewTestRun(testRunId) {
       `;
     }
     
-    // Store test run ID for report buttons
-    document.getElementById('view-report-btn').setAttribute('data-test-run-id', testRunId);
-    document.getElementById('download-report-btn').setAttribute('data-test-run-id', testRunId);
-    
+    // Store test run ID for report buttons (clear fuzz so report opens API report)
+    const viewBtn = document.getElementById('view-report-btn');
+    const downloadBtn = document.getElementById('download-report-btn');
+    viewBtn.removeAttribute('data-fuzz-run-id');
+    viewBtn.removeAttribute('data-detail-type');
+    downloadBtn.removeAttribute('data-fuzz-run-id');
+    downloadBtn.removeAttribute('data-detail-type');
+    viewBtn.setAttribute('data-test-run-id', testRunId);
+    downloadBtn.setAttribute('data-test-run-id', testRunId);
     showView('test-run-detail');
   } catch (error) {
     console.error('Error loading test run:', error);
     alert('Error loading test run: ' + error.message);
+  }
+}
+
+// View fuzz run (reuses test-run-detail view; report buttons use fuzz endpoints)
+async function viewFuzzRun(fuzzRunId) {
+  try {
+    const fuzzRun = await apiRequest(`/fuzz-runs/${fuzzRunId}`);
+    const nameElement = document.getElementById('test-run-detail-name');
+    nameElement.innerHTML = `
+      <div style="margin-bottom: 12px; font-size: inherit;">
+        <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Name:</span>
+        <span style="margin-left: 8px;">${fuzzRun.name}</span>
+        <span class="run-type-badge run-type-fuzz" style="margin-left: 12px;">Fuzz</span>
+      </div>
+      <div style="font-size: inherit;">
+        <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Date:</span>
+        <span style="margin-left: 8px;">${formatDateTime(fuzzRun.created_at)}</span>
+      </div>
+    `;
+    const info = document.getElementById('test-run-info');
+    info.innerHTML = `
+      <div class="stat-card">
+        <div class="stat-value">${fuzzRun.total_tests ?? 0}</div>
+        <div class="stat-label">Total Tests</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color: #4caf50;">${fuzzRun.passed_tests ?? 0}</div>
+        <div class="stat-label">Passed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color: #f44336;">${fuzzRun.failed_tests ?? 0}</div>
+        <div class="stat-label">Failed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${fuzzRun.duration_ms != null ? (fuzzRun.duration_ms / 1000).toFixed(2) : '—'}s</div>
+        <div class="stat-label">Duration</div>
+      </div>
+    `;
+    const resultsList = document.getElementById('test-results-list');
+    if (fuzzRun.fuzzResults && fuzzRun.fuzzResults.length > 0) {
+      resultsList.innerHTML = fuzzRun.fuzzResults.map(r => `
+        <div class="test-result-item">
+          <div class="test-result-header">
+            <div>
+              <strong>${r.test_name}</strong>
+              ${r.fuzzer_name ? `<span style="margin-left: 8px; font-size: 12px; color: #6b7280;">${r.fuzzer_name}</span>` : ''}
+            </div>
+            <span class="status-badge ${r.status}">${r.status}</span>
+          </div>
+          <div class="test-result-details">
+            ${r.error_message ? `<p style="color: #f44336;"><strong>Error:</strong> ${r.error_message}</p>` : ''}
+          </div>
+        </div>
+      `).join('');
+    } else {
+      resultsList.innerHTML = `
+        <div class="empty-state">
+          <p>No fuzz results</p>
+        </div>
+      `;
+    }
+    const viewBtn = document.getElementById('view-report-btn');
+    const downloadBtn = document.getElementById('download-report-btn');
+    viewBtn.removeAttribute('data-test-run-id');
+    downloadBtn.removeAttribute('data-test-run-id');
+    viewBtn.setAttribute('data-fuzz-run-id', fuzzRunId);
+    viewBtn.setAttribute('data-detail-type', 'fuzz');
+    downloadBtn.setAttribute('data-fuzz-run-id', fuzzRunId);
+    downloadBtn.setAttribute('data-detail-type', 'fuzz');
+    showView('test-run-detail');
+  } catch (error) {
+    console.error('Error loading fuzz run:', error);
+    alert('Error loading fuzz run: ' + error.message);
   }
 }
 
@@ -510,6 +693,7 @@ window.viewProject = (projectId) => {
 };
 
 window.viewTestRun = viewTestRun;
+window.viewFuzzRun = viewFuzzRun;
 window.loadTestRuns = loadTestRuns;
 
 window.editProject = (projectId) => {
