@@ -656,6 +656,21 @@ async function showRunFuzzModal() {
     }
     const specOptions = openApiSpecs.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
     const content = `
+      <div class="fuzz-modal-intro" style="margin-bottom: 20px; padding: 16px; background: var(--color-bg-muted, #f3f4f6); border-radius: 10px; border-left: 4px solid var(--color-primary, #14b8a6);">
+        <p style="font-weight: 600; margin-bottom: 8px; color: var(--color-text, #1f2937);">Intent</p>
+        <p style="font-size: 14px; line-height: 1.5; color: var(--color-text-secondary, #4b5563); margin-bottom: 12px;">
+          Fuzz tests (powered by CATS) automatically send thousands of invalid, boundary, and edge-case inputs to your API based on its OpenAPI contract. The goal is to find bugs, undocumented behavior, and security issues by checking that the service rejects bad requests and responds as the contract implies.
+        </p>
+        <p style="font-weight: 600; margin-bottom: 8px; color: var(--color-text, #1f2937);">Some of the tests performed</p>
+        <ul style="font-size: 13px; line-height: 1.6; color: var(--color-text-secondary, #4b5563); margin: 0; padding-left: 20px;">
+          <li>Invalid payloads (malformed JSON, wrong types, null/empty values)</li>
+          <li>Boundary and size fuzzing (very large strings, numbers, arrays)</li>
+          <li>Wrong content types and HTTP headers</li>
+          <li>Extra, missing, or renamed fields vs the contract</li>
+          <li>Contract and schema validation (response codes and response body consistency)</li>
+          <li>Optional security checks (e.g. injection-style payloads when enabled)</li>
+        </ul>
+      </div>
       <form id="run-fuzz-form">
         <div class="form-group">
           <label for="fuzz-api-spec">API Spec (OpenAPI) *</label>

@@ -59,6 +59,14 @@ const FuzzRun = sequelize.define('FuzzRun', {
     type: DataTypes.STRING(500),
     allowNull: true
   },
+  server_url: {
+    type: DataTypes.STRING(500),
+    allowNull: true
+  },
+  progress_message: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

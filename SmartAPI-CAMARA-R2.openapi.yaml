@@ -1,0 +1,172 @@
+openapi: 3.0.0
+info:
+  title: SmartAPI-CAMARA R2.0.0
+  description: >-
+    Comprehensive Postman collection for all CAMARA APIs including Device Identifier, Number Verification, SIM Swap,
+    Device Reachability Status, Location Retrieval, Location Verification, and Device Roaming Status
+  version: 1.0.0
+servers:
+  - url: https://api.example.com
+    description: From Postman base_url
+paths:
+  /sim-swap/v0/retrieve-date:
+    post:
+      summary: Retrieve SIM Swap Date
+      operationId: SIM_Swap_Retrieve_SIM_Swap_Date
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-correlator
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Request body (from Postman)
+            example:
+              phoneNumber: '{{phoneNumber}}'
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad Request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal Server Error
+      security:
+        - BearerAuth: []
+  /sim-swap/v0/check:
+    post:
+      summary: Check SIM Swap
+      operationId: SIM_Swap_Check_SIM_Swap
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-correlator
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Request body (from Postman)
+            example:
+              phoneNumber: '{{phoneNumber}}'
+              maxAge: 120
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad Request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal Server Error
+      security:
+        - BearerAuth: []
+  /location-retrieval/v0/retrieve:
+    post:
+      summary: Retrieve Device Location
+      operationId: Location_Retrieval_Retrieve_Device_Location
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-correlator
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Request body (from Postman)
+            example:
+              device:
+                phoneNumber: '{{phoneNumber}}'
+              maxAge: 600
+              maxSurface: 1000000
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad Request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal Server Error
+      security:
+        - BearerAuth: []
+  /location-verification/v0/verify:
+    post:
+      summary: Verify Device Location
+      operationId: Location_Verification_Verify_Device_Location
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: x-correlator
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Request body (from Postman)
+            example:
+              device:
+                phoneNumber: '{{phoneNumber}}'
+              area:
+                areaType: CIRCLE
+                center:
+                  latitude: 50.735851
+                  longitude: 7.10066
+                radius: 1000
+              maxAge: 600
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad Request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal Server Error
+      security:
+        - BearerAuth: []
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Bearer token
+security:
+  - BearerAuth: []

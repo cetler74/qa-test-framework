@@ -31,8 +31,20 @@ async function apiRequest(endpoint, options = {}) {
   }
 }
 
+// Polling for running test/fuzz run detail (clear when leaving detail view)
+let _detailPollingInterval = null;
+function clearDetailPolling() {
+  if (_detailPollingInterval) {
+    clearInterval(_detailPollingInterval);
+    _detailPollingInterval = null;
+  }
+}
+
 // View management (store previous view so "Back" from Run UI Tests / UI Test Detail returns to it)
 function showView(viewId) {
+  if (viewId !== 'test-run-detail') {
+    clearDetailPolling();
+  }
   const activeEl = document.querySelector('.view.active');
   const currentId = activeEl && activeEl.id ? activeEl.id.replace(/-view$/, '') : null;
   if (currentId && currentId !== viewId) {
@@ -471,6 +483,11 @@ async function loadTestRuns() {
         const onClick = runType === 'ui' ? `viewPlaywrightRun(${run.id})` : runType === 'fuzz' ? `viewFuzzRun(${run.id})` : `viewTestRun(${run.id})`;
         const typeBadge = getRunTypeBadgeHtml(runType);
         const flowLabel = run.flow?.name ? ` • Flow: ${run.flow.name}` : '';
+        const isRunning = (run.status || '').toLowerCase() === 'running';
+        const progressMsg = (run.progress_message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const runningLine = isRunning
+          ? '<p class="run-status-in-progress">Run in progress — results will update when complete</p>' + (progressMsg ? `<p class="fuzz-progress-output" title="Live CATS output">${progressMsg}</p>` : '')
+          : '';
         return `
         <div class="list-item" onclick="${onClick}" style="cursor: pointer;">
           <div class="list-item-info">
@@ -479,8 +496,9 @@ async function loadTestRuns() {
             <p style="font-size: 12px; color: #666; margin-top: 5px;">
               ${run.passed_tests != null ? run.passed_tests : 0} passed, ${run.failed_tests != null ? run.failed_tests : 0} failed of ${run.total_tests != null ? run.total_tests : 0} total
             </p>
+            ${runningLine}
           </div>
-          <span class="status-badge ${run.status}">${run.status}</span>
+          <span class="status-badge ${run.status || 'pending'}">${run.status || 'pending'}</span>
         </div>
       `;
       }).join('');
@@ -494,22 +512,30 @@ async function loadTestRuns() {
 
 // View test run
 async function viewTestRun(testRunId) {
+  clearDetailPolling();
   try {
     const testRun = await apiRequest(`/test-runs/${testRunId}`);
-    
-    // Set test run name and date/time at the top with labels
+    const status = (testRun.status || 'pending').toLowerCase();
+    const isRunning = status === 'running';
+
+    // Set test run name, date, and status at the top
     const nameElement = document.getElementById('test-run-detail-name');
     nameElement.innerHTML = `
       <div style="margin-bottom: 12px; font-size: inherit;">
         <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Name:</span>
         <span style="margin-left: 8px;">${testRun.name}</span>
       </div>
-      <div style="font-size: inherit;">
+      <div style="margin-bottom: 12px; font-size: inherit;">
         <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Date:</span>
         <span style="margin-left: 8px;">${formatDateTime(testRun.created_at)}</span>
       </div>
+      <div style="font-size: inherit;">
+        <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Status:</span>
+        <span class="status-badge ${testRun.status}" style="margin-left: 8px;">${testRun.status}</span>
+        ${isRunning ? '<p style="margin-top: 8px; color: var(--color-warning, #f59e0b); font-weight: 600;">Run in progress — results will update automatically.</p>' : ''}
+      </div>
     `;
-    
+
     const info = document.getElementById('test-run-info');
     info.innerHTML = `
       <div class="stat-card">
@@ -577,16 +603,17 @@ async function viewTestRun(testRunId) {
         </div>
       `).join('');
     } else {
+      const emptyMsg = isRunning ? 'Run in progress. No results yet — they will appear when the run completes.' : 'No test results';
       resultsList.innerHTML = `
         <div class="empty-state">
           <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
           </svg>
-          <p>No test results</p>
+          <p>${emptyMsg}</p>
         </div>
       `;
     }
-    
+
     // Store test run ID for report buttons (clear fuzz so report opens API report)
     const viewBtn = document.getElementById('view-report-btn');
     const downloadBtn = document.getElementById('download-report-btn');
@@ -597,6 +624,10 @@ async function viewTestRun(testRunId) {
     viewBtn.setAttribute('data-test-run-id', testRunId);
     downloadBtn.setAttribute('data-test-run-id', testRunId);
     showView('test-run-detail');
+
+    if (isRunning) {
+      _detailPollingInterval = setInterval(() => viewTestRun(testRunId), 3000);
+    }
   } catch (error) {
     console.error('Error loading test run:', error);
     alert('Error loading test run: ' + error.message);
@@ -605,8 +636,12 @@ async function viewTestRun(testRunId) {
 
 // View fuzz run (reuses test-run-detail view; report buttons use fuzz endpoints)
 async function viewFuzzRun(fuzzRunId) {
+  clearDetailPolling();
   try {
     const fuzzRun = await apiRequest(`/fuzz-runs/${fuzzRunId}`);
+    const status = (fuzzRun.status || 'pending').toLowerCase();
+    const isRunning = status === 'running';
+
     const nameElement = document.getElementById('test-run-detail-name');
     nameElement.innerHTML = `
       <div style="margin-bottom: 12px; font-size: inherit;">
@@ -614,9 +649,15 @@ async function viewFuzzRun(fuzzRunId) {
         <span style="margin-left: 8px;">${fuzzRun.name}</span>
         <span class="run-type-badge run-type-fuzz" style="margin-left: 12px;">Fuzz</span>
       </div>
-      <div style="font-size: inherit;">
+      <div style="margin-bottom: 12px; font-size: inherit;">
         <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Date:</span>
         <span style="margin-left: 8px;">${formatDateTime(fuzzRun.created_at)}</span>
+      </div>
+      <div style="font-size: inherit;">
+        <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Status:</span>
+        <span class="status-badge ${fuzzRun.status || 'pending'}" style="margin-left: 8px;">${fuzzRun.status || 'pending'}</span>
+        ${isRunning ? '<p class="run-status-in-progress" style="margin-top: 8px;">Fuzz run in progress — results will update automatically.</p>' : ''}
+        ${isRunning && fuzzRun.progress_message ? `<div class="fuzz-detail-progress"><span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Progress:</span><pre class="fuzz-progress-pre">${(fuzzRun.progress_message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre></div>` : ''}
       </div>
     `;
     const info = document.getElementById('test-run-info');
@@ -640,24 +681,31 @@ async function viewFuzzRun(fuzzRunId) {
     `;
     const resultsList = document.getElementById('test-results-list');
     if (fuzzRun.fuzzResults && fuzzRun.fuzzResults.length > 0) {
-      resultsList.innerHTML = fuzzRun.fuzzResults.map(r => `
+      resultsList.innerHTML = fuzzRun.fuzzResults.map(r => {
+        const statusLabel = (r.status === 'error' || r.status === 'failed') && r.response_code != null
+          ? `${r.status} (${r.response_code})`
+          : (r.status || '—');
+        return `
         <div class="test-result-item">
           <div class="test-result-header">
             <div>
               <strong>${r.test_name}</strong>
               ${r.fuzzer_name ? `<span style="margin-left: 8px; font-size: 12px; color: #6b7280;">${r.fuzzer_name}</span>` : ''}
             </div>
-            <span class="status-badge ${r.status}">${r.status}</span>
+            <span class="status-badge ${r.status}">${statusLabel}</span>
           </div>
           <div class="test-result-details">
+            ${r.response_code != null ? `<p><strong>Response Code:</strong> ${r.response_code}</p>` : ''}
             ${r.error_message ? `<p style="color: #f44336;"><strong>Error:</strong> ${r.error_message}</p>` : ''}
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     } else {
+      const emptyMsg = isRunning ? 'Fuzz run in progress. No results yet — they will appear when the run completes.' : 'No fuzz results';
       resultsList.innerHTML = `
         <div class="empty-state">
-          <p>No fuzz results</p>
+          <p>${emptyMsg}</p>
         </div>
       `;
     }
@@ -670,6 +718,10 @@ async function viewFuzzRun(fuzzRunId) {
     downloadBtn.setAttribute('data-fuzz-run-id', fuzzRunId);
     downloadBtn.setAttribute('data-detail-type', 'fuzz');
     showView('test-run-detail');
+
+    if (isRunning) {
+      _detailPollingInterval = setInterval(() => viewFuzzRun(fuzzRunId), 3000);
+    }
   } catch (error) {
     console.error('Error loading fuzz run:', error);
     alert('Error loading fuzz run: ' + error.message);

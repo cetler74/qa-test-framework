@@ -10,13 +10,13 @@ const { Op, literal } = require('sequelize');
 const { convertToPostmanCollection, parsePostmanCollection } = require('../services/apiSpecConverter');
 const { upload, validateAndParseApiSpec, validatePostmanCollection, parseWSDLToOperations } = require('../services/fileUpload');
 const { executeTests } = require('../services/testRunner');
-const { generateReport } = require('../services/reportGenerator');
+const { generateReport, getStableReportPath: getTestRunStableReportPath } = require('../services/reportGenerator');
 const { runPlaywrightTests, getPlaywrightTestListWithRecorded } = require('../services/playwrightRunner');
 const { executeFlow } = require('../services/flowRunner');
 const { computeNextRunAt, runScheduledJob } = require('../services/scheduler');
 const { executeSoapTests } = require('../services/soapRunner');
 const { executeFuzz } = require('../services/fuzzRunner');
-const { generateFuzzReport } = require('../services/fuzzReportGenerator');
+const { generateFuzzReport, getStableReportPath } = require('../services/fuzzReportGenerator');
 const { generatePlaywrightReport } = require('../services/playwrightReportGenerator');
 const playwrightConfig = require('../config/playwright');
 const { validateSpecContent } = require('../services/recordedTestValidation');
@@ -785,7 +785,8 @@ function toUnifiedRun(row, runType) {
     passed_tests: row.passed_tests ?? null,
     failed_tests: row.failed_tests ?? null,
     duration_ms: row.duration_ms ?? null,
-    base_url: row.base_url ?? null
+    base_url: row.base_url ?? null,
+    progress_message: row.progress_message ?? null
   };
 }
 
@@ -1121,6 +1122,11 @@ router.post('/test-runs/execute', async (req, res) => {
     executeTests(projectId, name, { ...testOptions, testRunId: testRun.id })
       .then(results => {
         console.log(`[api] Test run ${testRun.id} completed: ${results.summary.passed} passed, ${results.summary.failed} failed`);
+        // Pre-generate report in background so View Report serves from file and does not block the app
+        setImmediate(() => {
+          generateReport(testRun.id, { skipCache: true, writeToStablePath: true })
+            .catch((err) => console.error('[api] Pre-generate test report failed:', err));
+        });
       })
       .catch(error => {
         console.error(`[api] Test run ${testRun.id} failed:`, error);
@@ -1159,7 +1165,13 @@ router.post('/soap-runs/execute', async (req, res) => {
       duration_ms: 0
     });
     executeSoapTests(projectId, apiSpecId, operationIds, name, testRun.id)
-      .then(() => console.log(`[api] SOAP run ${testRun.id} completed`))
+      .then(() => {
+        console.log(`[api] SOAP run ${testRun.id} completed`);
+        setImmediate(() => {
+          generateReport(testRun.id, { skipCache: true, writeToStablePath: true })
+            .catch((err) => console.error('[api] Pre-generate test report failed:', err));
+        });
+      })
       .catch((err) => {
         console.error(`[api] SOAP run ${testRun.id} failed:`, err);
         TestRun.update({ status: 'failed' }, { where: { id: testRun.id } }).catch(() => {});
@@ -1183,12 +1195,14 @@ router.post('/fuzz-runs/execute', async (req, res) => {
     if (!projectId || !apiSpecId || !name || !serverUrl) {
       return res.status(400).json({ error: 'projectId, apiSpecId, name, and serverUrl are required' });
     }
+    const baseUrl = serverUrl.trim().replace(/\/$/, '');
     const fuzzRun = await FuzzRun.create({
       name,
       status: 'running',
       project_id: projectId,
       api_spec_id: apiSpecId,
       flow_id: flowId || null,
+      server_url: baseUrl,
       total_tests: 0,
       passed_tests: 0,
       failed_tests: 0,
@@ -1196,7 +1210,7 @@ router.post('/fuzz-runs/execute', async (req, res) => {
     });
     executeFuzz(projectId, apiSpecId, name, {
       fuzzRunId: fuzzRun.id,
-      serverUrl: serverUrl.trim(),
+      serverUrl: baseUrl,
       flowId: flowId || null,
       paths: paths || null,
       skipPaths: skipPaths || null
@@ -1252,9 +1266,15 @@ router.get('/fuzz-runs/:id', async (req, res) => {
   }
 });
 
-// Fuzz run report (HTML)
+// Fuzz run report (HTML) – serve pre-generated file when present so View Report does not block the app
 router.get('/fuzz-runs/:id/report', async (req, res) => {
   try {
+    const stablePath = getStableReportPath(req.params.id);
+    if (fs.existsSync(stablePath)) {
+      res.setHeader('Content-Type', 'text/html');
+      fs.createReadStream(stablePath).pipe(res);
+      return;
+    }
     const { html } = await generateFuzzReport(req.params.id);
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
@@ -1266,10 +1286,10 @@ router.get('/fuzz-runs/:id/report', async (req, res) => {
   }
 });
 
-// Fuzz run report download
+// Fuzz run report download (always regenerate so file exists on disk)
 router.get('/fuzz-runs/:id/report/download', async (req, res) => {
   try {
-    const { filePath, fileName } = await generateFuzzReport(req.params.id);
+    const { filePath, fileName } = await generateFuzzReport(req.params.id, { skipCache: true });
     res.download(filePath, fileName, (err) => {
       if (err) console.error('Error downloading fuzz report:', err);
     });
@@ -1321,15 +1341,19 @@ router.post('/test-runs/:id/report', async (req, res) => {
   }
 });
 
-// View report (GET) - supported for the frontend 'View Report' action
+// View report (GET) – serve pre-generated file when present so View Report does not block the app
 router.get('/test-runs/:id/report', async (req, res) => {
   try {
-    const { html, filePath, fileName } = await generateReport(req.params.id);
-
+    const stablePath = getTestRunStableReportPath(req.params.id);
+    if (fs.existsSync(stablePath)) {
+      res.setHeader('Content-Type', 'text/html');
+      fs.createReadStream(stablePath).pipe(res);
+      return;
+    }
+    const { html } = await generateReport(req.params.id);
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   } catch (error) {
-    // If not found, return 404 to the client for clarity
     if (error.message && error.message.toLowerCase().includes('not found')) {
       return res.status(404).json({ error: error.message });
     }
@@ -1337,15 +1361,12 @@ router.get('/test-runs/:id/report', async (req, res) => {
   }
 });
 
-// Download report
+// Download report (always regenerate for freshness)
 router.get('/test-runs/:id/report/download', async (req, res) => {
   try {
-    const { filePath, fileName } = await generateReport(req.params.id);
-    
+    const { filePath, fileName } = await generateReport(req.params.id, { skipCache: true });
     res.download(filePath, fileName, (err) => {
-      if (err) {
-        console.error('Error downloading report:', err);
-      }
+      if (err) console.error('Error downloading report:', err);
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
