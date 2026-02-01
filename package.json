@@ -9,7 +9,8 @@
     "build": "npm install && npm run migrate",
     "migrate": "node scripts/migrate.js",
     "init-db": "node scripts/init-db.js",
-    "test:playwright": "node services/playwrightRunner.js --cli"
+    "test:playwright": "node services/playwrightRunner.js --cli",
+    "postman-to-swagger": "node scripts/postman-to-swagger.js"
   },
   "keywords": [
     "api",

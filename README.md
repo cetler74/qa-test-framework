@@ -11,6 +11,7 @@ A comprehensive API testing tool with Postman integration that allows you to man
 - **Multi-Format Support**: Supports OpenAPI YAML, JSON, and Postman Collection formats
 - **UI Tests (Playwright)**: Run browser-based UI tests (page load, key elements visible, basic navigation) against a configurable URL (e.g. 5gapisprint.meoempresas.pt/apis), with separate runs and HTML reports
 - **REST API Fuzzing (CATS)**: Run OpenAPI-based fuzz tests via CATS (Contract API Testing Service); view fuzz runs and HTML reports alongside API, UI, and SOAP runs
+- **Postman to OpenAPI**: Convert Postman collection JSON to OpenAPI 3.0 (Swagger) YAML for use with CATS, documentation, or other OpenAPI tools
 
 ## Prerequisites
 
@@ -208,6 +209,38 @@ Fuzz runs use [CATS](https://github.com/Endava/cats) (Contract API Testing Servi
 **Verification scripts:**
 - `scripts/run-sample-execution-with-delay.js` — creates a small two-request collection and runs it with a configured `delayBetweenTests` to validate delay timing.
 - `scripts/create-test-run-fixture.js` — creates a synthetic test run (success + failure) and generates an HTML report for manual verification of report content (response bodies, errors).
+
+### Converting Postman collections to OpenAPI (Swagger) YAML
+
+You can convert a Postman collection (JSON) to OpenAPI 3.0 YAML for use with CATS fuzzing, Swagger UI, or other OpenAPI-based tools.
+
+**What the converter does:**
+- Walks all requests in the collection (including nested folders)
+- Builds OpenAPI paths, operations, and parameters from method, URL, headers, query, and body
+- Uses collection `info` and variables (e.g. `base_url`) for `info` and `servers`
+- Adds Bearer auth in `components.securitySchemes` when used in request headers
+- Writes standard OpenAPI 3.0 YAML
+
+**Usage:**
+
+```bash
+# Output path optional; if omitted, writes <collection-name>.openapi.yaml next to the JSON
+node scripts/postman-to-swagger.js <postman-collection.json> [output.yaml]
+```
+
+Or via npm:
+
+```bash
+npm run postman-to-swagger -- "path/to/collection.postman_collection.json" "output.openapi.yaml"
+```
+
+**Example** (convert the CAMARA Tests collection):
+
+```bash
+npm run postman-to-swagger -- "SmartAPI-CAMARA R2.0.0 - Tests.postman_collection.json" "SmartAPI-CAMARA-R2.0.0-Tests.openapi.yaml"
+```
+
+The script supports Postman collection v2.0 and v2.1. The generated YAML can be uploaded as an API spec in the app or used with CATS, Swagger Editor, or any OpenAPI 3.0 tool.
 
 ### Playwright / UI Tests
 
