@@ -27,6 +27,9 @@ REPORTS_DIR=./reports
 PLAYWRIGHT_BASE_URL=https://5gapisprint.meoempresas.pt/apis
 PLAYWRIGHT_TIMEOUT_MS=30000
 PLAYWRIGHT_HEADLESS=true
+
+# REST API Fuzzing (optional) – only if you use Run Fuzz
+# CATS_CMD=java -jar C:/tools/cats/cats-runner.jar
 ```
 
 **Important**: Replace `your_actual_password_here` with your actual PostgreSQL password.
@@ -41,7 +44,7 @@ npm run migrate
 
 This will:
 - Create the database if it doesn't exist (name from `DB_NAME` in `.env`)
-- Create all necessary tables (including `playwright_runs`, `playwright_results`, and `playwright_recorded_tests` for UI tests)
+- Create all necessary tables (including `playwright_runs`, `playwright_results`, `playwright_recorded_tests` for UI tests, and `fuzz_runs`, `fuzz_results` for REST API fuzzing when migration `009_fuzz_runs.sql` is present)
 
 ## 3. Start the Server
 
@@ -71,6 +74,68 @@ If you want to run UI tests from the **UI Tests** section:
 
 See **Playwright / UI Tests** in [README.md](README.md) for running and recording UI tests.
 
+## 5. Optional: REST API Fuzzing (CATS)
+
+If you want to run **Fuzz** runs from a project (Run Fuzz), you must install CATS. Without it, a fuzz run will be created but will fail immediately with no results.
+
+### Prerequisites
+
+- **Java 17 or newer** (required for the JAR). Check with `java -version`. Install from [Adoptium](https://adoptium.net/), [Oracle JDK](https://www.oracle.com/java/technologies/downloads/), or [sdkman.io](https://sdkman.io/jdks).
+
+### Installing CATS
+
+**Option A – JAR (recommended on Windows)**
+
+1. Go to [CATS releases](https://github.com/Endava/cats/releases) and download the latest **`cats-*-runner.jar`** (or `cats-*-uberjar.jar`) from Assets.
+2. Save the JAR to a folder, e.g. `C:\tools\cats\cats-runner.jar`.
+3. In your project `.env`, add (adjust the path to your JAR):
+   ```env
+   CATS_CMD=java -jar C:\tools\cats\cats-runner.jar
+   ```
+   If the path has spaces, use quotes: `CATS_CMD=java -jar "C:\Program Files\cats\cats-runner.jar"`.
+4. Restart the app (`npm start`) so it picks up `CATS_CMD`.
+
+**Option B – JAR on PATH (no .env)**
+
+1. Download the JAR as in Option A.
+2. Create a script that runs it, e.g. `cats.cmd` in a folder on your PATH:
+   ```bat
+   @echo off
+   java -jar "C:\tools\cats\cats-runner.jar" %*
+   ```
+3. Do not set `CATS_CMD`; the app will use the `cats` command.
+
+**Option C – macOS / Linux (native binary, no Java)**
+
+1. On [releases](https://github.com/Endava/cats/releases), download the **native binary** for your OS.
+2. Make it executable and put it on PATH:
+   ```bash
+   chmod +x cats-*-runner
+   sudo mv cats-*-runner /usr/local/bin/cats
+   ```
+3. Do not set `CATS_CMD` (or set `CATS_CMD=cats`).
+
+**Option D – macOS with Homebrew**
+
+```bash
+brew tap endava/tap
+brew install cats
+```
+
+### Verify installation
+
+Run (adjust path if using JAR):
+
+```bash
+java -jar C:\tools\cats\cats-runner.jar --help
+```
+
+Or, if `cats` is on PATH: `cats --help`. You should see CATS usage.
+
+### Using fuzz runs in the app
+
+Open a **project** → **Run Fuzz** → choose **API Spec** (OpenAPI YAML/JSON only), **Base URL**, and **Run name** → submit. Results appear under **Test Runs** (filter by type **Fuzz**); open a run to view the report.
+
 ## Troubleshooting
 
 ### Error: "client password must be a string"
@@ -95,4 +160,14 @@ This means PostgreSQL is not running or the connection details are incorrect.
 - Make sure PostgreSQL is running
 - Verify `DB_HOST`, `DB_PORT`, and `DB_USER` in your `.env` file
 - Check that your PostgreSQL user has permission to create databases
+
+### Fuzz run fails immediately or "CATS not found"
+
+This means CATS is not installed or `CATS_CMD` is wrong.
+
+**Solution**:
+- Install Java 17+ and the CATS JAR (see [Installing CATS](#5-optional-rest-api-fuzzing-cats) above).
+- If using the JAR, set `CATS_CMD=java -jar <full-path-to-cats-runner.jar>` in `.env` (use forward slashes or escaped backslashes on Windows).
+- Restart the app after changing `.env`.
+- Verify with `java -jar <path-to-cats-runner.jar> --help` (or `cats --help` if on PATH).
 

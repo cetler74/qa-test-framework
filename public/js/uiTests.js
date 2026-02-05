@@ -33,6 +33,11 @@
   }
 
   function showView(viewId) {
+  const activeEl = document.querySelector('.view.active');
+  const currentId = activeEl && activeEl.id ? activeEl.id.replace(/-view$/, '') : null;
+  if (currentId && currentId !== viewId) {
+    window._uiTestsReturnView = currentId;
+  }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   const el = document.getElementById(`${viewId}-view`);
   if (el) el.classList.add('active');
@@ -118,6 +123,10 @@
       ]);
       testList = tests;
       if (urlInput && config.baseUrl) urlInput.value = config.baseUrl;
+      const showBrowserCb = document.getElementById('run-ui-tests-show-browser');
+      if (showBrowserCb && typeof config.headless === 'boolean') {
+        showBrowserCb.checked = !config.headless;
+      }
       renderTestList(false);
       const radios = document.querySelectorAll('input[name="test-list-type"]');
       radios.forEach(r => r.addEventListener('change', () => {
@@ -191,7 +200,8 @@
       alert('Please select a project.');
       return;
     }
-    const body = { name, suite: listType, projectId: Number(projectId) };
+    const showBrowser = document.getElementById('run-ui-tests-show-browser')?.checked === true;
+    const body = { name, suite: listType, projectId: Number(projectId), headless: !showBrowser };
     if (baseUrlInput) body.baseUrl = baseUrlInput;
     if (listType === 'selected') {
       const checked = document.querySelectorAll('.playwright-test-cb:checked');
@@ -284,8 +294,10 @@
   });
 
   document.getElementById('back-from-run-ui-tests')?.addEventListener('click', () => {
-    showView('ui-tests');
-    loadPlaywrightRuns();
+    const returnView = window._uiTestsReturnView || 'ui-tests';
+    showView(returnView);
+    if (typeof loadViewData === 'function') loadViewData(returnView);
+    if (returnView === 'ui-tests') loadPlaywrightRuns();
   });
 
   let currentCodegenSlug = null;
@@ -725,8 +737,10 @@ document.addEventListener('DOMContentLoaded', () => {
     runForm.addEventListener('submit', handleRunUiTestsSubmit);
   }
   document.getElementById('back-to-ui-tests')?.addEventListener('click', () => {
-    showView('ui-tests');
-    loadPlaywrightRuns();
+    const returnView = window._uiTestsReturnView || 'ui-tests';
+    showView(returnView);
+    if (typeof loadViewData === 'function') loadViewData(returnView);
+    if (returnView === 'ui-tests') loadPlaywrightRuns();
   });
   document.getElementById('view-ui-report-btn')?.addEventListener('click', () => {
     const id = document.getElementById('view-ui-report-btn').getAttribute('data-playwright-run-id');

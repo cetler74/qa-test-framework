@@ -23,6 +23,19 @@ const TestRun = sequelize.define('TestRun', {
       key: 'id'
     }
   },
+  flow_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'flows',
+      key: 'id'
+    }
+  },
+  run_type: {
+    type: DataTypes.STRING(20),
+    allowNull: true,
+    defaultValue: 'api'
+  },
   total_tests: {
     type: DataTypes.INTEGER,
     allowNull: true

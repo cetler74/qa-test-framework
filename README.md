@@ -10,21 +10,25 @@ A comprehensive API testing tool with Postman integration that allows you to man
 - **HTML Reports**: Generate and export comprehensive test reports
 - **Multi-Format Support**: Supports OpenAPI YAML, JSON, and Postman Collection formats
 - **UI Tests (Playwright)**: Run browser-based UI tests (page load, key elements visible, basic navigation) against a configurable URL (e.g. 5gapisprint.meoempresas.pt/apis), with separate runs and HTML reports
+- **REST API Fuzzing (CATS)**: Run OpenAPI-based fuzz tests via CATS (Contract API Testing Service); view fuzz runs and HTML reports alongside API, UI, and SOAP runs
+- **Postman to OpenAPI**: Convert Postman collection JSON to OpenAPI 3.0 (Swagger) YAML for use with CATS, documentation, or other OpenAPI tools
 
 ## Prerequisites
 
 - Node.js (v14 or higher)
 - PostgreSQL (v12 or higher)
 - npm or yarn
+- **Java** (required for CATS CLI when using fuzz runs; see [SETUP.md](SETUP.md))
 
 ## Installation
 
 1. Clone the repository and navigate to the project directory
 
-2. Install dependencies:
+2. Install dependencies and run migrations (complete build):
 ```bash
-npm install
+npm run build
 ```
+Or separately: `npm install` then `npm run migrate`.
 
 3. Create a `.env` file based on `.env.example`:
 ```bash
@@ -70,6 +74,10 @@ This migration script will:
   - `003_playwright_tables.sql` - Creates playwright_runs and playwright_results for UI tests
   - `004_playwright_recorded_tests.sql` - Creates playwright_recorded_tests for recorded Codegen specs
   - `005_project_scoped_ui_tests.sql` - Adds project_id to playwright_runs and project_recorded_tests junction table
+  - `006_flows.sql` - Flows and flow_tasks
+  - `007_schedules.sql` - Schedules
+  - `008_soap_support.sql` - SOAP operations and run_type on test_runs
+  - `009_fuzz_runs.sql` - fuzz_runs and fuzz_results for REST API fuzzing (CATS)
 
 ### Migration Files
 
@@ -81,6 +89,10 @@ The `migrations/` directory contains SQL migration files that are executed in al
 - **003_playwright_tables.sql** - Creates `playwright_runs` and `playwright_results` for UI test runs
 - **004_playwright_recorded_tests.sql** - Creates `playwright_recorded_tests` for saved Codegen specs
 - **005_project_scoped_ui_tests.sql** - Adds `project_id` to playwright_runs and creates `project_recorded_tests` junction table
+- **006_flows.sql** - Flows and flow_tasks
+- **007_schedules.sql** - Schedules
+- **008_soap_support.sql** - SOAP operations and run_type
+- **009_fuzz_runs.sql** - `fuzz_runs` and `fuzz_results` for REST API fuzzing (CATS)
 
 ### Manual Database Setup (Alternative)
 
@@ -188,9 +200,47 @@ The application will be available at `http://localhost:3000`
    - Click "View Report" to see the HTML report in a new window
    - Click "Download Report" to download the report as an HTML file
 
+### REST API Fuzzing (Fuzz runs)
+
+Fuzz runs use [CATS](https://github.com/Endava/cats) (Contract API Testing Service) to test your OpenAPI endpoints with generated and boundary inputs. From a project, click **Run Fuzz**, select an **API Spec** (OpenAPI YAML/JSON only), enter the **Base URL** (server URL for CATS), and a **Run name**. Fuzz runs appear in **Test Runs** with the **Fuzz** badge; open a run for details and use **View Report** / **Download Report** for the HTML report.
+
+**Installing CATS:** You need Java 17+ and the CATS JAR (or native binary on macOS/Linux). See [SETUP.md – Installing CATS](SETUP.md#5-optional-rest-api-fuzzing-cats) for step-by-step instructions (download JAR, set `CATS_CMD` in `.env`, verify). Without CATS installed, "Run Fuzz" will create a run that immediately fails with no results.
+
 **Verification scripts:**
 - `scripts/run-sample-execution-with-delay.js` — creates a small two-request collection and runs it with a configured `delayBetweenTests` to validate delay timing.
 - `scripts/create-test-run-fixture.js` — creates a synthetic test run (success + failure) and generates an HTML report for manual verification of report content (response bodies, errors).
+
+### Converting Postman collections to OpenAPI (Swagger) YAML
+
+You can convert a Postman collection (JSON) to OpenAPI 3.0 YAML for use with CATS fuzzing, Swagger UI, or other OpenAPI-based tools.
+
+**What the converter does:**
+- Walks all requests in the collection (including nested folders)
+- Builds OpenAPI paths, operations, and parameters from method, URL, headers, query, and body
+- Uses collection `info` and variables (e.g. `base_url`) for `info` and `servers`
+- Adds Bearer auth in `components.securitySchemes` when used in request headers
+- Writes standard OpenAPI 3.0 YAML
+
+**Usage:**
+
+```bash
+# Output path optional; if omitted, writes <collection-name>.openapi.yaml next to the JSON
+node scripts/postman-to-swagger.js <postman-collection.json> [output.yaml]
+```
+
+Or via npm:
+
+```bash
+npm run postman-to-swagger -- "path/to/collection.postman_collection.json" "output.openapi.yaml"
+```
+
+**Example** (convert the CAMARA Tests collection):
+
+```bash
+npm run postman-to-swagger -- "SmartAPI-CAMARA R2.0.0 - Tests.postman_collection.json" "SmartAPI-CAMARA-R2.0.0-Tests.openapi.yaml"
+```
+
+The script supports Postman collection v2.0 and v2.1. The generated YAML can be uploaded as an API spec in the app or used with CATS, Swagger Editor, or any OpenAPI 3.0 tool.
 
 ### Playwright / UI Tests
 
@@ -268,6 +318,14 @@ Note: "Launch Codegen" from the app (if added) requires a display (e.g. local or
 - `POST /api/test-runs/:id/report` - Generate HTML report
 - `GET /api/test-runs/:id/report/download` - Download report
 
+### Fuzz Runs (REST API Fuzzing with CATS)
+- `POST /api/fuzz-runs/execute` - Start a fuzz run (body: `projectId`, `apiSpecId`, `name`, `serverUrl`; optional: `flowId`, `paths`, `skipPaths`)
+- `GET /api/fuzz-runs` - List fuzz runs (query: `projectId`, `limit`, `offset`)
+- `GET /api/fuzz-runs/:id` - Get fuzz run with results
+- `GET /api/fuzz-runs/:id/report` - HTML report
+- `GET /api/fuzz-runs/:id/report/download` - Download report
+- `DELETE /api/fuzz-runs/:id` - Delete fuzz run
+
 ### Playwright / UI Tests
 - `GET /api/playwright-config` - Get default base URL for UI
 - `GET /api/playwright-tests/list` - List all tests (built-in + recorded)
@@ -325,6 +383,12 @@ The application uses PostgreSQL with the following main tables:
 - **project_recorded_tests** - Many-to-many: projects ↔ recorded UI tests (migration 005)
   - `id`, `project_id`, `recorded_test_id`, `added_at`
 
+- **fuzz_runs** - Fuzz run metadata (migration 009)
+  - `id`, `name`, `status`, `project_id`, `api_spec_id`, `flow_id`, `total_tests`, `passed_tests`, `failed_tests`, `duration_ms`, `report_path`, `created_at`
+
+- **fuzz_results** - Individual fuzz test results (migration 009)
+  - `id`, `fuzz_run_id`, `test_name`, `endpoint`, `method`, `status`, `duration_ms`, `request_body`, `response_body`, `response_code`, `fuzzer_name`, `error_message`, `execution_order`, `created_at`
+
 ## Environment Variables
 
 - `DB_HOST` - PostgreSQL host (default: localhost)
@@ -339,6 +403,7 @@ The application uses PostgreSQL with the following main tables:
 - `PLAYWRIGHT_BASE_URL` - Default URL for UI tests (e.g. https://5gapisprint.meoempresas.pt/apis)
 - `PLAYWRIGHT_TIMEOUT_MS` - Timeout for Playwright actions in ms (default: 30000)
 - `PLAYWRIGHT_HEADLESS` - Run browser headless: true or false (default: true)
+- `CATS_CMD` - Optional; CATS CLI command (e.g. `cats` or `java -jar /path/to/cats.jar`) when not on PATH
 
 ## License
 

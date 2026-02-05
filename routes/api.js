@@ -4,14 +4,19 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-const { Project, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest } = require('../models');
+const { Project, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult } = require('../models');
 const SequelizeLib = require('sequelize');
 const { Op, literal } = require('sequelize');
 const { convertToPostmanCollection, parsePostmanCollection } = require('../services/apiSpecConverter');
-const { upload, validateAndParseApiSpec, validatePostmanCollection } = require('../services/fileUpload');
+const { upload, validateAndParseApiSpec, validatePostmanCollection, parseWSDLToOperations } = require('../services/fileUpload');
 const { executeTests } = require('../services/testRunner');
-const { generateReport } = require('../services/reportGenerator');
+const { generateReport, getStableReportPath: getTestRunStableReportPath } = require('../services/reportGenerator');
 const { runPlaywrightTests, getPlaywrightTestListWithRecorded } = require('../services/playwrightRunner');
+const { executeFlow } = require('../services/flowRunner');
+const { computeNextRunAt, runScheduledJob } = require('../services/scheduler');
+const { executeSoapTests } = require('../services/soapRunner');
+const { executeFuzz } = require('../services/fuzzRunner');
+const { generateFuzzReport, getStableReportPath } = require('../services/fuzzReportGenerator');
 const { generatePlaywrightReport } = require('../services/playwrightReportGenerator');
 const playwrightConfig = require('../config/playwright');
 const { validateSpecContent } = require('../services/recordedTestValidation');
@@ -195,6 +200,283 @@ router.delete('/projects/:projectId/recorded-tests/:recordedTestId', async (req,
   }
 });
 
+// ==================== FLOWS ====================
+
+router.get('/projects/:id/flows', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.id, 10);
+    const flows = await Flow.findAll({
+      where: { project_id: projectId },
+      order: [['name', 'ASC']]
+    });
+    res.json(flows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/projects/:id/flows', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.id, 10);
+    const { name, description } = req.body;
+    if (!name) return res.status(400).json({ error: 'Flow name is required' });
+    const project = await Project.findByPk(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const flow = await Flow.create({ project_id: projectId, name, description: description || null });
+    res.status(201).json(flow);
+  } catch (error) {
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(400).json({ error: 'A flow with this name already exists in the project' });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/flows/:id', async (req, res) => {
+  try {
+    const flow = await Flow.findByPk(req.params.id, {
+      include: [{ model: FlowTask, as: 'flowTasks', order: [['position', 'ASC']] }]
+    });
+    if (!flow) return res.status(404).json({ error: 'Flow not found' });
+    const plain = flow.get ? flow.get({ plain: true }) : flow;
+    const tasks = (plain.flowTasks || []).sort((a, b) => (a.position || 0) - (b.position || 0));
+    res.json({ ...plain, flowTasks: tasks });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put('/flows/:id', async (req, res) => {
+  try {
+    const flow = await Flow.findByPk(req.params.id);
+    if (!flow) return res.status(404).json({ error: 'Flow not found' });
+    const { name, description, flowTasks } = req.body;
+    if (name !== undefined) flow.name = name;
+    if (description !== undefined) flow.description = description;
+    await flow.save();
+    if (Array.isArray(flowTasks)) {
+      await FlowTask.destroy({ where: { flow_id: flow.id } });
+      for (let i = 0; i < flowTasks.length; i++) {
+        const t = flowTasks[i];
+        await FlowTask.create({
+          flow_id: flow.id,
+          task_type: t.task_type,
+          task_ref: t.task_ref,
+          position: i
+        });
+      }
+    }
+    const updated = await Flow.findByPk(flow.id, {
+      include: [{ model: FlowTask, as: 'flowTasks' }]
+    });
+    const plain = updated.get ? updated.get({ plain: true }) : updated;
+    const tasks = (plain.flowTasks || []).sort((a, b) => (a.position || 0) - (b.position || 0));
+    res.json({ ...plain, flowTasks: tasks });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete('/flows/:id', async (req, res) => {
+  try {
+    const flow = await Flow.findByPk(req.params.id);
+    if (!flow) return res.status(404).json({ error: 'Flow not found' });
+    await flow.destroy();
+    res.json({ message: 'Flow deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/flows/:id/execute', async (req, res) => {
+  try {
+    const flowId = parseInt(req.params.id, 10);
+    const { runNamePrefix, baseUrl, envVars } = req.body;
+    const flow = await Flow.findByPk(flowId);
+    if (!flow) return res.status(404).json({ error: 'Flow not found' });
+    const result = await executeFlow(flowId, {
+      runNamePrefix: runNamePrefix || flow.name,
+      baseUrl,
+      envVars
+    });
+    res.status(201).json({
+      message: 'Flow execution started',
+      flow_id: flowId,
+      apiRunIds: result.apiRunIds,
+      uiRunIds: result.uiRunIds
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== SCHEDULES ====================
+
+router.get('/projects/:id/schedules', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.id, 10);
+    const schedules = await Schedule.findAll({
+      where: { project_id: projectId },
+      order: [['created_at', 'DESC']]
+    });
+    const flowIds = [...new Set(schedules.map(s => s.flow_id).filter(Boolean))];
+    const flows = flowIds.length ? await Flow.findAll({ where: { id: flowIds }, attributes: ['id', 'name'] }) : [];
+    const flowMap = Object.fromEntries(flows.map(f => [f.id, f]));
+    const result = schedules.map(s => {
+      const plain = s.toJSON();
+      if (s.flow_id && flowMap[s.flow_id]) plain.flow = flowMap[s.flow_id].toJSON();
+      return plain;
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/projects/:id/schedules', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.id, 10);
+    const { flow_id, cron_expression, repeat_interval_minutes, enabled } = req.body;
+    const project = await Project.findByPk(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!cron_expression && (!repeat_interval_minutes || repeat_interval_minutes < 1)) {
+      return res.status(400).json({ error: 'Either cron_expression or repeat_interval_minutes (>= 1) is required' });
+    }
+    if (flow_id) {
+      const flow = await Flow.findByPk(flow_id);
+      if (!flow || flow.project_id !== projectId) return res.status(400).json({ error: 'Flow not found or not in this project' });
+    }
+    const schedule = await Schedule.create({
+      project_id: projectId,
+      flow_id: flow_id || null,
+      cron_expression: cron_expression || null,
+      repeat_interval_minutes: repeat_interval_minutes || null,
+      enabled: enabled !== false
+    });
+    const next = computeNextRunAt(schedule);
+    if (next) await schedule.update({ next_run_at: next });
+    const updated = await Schedule.findByPk(schedule.id);
+    const plain = updated.toJSON();
+    if (updated.flow_id) {
+      const flow = await Flow.findByPk(updated.flow_id, { attributes: ['id', 'name'] });
+      if (flow) plain.flow = flow.toJSON();
+    }
+    res.status(201).json(plain);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/schedules/:id', async (req, res) => {
+  try {
+    const schedule = await Schedule.findByPk(req.params.id);
+    if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+    const plain = schedule.toJSON();
+    if (schedule.project_id) {
+      const project = await Project.findByPk(schedule.project_id, { attributes: ['id', 'name'] });
+      if (project) plain.project = project.toJSON();
+    }
+    if (schedule.flow_id) {
+      const flow = await Flow.findByPk(schedule.flow_id, { attributes: ['id', 'name'] });
+      if (flow) plain.flow = flow.toJSON();
+    }
+    res.json(plain);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put('/schedules/:id', async (req, res) => {
+  try {
+    const schedule = await Schedule.findByPk(req.params.id);
+    if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+    const { flow_id, cron_expression, repeat_interval_minutes, enabled } = req.body;
+    if (flow_id !== undefined) schedule.flow_id = flow_id;
+    if (cron_expression !== undefined) schedule.cron_expression = cron_expression;
+    if (repeat_interval_minutes !== undefined) schedule.repeat_interval_minutes = repeat_interval_minutes;
+    if (enabled !== undefined) schedule.enabled = !!enabled;
+    await schedule.save();
+    const next = computeNextRunAt(schedule);
+    if (next) await schedule.update({ next_run_at: next });
+    const updated = await Schedule.findByPk(schedule.id);
+    const plain = updated.toJSON();
+    if (updated.flow_id) {
+      const flow = await Flow.findByPk(updated.flow_id, { attributes: ['id', 'name'] });
+      if (flow) plain.flow = flow.toJSON();
+    }
+    res.json(plain);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete('/schedules/:id', async (req, res) => {
+  try {
+    const schedule = await Schedule.findByPk(req.params.id);
+    if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+    await schedule.destroy();
+    res.json({ message: 'Schedule deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/schedules/:id/trigger', async (req, res) => {
+  try {
+    const schedule = await Schedule.findByPk(req.params.id);
+    if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+    await runScheduledJob(schedule);
+    const updated = await Schedule.findByPk(schedule.id);
+    const plain = updated.toJSON();
+    if (updated.flow_id) {
+      const flow = await Flow.findByPk(updated.flow_id, { attributes: ['id', 'name'] });
+      if (flow) plain.flow = flow.toJSON();
+    }
+    res.json(plain);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// List schedules (optional: nextWithin hours for dashboard)
+// Uses raw query to avoid Sequelize "Project/Flow is not associated to Schedule" when associations are not loaded
+router.get('/schedules', async (req, res) => {
+  try {
+    const nextWithin = req.query.nextWithin ? parseInt(req.query.nextWithin, 10) : null;
+    const replacements = { enabled: true };
+    let whereClause = 'WHERE enabled = :enabled';
+    if (nextWithin && nextWithin > 0) {
+      const now = new Date();
+      const end = new Date(now.getTime() + nextWithin * 60 * 60 * 1000);
+      whereClause += ' AND next_run_at >= :now AND next_run_at <= :end';
+      replacements.now = now;
+      replacements.end = end;
+    }
+    const schedules = await Schedule.sequelize.query(
+      `SELECT * FROM schedules ${whereClause} ORDER BY next_run_at ASC LIMIT 20`,
+      { replacements, type: Schedule.sequelize.QueryTypes.SELECT }
+    );
+    const rows = Array.isArray(schedules) ? schedules : [];
+    const projectIds = [...new Set(rows.map(s => s.project_id).filter(Boolean))];
+    const flowIds = [...new Set(rows.map(s => s.flow_id).filter(Boolean))];
+    const [projects, flows] = await Promise.all([
+      projectIds.length ? Project.findAll({ where: { id: projectIds }, attributes: ['id', 'name'] }) : [],
+      flowIds.length ? Flow.findAll({ where: { id: flowIds }, attributes: ['id', 'name'] }) : []
+    ]);
+    const projectMap = Object.fromEntries(projects.map(p => [p.id, p]));
+    const flowMap = Object.fromEntries(flows.map(f => [f.id, f]));
+    const result = rows.map(s => {
+      const plain = { ...s };
+      if (s.project_id && projectMap[s.project_id]) plain.project = projectMap[s.project_id].toJSON ? projectMap[s.project_id].toJSON() : { id: projectMap[s.project_id].id, name: projectMap[s.project_id].name };
+      if (s.flow_id && flowMap[s.flow_id]) plain.flow = flowMap[s.flow_id].toJSON ? flowMap[s.flow_id].toJSON() : { id: flowMap[s.flow_id].id, name: flowMap[s.flow_id].name };
+      return plain;
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== API SPECS ====================
 
 // Get all API specs
@@ -213,6 +495,22 @@ router.get('/api-specs', async (req, res) => {
   }
 });
 
+// Get SOAP operations for a WSDL API spec
+router.get('/api-specs/:id/soap-operations', async (req, res) => {
+  try {
+    const apiSpec = await ApiSpec.findByPk(req.params.id);
+    if (!apiSpec) return res.status(404).json({ error: 'API spec not found' });
+    if (apiSpec.format !== 'wsdl') return res.status(400).json({ error: 'API spec is not WSDL' });
+    const operations = await SoapOperation.findAll({
+      where: { api_spec_id: req.params.id },
+      order: [['name', 'ASC']]
+    });
+    res.json(operations);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get single API spec
 router.get('/api-specs/:id', async (req, res) => {
   try {
@@ -220,6 +518,10 @@ router.get('/api-specs/:id', async (req, res) => {
       include: [{
         model: Collection,
         as: 'collections'
+      }, {
+        model: SoapOperation,
+        as: 'soapOperations',
+        required: false
       }]
     });
     if (!apiSpec) {
@@ -231,7 +533,7 @@ router.get('/api-specs/:id', async (req, res) => {
   }
 });
 
-// Upload API spec file
+// Upload API spec file (OpenAPI YAML/JSON or WSDL)
 router.post('/api-specs/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -240,6 +542,28 @@ router.post('/api-specs/upload', upload.single('file'), async (req, res) => {
 
     const filePath = req.file.path;
     const ext = path.extname(req.file.originalname).toLowerCase();
+
+    if (ext === '.wsdl' || ext === '.xml') {
+      const operations = await parseWSDLToOperations(filePath);
+      const apiSpec = await ApiSpec.create({
+        name: req.file.originalname.replace(/\.(wsdl|xml)$/i, ''),
+        description: 'WSDL',
+        format: 'wsdl',
+        file_path: filePath,
+        file_size: req.file.size,
+        original_filename: req.file.originalname,
+        spec_content: null
+      });
+      for (const op of operations) {
+        await SoapOperation.create({
+          api_spec_id: apiSpec.id,
+          name: op.name,
+          operation_name: op.operation_name
+        });
+      }
+      return res.status(201).json(apiSpec);
+    }
+
     const format = ext === '.json' ? 'json' : 'yaml';
 
     // Check if this is actually a Postman collection (has info.name and item array, but no openapi/swagger)
@@ -443,9 +767,10 @@ router.delete('/collections/:id', async (req, res) => {
 
 // ==================== TEST RUNS ====================
 
-// Normalize a TestRun or PlaywrightRun to unified shape { id, name, status, project_id, project, runType, created_at, ... }
+// Normalize a TestRun or PlaywrightRun to unified shape { id, name, status, project_id, project, runType, flow_id, flow, created_at, ... }
 function toUnifiedRun(row, runType) {
   const project = row.project || (row.get && row.get('project'));
+  const flow = row.flow || (row.get && row.get('flow'));
   return {
     id: row.id,
     name: row.name,
@@ -453,20 +778,23 @@ function toUnifiedRun(row, runType) {
     project_id: row.project_id ?? project?.id ?? null,
     project: project ? { id: project.id, name: project.name } : null,
     runType,
+    flow_id: row.flow_id ?? flow?.id ?? null,
+    flow: flow ? { id: flow.id, name: flow.name } : null,
     created_at: row.created_at,
     total_tests: row.total_tests ?? null,
     passed_tests: row.passed_tests ?? null,
     failed_tests: row.failed_tests ?? null,
     duration_ms: row.duration_ms ?? null,
-    base_url: row.base_url ?? null
+    base_url: row.base_url ?? null,
+    progress_message: row.progress_message ?? null
   };
 }
 
-// Get all test runs (optionally unified: type=api|ui|all)
+// Get all test runs (optionally unified: type=api|ui|soap|fuzz|all)
 router.get('/test-runs', async (req, res) => {
   try {
     const { projectId, name, startDate, endDate, type = 'api' } = req.query;
-    const runType = type === 'all' || type === 'ui' ? type : 'api';
+    const runType = type === 'all' || type === 'ui' || type === 'soap' || type === 'fuzz' ? type : 'api';
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
     const offset = parseInt(req.query.offset, 10) || 0;
 
@@ -487,9 +815,62 @@ router.get('/test-runs', async (req, res) => {
       return out;
     };
 
+    if (runType === 'soap') {
+      const where = { run_type: 'soap' };
+      if (projectId) where.project_id = projectId;
+      if (name) {
+        where[Op.and] = where[Op.and] || [];
+        where[Op.and].push(SequelizeLib.where(SequelizeLib.fn('LOWER', SequelizeLib.col('TestRun.name')), { [Op.like]: `%${(name || '').toLowerCase()}%` }));
+      }
+      const df = dateFilter('TestRun.');
+      if (df[Op.and]) { where[Op.and] = where[Op.and] || []; where[Op.and].push(...df[Op.and]); }
+      const testRuns = await TestRun.findAll({
+        where,
+        include: [
+          { model: Project, as: 'project', attributes: ['id', 'name'] },
+          { model: Flow, as: 'flow', attributes: ['id', 'name'], required: false }
+        ],
+        order: [['created_at', 'DESC']],
+        limit,
+        offset
+      });
+      return res.json(testRuns.map(r => {
+        const plain = r.get ? r.get({ plain: true }) : r;
+        return toUnifiedRun(plain, 'soap');
+      }));
+    }
+
+    if (runType === 'fuzz') {
+      const where = {};
+      if (projectId) where.project_id = projectId;
+      if (name) {
+        where[Op.and] = where[Op.and] || [];
+        where[Op.and].push(SequelizeLib.where(SequelizeLib.fn('LOWER', SequelizeLib.col('FuzzRun.name')), { [Op.like]: `%${(name || '').toLowerCase()}%` }));
+      }
+      const df = dateFilter('FuzzRun.');
+      if (df[Op.and]) { where[Op.and] = where[Op.and] || []; where[Op.and].push(...df[Op.and]); }
+      const fuzzRuns = await FuzzRun.findAll({
+        where,
+        include: [
+          { model: Project, as: 'project', attributes: ['id', 'name'] },
+          { model: Flow, as: 'flow', attributes: ['id', 'name'], required: false }
+        ],
+        order: [['created_at', 'DESC']],
+        limit,
+        offset
+      });
+      return res.json(fuzzRuns.map(r => {
+        const plain = r.get ? r.get({ plain: true }) : r;
+        return toUnifiedRun(plain, 'fuzz');
+      }));
+    }
+
     if (runType === 'api' || runType === 'all') {
       const where = {};
       if (projectId) where.project_id = projectId;
+      if (runType === 'api') {
+        where[Op.or] = [{ run_type: null }, { run_type: 'api' }];
+      }
       if (name) {
         const lower = name.toLowerCase();
         where[Op.and] = where[Op.and] || [];
@@ -500,17 +881,26 @@ router.get('/test-runs', async (req, res) => {
 
       const testRuns = await TestRun.findAll({
         where,
-        include: [{ model: Project, as: 'project', attributes: ['id', 'name'] }],
+        include: [
+          { model: Project, as: 'project', attributes: ['id', 'name'] },
+          { model: Flow, as: 'flow', attributes: ['id', 'name'], required: false }
+        ],
         order: [['created_at', 'DESC']],
         limit: runType === 'all' ? 100 : limit,
         offset: runType === 'all' ? 0 : offset
       });
 
       if (runType === 'api') {
-        return res.json(testRuns);
+        return res.json(testRuns.map(r => {
+          const plain = r.get ? r.get({ plain: true }) : r;
+          return toUnifiedRun(plain, plain.run_type || 'api');
+        }));
       }
-      // runType === 'all': collect API runs, then fetch UI runs and merge
-      const apiRows = testRuns.map(r => toUnifiedRun(r.get ? r.get({ plain: true }) : r, 'api'));
+      // runType === 'all': collect API runs (including SOAP), then fetch UI runs and merge
+      const apiRows = testRuns.map(r => {
+        const plain = r.get ? r.get({ plain: true }) : r;
+        return toUnifiedRun(plain, plain.run_type || 'api');
+      });
       const uiWhere = {};
       if (projectId) uiWhere.project_id = projectId;
       if (name) {
@@ -522,13 +912,35 @@ router.get('/test-runs', async (req, res) => {
 
       const playwrightRuns = await PlaywrightRun.findAll({
         where: uiWhere,
-        include: [{ model: Project, as: 'project', attributes: ['id', 'name'] }],
+        include: [
+          { model: Project, as: 'project', attributes: ['id', 'name'] },
+          { model: Flow, as: 'flow', attributes: ['id', 'name'], required: false }
+        ],
         order: [['created_at', 'DESC']],
         limit: 100,
         offset: 0
       });
       const uiRows = playwrightRuns.map(r => toUnifiedRun(r.get ? r.get({ plain: true }) : r, 'ui'));
-      const merged = [...apiRows, ...uiRows].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
+      const fuzzWhere = {};
+      if (projectId) fuzzWhere.project_id = projectId;
+      if (name) {
+        fuzzWhere[Op.and] = fuzzWhere[Op.and] || [];
+        fuzzWhere[Op.and].push(SequelizeLib.where(SequelizeLib.fn('LOWER', SequelizeLib.col('FuzzRun.name')), { [Op.like]: `%${(name || '').toLowerCase()}%` }));
+      }
+      const dfFuzz = dateFilter('FuzzRun.');
+      if (dfFuzz[Op.and]) { fuzzWhere[Op.and] = fuzzWhere[Op.and] || []; fuzzWhere[Op.and].push(...dfFuzz[Op.and]); }
+      const fuzzRuns = await FuzzRun.findAll({
+        where: fuzzWhere,
+        include: [
+          { model: Project, as: 'project', attributes: ['id', 'name'] },
+          { model: Flow, as: 'flow', attributes: ['id', 'name'], required: false }
+        ],
+        order: [['created_at', 'DESC']],
+        limit: 100,
+        offset: 0
+      });
+      const fuzzRows = fuzzRuns.map(r => toUnifiedRun(r.get ? r.get({ plain: true }) : r, 'fuzz'));
+      const merged = [...apiRows, ...uiRows, ...fuzzRows].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
       return res.json(merged);
     }
 
@@ -545,7 +957,10 @@ router.get('/test-runs', async (req, res) => {
 
     const playwrightRuns = await PlaywrightRun.findAll({
       where,
-      include: [{ model: Project, as: 'project', attributes: ['id', 'name'] }],
+      include: [
+        { model: Project, as: 'project', attributes: ['id', 'name'] },
+        { model: Flow, as: 'flow', attributes: ['id', 'name'], required: false }
+      ],
       order: [['created_at', 'DESC']],
       limit,
       offset
@@ -707,6 +1122,11 @@ router.post('/test-runs/execute', async (req, res) => {
     executeTests(projectId, name, { ...testOptions, testRunId: testRun.id })
       .then(results => {
         console.log(`[api] Test run ${testRun.id} completed: ${results.summary.passed} passed, ${results.summary.failed} failed`);
+        // Pre-generate report in background so View Report serves from file and does not block the app
+        setImmediate(() => {
+          generateReport(testRun.id, { skipCache: true, writeToStablePath: true })
+            .catch((err) => console.error('[api] Pre-generate test report failed:', err));
+        });
       })
       .catch(error => {
         console.error(`[api] Test run ${testRun.id} failed:`, error);
@@ -722,6 +1142,171 @@ router.post('/test-runs/execute', async (req, res) => {
       status: 'running',
       message: 'Test execution started'
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Execute SOAP tests (WSDL operations)
+router.post('/soap-runs/execute', async (req, res) => {
+  try {
+    const { projectId, apiSpecId, operationIds, name } = req.body;
+    if (!projectId || !apiSpecId || !operationIds || !Array.isArray(operationIds) || operationIds.length === 0 || !name) {
+      return res.status(400).json({ error: 'projectId, apiSpecId, operationIds (array), and name are required' });
+    }
+    const testRun = await TestRun.create({
+      name,
+      status: 'running',
+      project_id: projectId,
+      run_type: 'soap',
+      total_tests: 0,
+      passed_tests: 0,
+      failed_tests: 0,
+      duration_ms: 0
+    });
+    executeSoapTests(projectId, apiSpecId, operationIds, name, testRun.id)
+      .then(() => {
+        console.log(`[api] SOAP run ${testRun.id} completed`);
+        setImmediate(() => {
+          generateReport(testRun.id, { skipCache: true, writeToStablePath: true })
+            .catch((err) => console.error('[api] Pre-generate test report failed:', err));
+        });
+      })
+      .catch((err) => {
+        console.error(`[api] SOAP run ${testRun.id} failed:`, err);
+        TestRun.update({ status: 'failed' }, { where: { id: testRun.id } }).catch(() => {});
+      });
+    res.status(201).json({
+      testRun: { id: testRun.id },
+      status: 'running',
+      message: 'SOAP test execution started'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== FUZZ RUNS ====================
+
+// Execute fuzz run (CATS)
+router.post('/fuzz-runs/execute', async (req, res) => {
+  try {
+    const { projectId, apiSpecId, name, serverUrl, flowId, paths, skipPaths } = req.body;
+    if (!projectId || !apiSpecId || !name || !serverUrl) {
+      return res.status(400).json({ error: 'projectId, apiSpecId, name, and serverUrl are required' });
+    }
+    const baseUrl = serverUrl.trim().replace(/\/$/, '');
+    const fuzzRun = await FuzzRun.create({
+      name,
+      status: 'running',
+      project_id: projectId,
+      api_spec_id: apiSpecId,
+      flow_id: flowId || null,
+      server_url: baseUrl,
+      total_tests: 0,
+      passed_tests: 0,
+      failed_tests: 0,
+      duration_ms: 0
+    });
+    executeFuzz(projectId, apiSpecId, name, {
+      fuzzRunId: fuzzRun.id,
+      serverUrl: baseUrl,
+      flowId: flowId || null,
+      paths: paths || null,
+      skipPaths: skipPaths || null
+    }).catch((err) => {
+      console.error(`[api] Fuzz run ${fuzzRun.id} failed:`, err);
+      FuzzRun.update({ status: 'failed' }, { where: { id: fuzzRun.id } }).catch(() => {});
+    });
+    res.status(201).json({
+      fuzzRun: { id: fuzzRun.id },
+      status: 'running',
+      message: 'Fuzz execution started'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// List fuzz runs (optional projectId filter)
+router.get('/fuzz-runs', async (req, res) => {
+  try {
+    const { projectId, limit = 50, offset = 0 } = req.query;
+    const where = {};
+    if (projectId) where.project_id = parseInt(projectId, 10);
+    const runs = await FuzzRun.findAll({
+      where,
+      include: [{ model: ApiSpec, as: 'apiSpec', attributes: ['id', 'name'] }],
+      order: [['created_at', 'DESC']],
+      limit: Math.min(parseInt(limit, 10) || 50, 100),
+      offset: Math.max(0, parseInt(offset, 10))
+    });
+    res.json(runs);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get single fuzz run with results
+router.get('/fuzz-runs/:id', async (req, res) => {
+  try {
+    const run = await FuzzRun.findByPk(req.params.id, {
+      include: [
+        { model: FuzzResult, as: 'fuzzResults', order: [['execution_order', 'ASC']] },
+        { model: ApiSpec, as: 'apiSpec', attributes: ['id', 'name'] },
+        { model: Project, as: 'project', attributes: ['id', 'name'] }
+      ]
+    });
+    if (!run) {
+      return res.status(404).json({ error: 'Fuzz run not found' });
+    }
+    res.json(run);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Fuzz run report (HTML) – serve pre-generated file when present so View Report does not block the app
+router.get('/fuzz-runs/:id/report', async (req, res) => {
+  try {
+    const stablePath = getStableReportPath(req.params.id);
+    if (fs.existsSync(stablePath)) {
+      res.setHeader('Content-Type', 'text/html');
+      fs.createReadStream(stablePath).pipe(res);
+      return;
+    }
+    const { html } = await generateFuzzReport(req.params.id);
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (error) {
+    if (error.message && error.message.toLowerCase().includes('not found')) {
+      return res.status(404).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Fuzz run report download (always regenerate so file exists on disk)
+router.get('/fuzz-runs/:id/report/download', async (req, res) => {
+  try {
+    const { filePath, fileName } = await generateFuzzReport(req.params.id, { skipCache: true });
+    res.download(filePath, fileName, (err) => {
+      if (err) console.error('Error downloading fuzz report:', err);
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete fuzz run
+router.delete('/fuzz-runs/:id', async (req, res) => {
+  try {
+    const run = await FuzzRun.findByPk(req.params.id);
+    if (!run) {
+      return res.status(404).json({ error: 'Fuzz run not found' });
+    }
+    await run.destroy();
+    res.json({ message: 'Fuzz run deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -756,15 +1341,19 @@ router.post('/test-runs/:id/report', async (req, res) => {
   }
 });
 
-// View report (GET) - supported for the frontend 'View Report' action
+// View report (GET) – serve pre-generated file when present so View Report does not block the app
 router.get('/test-runs/:id/report', async (req, res) => {
   try {
-    const { html, filePath, fileName } = await generateReport(req.params.id);
-
+    const stablePath = getTestRunStableReportPath(req.params.id);
+    if (fs.existsSync(stablePath)) {
+      res.setHeader('Content-Type', 'text/html');
+      fs.createReadStream(stablePath).pipe(res);
+      return;
+    }
+    const { html } = await generateReport(req.params.id);
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   } catch (error) {
-    // If not found, return 404 to the client for clarity
     if (error.message && error.message.toLowerCase().includes('not found')) {
       return res.status(404).json({ error: error.message });
     }
@@ -772,15 +1361,12 @@ router.get('/test-runs/:id/report', async (req, res) => {
   }
 });
 
-// Download report
+// Download report (always regenerate for freshness)
 router.get('/test-runs/:id/report/download', async (req, res) => {
   try {
-    const { filePath, fileName } = await generateReport(req.params.id);
-    
+    const { filePath, fileName } = await generateReport(req.params.id, { skipCache: true });
     res.download(filePath, fileName, (err) => {
-      if (err) {
-        console.error('Error downloading report:', err);
-      }
+      if (err) console.error('Error downloading report:', err);
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -789,9 +1375,12 @@ router.get('/test-runs/:id/report/download', async (req, res) => {
 
 // ==================== PLAYWRIGHT / UI TESTS ====================
 
-// Get Playwright config (for UI default base URL)
+// Get Playwright config (for UI default base URL and "Show browser" default)
 router.get('/playwright-config', (req, res) => {
-  res.json({ baseUrl: playwrightConfig.baseUrl });
+  res.json({
+    baseUrl: playwrightConfig.baseUrl,
+    headless: playwrightConfig.headless
+  });
 });
 
 // Get list of Playwright tests (built-in + recorded) for Run UI Tests page. Optional projectId: only recorded tests linked to that project.
@@ -808,7 +1397,7 @@ router.get('/playwright-tests/list', async (req, res) => {
 // Execute Playwright UI tests (projectId required so run is project-scoped)
 router.post('/playwright-runs/execute', async (req, res) => {
   try {
-    const { projectId, name, baseUrl, suite, selectedTestIds } = req.body;
+    const { projectId, name, baseUrl, suite, selectedTestIds, headless: bodyHeadless } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'name is required' });
     }
@@ -833,10 +1422,11 @@ router.post('/playwright-runs/execute', async (req, res) => {
       failed_tests: 0,
       duration_ms: 0
     });
+    const headless = typeof bodyHeadless === 'boolean' ? bodyHeadless : playwrightConfig.headless;
     runPlaywrightTests({
       playwrightRunId: run.id,
       baseUrl: url,
-      headless: playwrightConfig.headless,
+      headless,
       timeoutMs: playwrightConfig.timeoutMs,
       runOnly
     })

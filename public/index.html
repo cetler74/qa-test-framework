@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DEO/EPS -- QA Testing Tool</title>
+    <title>DEO/ECP/EPS - QA Test Hub</title>
     <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
@@ -11,7 +11,7 @@
         <header>
             <div class="brand">
                 <img src="https://conteudos.meo.pt/Style%20Library/quantcast/logo-meo.png?qc-size=98,56" alt="MEO logo" class="brand-logo">
-                <h1>DEO/EPS -- QA Testing Tool</h1>
+                <h1>DEO/ECP/EPS - QA Test Hub</h1>
             </div>
             <nav class="main-nav">
                 <button class="nav-btn active" data-view="dashboard">
@@ -26,23 +26,34 @@
                     </svg>
                     Projects
                 </button>
-                <button class="nav-btn" data-view="api-specs">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    API Specs
-                </button>
+                <div class="settings-dropdown">
+                    <button type="button" class="nav-btn" id="settings-nav-btn" title="Settings" aria-haspopup="true" aria-expanded="false">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Settings
+                    </button>
+                    <div class="settings-dropdown-menu" id="settings-dropdown-menu" role="menu">
+                        <button type="button" class="settings-dropdown-item" data-view="api-specs" role="menuitem">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Configure API Specs
+                        </button>
+                        <button type="button" class="settings-dropdown-item" data-view="ui-tests" role="menuitem">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                            Configure UI Tests
+                        </button>
+                    </div>
+                </div>
                 <button class="nav-btn" data-view="test-runs">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                     </svg>
                     Test Runs
-                </button>
-                <button class="nav-btn" data-view="ui-tests">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                    </svg>
-                    UI Tests
                 </button>
                 <!-- Theme toggle -->
                 <button id="theme-toggle" class="nav-btn" title="Toggle theme">
@@ -79,6 +90,30 @@
                         <div class="stat-value" id="total-test-runs">0</div>
                         <div class="stat-label">Test Runs</div>
                     </div>
+                </div>
+                <div class="run-hub-card dashboard-card">
+                    <h3>Quick Run</h3>
+                    <p class="run-hub-desc">Run API tests, UI tests, or a flow from any project.</p>
+                    <div class="run-hub-form">
+                        <div class="form-group">
+                            <label for="run-hub-project">Project</label>
+                            <select id="run-hub-project"><option value="">Select project...</option></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Run</label>
+                            <div class="run-hub-type">
+                                <label class="radio-label"><input type="radio" name="run-hub-type" value="api"> API tests</label>
+                                <label class="radio-label"><input type="radio" name="run-hub-type" value="ui"> UI tests</label>
+                                <label class="radio-label"><input type="radio" name="run-hub-type" value="flow"> Flow</label>
+                            </div>
+                            <select id="run-hub-flow" style="display:none; margin-top:8px;"><option value="">Select flow...</option></select>
+                        </div>
+                        <button type="button" class="btn btn-primary" id="run-hub-go">Run</button>
+                    </div>
+                </div>
+                <div class="next-scheduled-runs dashboard-card">
+                    <h3>Next Scheduled Runs</h3>
+                    <div id="next-scheduled-list"></div>
                 </div>
                 <div class="recent-test-runs">
                     <h3>Recent Test Runs</h3>
@@ -141,6 +176,12 @@
                             </svg>
                             Run UI Test
                         </button>
+                        <button class="btn btn-primary" id="run-fuzz-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                            </svg>
+                            Run Fuzz
+                        </button>
                         <button class="btn btn-secondary" id="manage-project-recorded-tests-btn">Manage recorded tests</button>
                     </div>
                     <div class="project-api-specs">
@@ -150,6 +191,32 @@
                     <div class="project-collections">
                         <h3>Available Collections</h3>
                         <div id="project-collections-list"></div>
+                    </div>
+                    <div class="project-flows">
+                        <h3>Flows</h3>
+                        <p class="project-flows-desc">Ordered sequences of API and UI tests. Create a flow, add tasks, then run it.</p>
+                        <div class="project-flows-actions">
+                            <button class="btn btn-primary" id="create-flow-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                </svg>
+                                Create flow
+                            </button>
+                        </div>
+                        <div id="project-flows-list"></div>
+                    </div>
+                    <div class="project-schedules">
+                        <h3>Schedules</h3>
+                        <p class="project-schedules-desc">Run a flow or the whole project on a schedule (cron or repeat interval).</p>
+                        <div class="project-schedules-actions">
+                            <button class="btn btn-primary" id="create-schedule-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                </svg>
+                                Create schedule
+                            </button>
+                        </div>
+                        <div id="project-schedules-list"></div>
                     </div>
                 </div>
             </div>
@@ -183,6 +250,8 @@
                             <option value="all">All</option>
                             <option value="api">API</option>
                             <option value="ui">UI</option>
+                            <option value="soap">SOAP</option>
+                            <option value="fuzz">Fuzz</option>
                         </select>
                         <button class="btn" id="apply-filters-btn">Apply</button>
                         <button class="btn btn-secondary" id="clear-filters-btn">Clear</button>
@@ -313,7 +382,7 @@
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                         </svg>
-                        Back to UI Tests
+                        Back
                     </button>
                     <h2>Run UI Tests</h2>
                 </div>
@@ -339,6 +408,13 @@
                             <label for="run-ui-tests-base-url">Base URL</label>
                             <input type="url" id="run-ui-tests-base-url" placeholder="https://5gapisprint.meoempresas.pt/apis" />
                         </div>
+                        <div class="form-group run-ui-tests-show-browser-wrap">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="run-ui-tests-show-browser" />
+                                Show browser during run
+                            </label>
+                            <span class="form-hint">When checked, the browser window will be visible while tests run; when unchecked, tests run headless.</span>
+                        </div>
                         <div class="form-actions">
                             <button type="button" class="btn btn-secondary" id="run-ui-tests-cancel">Cancel</button>
                             <button type="submit" class="btn btn-primary">Run</button>
@@ -354,7 +430,7 @@
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                         </svg>
-                        Back to UI Tests
+                        Back
                     </button>
                     <h2 id="ui-test-detail-name"></h2>
                 </div>

@@ -556,26 +556,47 @@ handlebars.registerHelper('now', () => {
   return new Date();
 });
 
+const REPORT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const reportCache = new Map(); // testRunId -> { html, filePath, fileName, cachedAt }
+const compiledReportTemplate = handlebars.compile(reportTemplate);
+
 /**
- * Generate HTML report for a test run
+ * Generate HTML report for a test run. Uses in-memory cache so repeat views are fast.
  * @param {number} testRunId - Test run ID
- * @returns {Promise<string>} HTML report content
+ * @param {object} [options] - { skipCache: true } to force regenerate; { writeToStablePath: true } to write report-test-{id}.html for pre-generated serve
+ * @returns {Promise<{ html, filePath, fileName }>}
  */
-async function generateReport(testRunId) {
+async function generateReport(testRunId, options = {}) {
   try {
-    // Fetch test run with related data
+    // Fetch test run with related data (include project's API specs for fallback when result has no api_spec_id)
     const testRun = await TestRun.findByPk(testRunId, {
       include: [
         {
           model: Project,
           as: 'project',
-          attributes: ['id', 'name', 'description']
+          attributes: ['id', 'name', 'description'],
+          include: [{
+            model: ApiSpec,
+            as: 'apiSpecs',
+            through: { attributes: [] },
+            attributes: ['id', 'name']
+          }]
         }
       ]
     });
 
     if (!testRun) {
       throw new Error('Test run not found');
+    }
+
+    const status = (testRun.status || '').toLowerCase();
+    const isRunning = status === 'running';
+    const cached = !options.skipCache && !isRunning && reportCache.get(testRunId);
+    if (cached && (Date.now() - cached.cachedAt) < REPORT_CACHE_TTL_MS) {
+      return { html: cached.html, filePath: cached.filePath, fileName: cached.fileName };
+    }
+    if (isRunning) {
+      reportCache.delete(testRunId);
     }
 
     // Check if execution_order column exists before using it
@@ -616,10 +637,12 @@ async function generateReport(testRunId) {
       order: orderClause
     });
 
-    // Group test results by API spec
+    // Group test results by API spec (use project's single API spec as fallback when result has no api_spec_id)
+    const projectSpecs = testRun.project?.apiSpecs || [];
+    const fallbackSpecName = projectSpecs.length === 1 ? projectSpecs[0].name : null;
     const testResultsBySpec = {};
     testResults.forEach((result) => {
-      const specName = result.apiSpec?.name || 'Unknown API Spec';
+      const specName = result.apiSpec?.name || fallbackSpecName || 'Unknown API Spec';
       if (!testResultsBySpec[specName]) {
         testResultsBySpec[specName] = [];
       }
@@ -697,14 +720,19 @@ async function generateReport(testRunId) {
       testResultsBySpec: testResultsBySpec
     };
 
-    // Compile and render template
-    const template = handlebars.compile(reportTemplate);
-    const html = template(templateData);
+    // Render template (compiled once at load)
+    const html = compiledReportTemplate(templateData);
 
-    // Save report to file
-    const fileName = `report-${testRunId}-${Date.now()}.html`;
+    // Save report to file (stable path for pre-generated so View Report does not block)
+    const now = Date.now();
+    const writeToStable = options.writeToStablePath === true;
+    const fileName = writeToStable ? `report-test-${testRunId}.html` : `report-${testRunId}-${now}.html`;
     const filePath = path.join(reportsDir, fileName);
     fs.writeFileSync(filePath, html);
+
+    if (!isRunning) {
+      reportCache.set(testRunId, { html, filePath, fileName, cachedAt: now });
+    }
 
     return {
       html,
@@ -716,7 +744,16 @@ async function generateReport(testRunId) {
   }
 }
 
+/**
+ * Path to the pre-generated report file for a test run (used so View Report can serve from file without blocking).
+ */
+function getStableReportPath(testRunId) {
+  const id = typeof testRunId === 'string' ? parseInt(testRunId, 10) : testRunId;
+  return path.join(reportsDir, `report-test-${id}.html`);
+}
+
 module.exports = {
-  generateReport
+  generateReport,
+  getStableReportPath
 };
 
