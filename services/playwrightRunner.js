@@ -9,6 +9,27 @@ const playwrightConfig = require('../config/playwright');
 const uiTestsConfig = require('../e2e/ui-tests.config');
 
 const REPORTS_DIR = path.join(__dirname, '..', 'reports');
+const SCREENSHOTS_DIR = path.join(REPORTS_DIR, 'playwright-screenshots');
+
+/**
+ * Take a full-page screenshot on failure. Returns filename (e.g. "runId_order.png") or null.
+ * @param {import('playwright').Page} page
+ * @param {number} runId
+ * @param {number} order - execution_order for the result being recorded
+ * @returns {Promise<string|null>} - Filename relative to SCREENSHOTS_DIR, or null
+ */
+async function takeFailureScreenshot(page, runId, order) {
+  if (!page) return null;
+  try {
+    if (!fs.existsSync(SCREENSHOTS_DIR)) fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+    const filename = `${runId}_${order}.png`;
+    const filePath = path.join(SCREENSHOTS_DIR, filename);
+    await page.screenshot({ path: filePath, fullPage: true }).catch(() => null);
+    return fs.existsSync(filePath) ? filename : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 /**
  * Parse recorded spec content to extract step descriptions (navigation, clicks, fills, checks, expectations).
@@ -192,9 +213,9 @@ async function runPlaywrightTests(options = {}) {
   // Start with 0 total; we update with actual result count as tests complete (recorded specs can have multiple test() blocks).
   await updateRunSummary(runId, 0, 0, 0, 0, 'running');
 
-  const record = async (orderNum, testName, status, durationMs, endpoint, errorMessage, assertions) => {
-    results.push({ test_name: testName, status, duration_ms: durationMs, endpoint, error_message: errorMessage, assertions, execution_order: orderNum });
-    await recordResult(runId, orderNum, testName, status, durationMs, endpoint, errorMessage, assertions);
+  const record = async (orderNum, testName, status, durationMs, endpoint, errorMessage, assertions, screenshotPath = null) => {
+    results.push({ test_name: testName, status, duration_ms: durationMs, endpoint, error_message: errorMessage, assertions, execution_order: orderNum, screenshot_path: screenshotPath });
+    await recordResult(runId, orderNum, testName, status, durationMs, endpoint, errorMessage, assertions, screenshotPath);
     total++;
     if (status === 'passed') passed++; else failed++;
     // Use actual total so progress shows "X of X" (recorded specs can report more than one result).
@@ -205,7 +226,11 @@ async function runPlaywrightTests(options = {}) {
 
   if (hasBuiltInToRun) {
     try {
-      browser = await chromium.launch({ headless });
+      const launchOptions = {
+        headless,
+        args: playwrightConfig.launchArgs || []
+      };
+      browser = await chromium.launch(launchOptions);
     } catch (err) {
       await record(++order, 'Browser launch', 'failed', 0, baseUrl, err.message, null);
       await updateRunSummary(runId, 1, 0, 1, Date.now() - startTime, 'failed');
@@ -245,10 +270,12 @@ async function runPlaywrightTests(options = {}) {
       await record(++order, 'Accept consent (CONCORDO)', 'passed', Date.now() - t0, page.url(), null, { validations });
     } else {
       validations.push({ description: 'CONCORDO button clicked', passed: false, detail: 'Button not found' });
-      await record(++order, 'Accept consent (CONCORDO)', 'failed', Date.now() - t0, page.url(), 'CONCORDO button not found in consent popup', { validations, message: 'Consent button not present' });
+      const shot = await takeFailureScreenshot(page, runId, order + 1);
+      await record(++order, 'Accept consent (CONCORDO)', 'failed', Date.now() - t0, page.url(), 'CONCORDO button not found in consent popup', { validations, message: 'Consent button not present' }, shot);
     }
   } catch (err) {
-    await record(++order, 'Accept consent (CONCORDO)', 'failed', 0, page.url(), err.message || String(err), { validations: [{ description: 'Accept consent', passed: false, detail: err.message || String(err) }] });
+    const shot = await takeFailureScreenshot(page, runId, order + 1);
+    await record(++order, 'Accept consent (CONCORDO)', 'failed', 0, page.url(), err.message || String(err), { validations: [{ description: 'Accept consent', passed: false, detail: err.message || String(err) }] }, shot);
   }
   }
 
@@ -264,9 +291,15 @@ async function runPlaywrightTests(options = {}) {
       { description: 'Navigation to base URL', passed: !!response },
       { description: `HTTP response OK (status ${statusCode})`, passed: !!ok, detail: statusCode != null ? `Status: ${statusCode}` : undefined }
     ];
-    await record(++order, 'Page load', ok ? 'passed' : 'failed', duration, baseUrl, ok ? null : `HTTP ${statusCode}`, { validations, status: statusCode, ok: !!ok });
+    if (ok) {
+      await record(++order, 'Page load', 'passed', duration, baseUrl, null, { validations, status: statusCode, ok: true });
+    } else {
+      const shot = await takeFailureScreenshot(page, runId, order + 1);
+      await record(++order, 'Page load', 'failed', duration, baseUrl, `HTTP ${statusCode}`, { validations, status: statusCode, ok: false }, shot);
+    }
   } catch (err) {
-    await record(++order, 'Page load', 'failed', 0, baseUrl, err.message || String(err), { validations: [{ description: 'Page load', passed: false, detail: err.message || String(err) }] });
+    const shot = await takeFailureScreenshot(page, runId, order + 1);
+    await record(++order, 'Page load', 'failed', 0, baseUrl, err.message || String(err), { validations: [{ description: 'Page load', passed: false, detail: err.message || String(err) }] }, shot);
   }
   }
 
@@ -307,7 +340,8 @@ async function runPlaywrightTests(options = {}) {
       }
       validations.push({ description: `Filter option "${fv.categoryName}" found and selected`, passed: checked });
       if (!checked) {
-        await record(++order, testName, 'failed', Date.now() - t0, page.url(), `Filter option "${fv.categoryName}" not found or not clickable`, { validations });
+        const shot = await takeFailureScreenshot(page, runId, order + 1);
+        await record(++order, testName, 'failed', Date.now() - t0, page.url(), `Filter option "${fv.categoryName}" not found or not clickable`, { validations }, shot);
         continue;
       }
       await new Promise(r => setTimeout(r, 1500));
@@ -335,12 +369,14 @@ async function runPlaywrightTests(options = {}) {
       }
       const duration = Date.now() - t0;
       if (errors.length > 0) {
-        await record(++order, testName, 'failed', duration, page.url(), errors.join('; '), { validations, expectedSections: fv.expectedSections, errors });
+        const shot = await takeFailureScreenshot(page, runId, order + 1);
+        await record(++order, testName, 'failed', duration, page.url(), errors.join('; '), { validations, expectedSections: fv.expectedSections, errors }, shot);
       } else {
         await record(++order, testName, 'passed', duration, page.url(), null, { validations, category: fv.categoryName, sections: expectedSections.map(s => s.title) });
       }
     } catch (err) {
-      await record(++order, testName, 'failed', Date.now() - t0, page.url(), err.message || String(err), { validations: [{ description: 'Filter validation', passed: false, detail: err.message || String(err) }] });
+      const shot = await takeFailureScreenshot(page, runId, order + 1);
+      await record(++order, testName, 'failed', Date.now() - t0, page.url(), err.message || String(err), { validations: [{ description: 'Filter validation', passed: false, detail: err.message || String(err) }] }, shot);
     }
   }
 
@@ -395,7 +431,8 @@ async function runPlaywrightTests(options = {}) {
       }
       validations.push({ description: `Section link/card "${linkText}" found and clicked`, passed: clicked });
       if (!clicked) {
-        await record(++order, testName, 'failed', Date.now() - t0, page.url(), `Section box/link not found: ${linkText}`, { validations });
+        const shot = await takeFailureScreenshot(page, runId, order + 1);
+        await record(++order, testName, 'failed', Date.now() - t0, page.url(), `Section box/link not found: ${linkText}`, { validations }, shot);
         continue;
       }
       await new Promise(r => setTimeout(r, 1000));
@@ -406,7 +443,8 @@ async function runPlaywrightTests(options = {}) {
       const urlExcluded = isExcludedUrl(page.url());
       validations.push({ description: 'Page URL not excluded from tests', passed: !urlExcluded });
       if (urlExcluded) {
-        await record(++order, testName, 'failed', Date.now() - t0, page.url(), 'Invalid endpoint (removed from tests): ' + page.url(), { validations, excluded: true });
+        const shot = await takeFailureScreenshot(page, runId, order + 1);
+        await record(++order, testName, 'failed', Date.now() - t0, page.url(), 'Invalid endpoint (removed from tests): ' + page.url(), { validations, excluded: true }, shot);
         continue;
       }
 
@@ -428,7 +466,8 @@ async function runPlaywrightTests(options = {}) {
       const currentExcluded = isExcludedUrl(currentUrl);
       validations.push({ description: 'Current URL not excluded after navigation', passed: !currentExcluded });
       if (currentExcluded) {
-        await record(++order, testName, 'failed', Date.now() - t0, currentUrl, 'Invalid endpoint (removed from tests): ' + currentUrl, { validations, excluded: true });
+        const shot = await takeFailureScreenshot(page, runId, order + 1);
+        await record(++order, testName, 'failed', Date.now() - t0, currentUrl, 'Invalid endpoint (removed from tests): ' + currentUrl, { validations, excluded: true }, shot);
         continue;
       }
 
@@ -468,12 +507,14 @@ async function runPlaywrightTests(options = {}) {
 
       const duration = Date.now() - t0;
       if (tabErrors.length > 0) {
-        await record(++order, testName, 'failed', duration, page.url(), tabErrors.join('; '), { validations, requiredTabs, tabErrors });
+        const shot = await takeFailureScreenshot(page, runId, order + 1);
+        await record(++order, testName, 'failed', duration, page.url(), tabErrors.join('; '), { validations, requiredTabs, tabErrors }, shot);
       } else {
         await record(++order, testName, 'passed', duration, page.url(), null, { validations, requiredTabs });
       }
     } catch (err) {
-      await record(++order, testName, 'failed', Date.now() - t0, page.url(), err.message || String(err), { validations: [{ description: 'API section test', passed: false, detail: err.message || String(err) }] });
+      const shot = await takeFailureScreenshot(page, runId, order + 1);
+      await record(++order, testName, 'failed', Date.now() - t0, page.url(), err.message || String(err), { validations: [{ description: 'API section test', passed: false, detail: err.message || String(err) }] }, shot);
     }
   }
 
@@ -483,11 +524,13 @@ async function runPlaywrightTests(options = {}) {
 
   for (const recId of recordedIds) {
     try {
-      await runRecordedSpec(runId, recId, baseUrl, async (testName, status, durationMs, errorMessage, assertions) => {
-        await record(++order, testName, status, durationMs, null, errorMessage || null, assertions || null);
-      });
+      const startOrder = order + 1;
+      const recResults = await runRecordedSpec(runId, recId, baseUrl, startOrder);
+      for (const r of recResults) {
+        await record(++order, r.testName, r.status, r.durationMs, null, r.errorMessage || null, r.assertions || null, r.screenshotPath || null);
+      }
     } catch (err) {
-      await record(++order, `Recorded test ${recId}`, 'failed', 0, null, err.message || String(err), null);
+      await record(++order, `Recorded test ${recId}`, 'failed', 0, null, err.message || String(err), null, null);
     }
   }
 
@@ -499,13 +542,34 @@ async function runPlaywrightTests(options = {}) {
 }
 
 /**
- * Run a single recorded spec (from DB) via Playwright Test CLI and report results.
+ * Recursively collect all .png file paths under dir. Returns paths sorted by name for stable ordering.
+ * @param {string} dir
+ * @returns {string[]}
+ */
+function collectScreenshotPaths(dir) {
+  const list = [];
+  if (!fs.existsSync(dir)) return list;
+  const walk = (d) => {
+    const entries = fs.readdirSync(d, { withFileTypes: true });
+    for (const e of entries) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.toLowerCase().endsWith('.png')) list.push(full);
+    }
+  };
+  walk(dir);
+  return list.sort();
+}
+
+/**
+ * Run a single recorded spec (from DB) via Playwright Test CLI and return result rows (with optional screenshotPath for failures).
  * @param {number} runId - PlaywrightRun id
  * @param {string} recordedId - PlaywrightRecordedTest id (numeric string)
  * @param {string} baseUrl - Base URL for the run
- * @param {function(string, string, number, string?, any?): Promise<void>} addRecord - (testName, status, durationMs, errorMessage, assertions) => record one result
+ * @param {number} startOrder - execution_order for the first result (so we can name screenshots runId_startOrder.png, etc.)
+ * @returns {Promise<Array<{ testName, status, durationMs, errorMessage, assertions, screenshotPath? }>>}
  */
-async function runRecordedSpec(runId, recordedId, baseUrl, addRecord) {
+async function runRecordedSpec(runId, recordedId, baseUrl, startOrder) {
   const test = await PlaywrightRecordedTest.findByPk(recordedId);
   if (!test) throw new Error(`Recorded test ${recordedId} not found`);
   const baseUrlToUse = baseUrl || test.base_url || playwrightConfig.baseUrl || 'https://example.com';
@@ -515,18 +579,21 @@ async function runRecordedSpec(runId, recordedId, baseUrl, addRecord) {
   const specPath = path.join(REPORTS_DIR, `${slug}.spec.js`);
   const configPath = path.join(REPORTS_DIR, `${slug}.config.cjs`);
   const resultPath = path.join(REPORTS_DIR, `${slug}-result.json`);
+  const testResultsDir = path.join(REPORTS_DIR, 'playwright-test-results', slug);
   try {
     fs.writeFileSync(specPath, test.spec_content, 'utf8');
     const specFileName = path.basename(specPath);
+    const launchArgs = playwrightConfig.launchArgs || [];
     const configContent = `
 module.exports = {
   testDir: ${JSON.stringify(REPORTS_DIR)},
   testMatch: ${JSON.stringify([specFileName])},
+  outputDir: ${JSON.stringify(testResultsDir)},
   use: {
     baseURL: ${JSON.stringify(baseUrlToUse)},
     trace: 'off',
-    // Playwright Test: ensure headed/headless is respected
-    launchOptions: { headless: ${headless} }
+    screenshot: 'only-on-failure',
+    launchOptions: { headless: ${headless}, args: ${JSON.stringify(launchArgs)} }
   },
   projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
   timeout: ${playwrightConfig.timeoutMs || 30000},
@@ -584,11 +651,32 @@ module.exports = {
         }
       } catch (_) { /* ignore */ }
     }
+    // Collect failure screenshots from Playwright test output (screenshot: 'only-on-failure')
+    const screenshotSources = collectScreenshotPaths(testResultsDir);
+    if (!fs.existsSync(SCREENSHOTS_DIR)) fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+
     // Parse spec content to get step descriptions (navigation, clicks, fills, etc.) for validations
     const parsedSteps = parseRecordedSpecSteps(test.spec_content || '');
 
+    const results = [];
+    let failedScreenshotIndex = 0;
+
+    function pushResult(testName, status, durationMs, errorMessage, assertions, resultIndex) {
+      let screenshotPath = null;
+      if (status === 'failed' && failedScreenshotIndex < screenshotSources.length) {
+        const src = screenshotSources[failedScreenshotIndex++];
+        const filename = `${runId}_${startOrder + resultIndex}.png`;
+        const dest = path.join(SCREENSHOTS_DIR, filename);
+        try {
+          fs.copyFileSync(src, dest);
+          screenshotPath = filename;
+        } catch (_) { /* ignore */ }
+      }
+      results.push({ testName, status, durationMs, errorMessage, assertions, screenshotPath });
+    }
+
     if (report.length > 0) {
-      for (const e of report) {
+      report.forEach((e, i) => {
         const rawTitle = e.title || e.data?.title || test.name;
         const title = `Recorded: ${test.name}${rawTitle && rawTitle !== test.name ? ` › ${rawTitle}` : ''}`;
         const rawStatus = String(e.status || e.data?.status || (result.status === 0 ? 'passed' : 'failed')).toLowerCase();
@@ -601,7 +689,6 @@ module.exports = {
         const finalError = (status !== 'passed' && errorMessage && rawStatus !== 'failed')
           ? `[${rawStatus}] ${errorMessage}`
           : errorMessage;
-        // Build validations: parsed spec steps (each action with description) + overall test result
         const validations = [];
         if (parsedSteps.length > 0) {
           for (const step of parsedSteps) {
@@ -612,7 +699,6 @@ module.exports = {
             });
           }
         }
-        // If report has test.step() steps, use those for per-step pass/fail when available
         if (Array.isArray(e.steps) && e.steps.length > 0 && validations.length === 0) {
           for (const step of e.steps) {
             validations.push({
@@ -627,7 +713,7 @@ module.exports = {
           passed: status === 'passed',
           detail: status !== 'passed' ? (e.error?.message || e.data?.error?.message || finalError) : undefined
         });
-        await addRecord(title, status, durationMs, finalError, {
+        const assertions = {
           validations,
           source: 'recorded',
           recorded_test_id: String(recordedId),
@@ -636,8 +722,9 @@ module.exports = {
           raw_title: rawTitle,
           duration_ms: durationMs,
           report_entry: e
-        });
-      }
+        };
+        pushResult(title, status, durationMs, finalError, assertions, i);
+      });
     } else {
       const status = result.status === 0 ? 'passed' : 'failed';
       const errorMessage = combinedOutput
@@ -650,15 +737,16 @@ module.exports = {
         }
       }
       validations.push({ description: 'Recorded test run', passed: result.status === 0, detail: result.status !== 0 ? errorMessage : undefined });
-      await addRecord(`Recorded: ${test.name}`, status, 0, errorMessage, {
+      pushResult(`Recorded: ${test.name}`, status, 0, errorMessage, {
         validations,
         source: 'recorded',
         recorded_test_id: String(recordedId),
         recorded_test_name: test.name,
         raw_status: result.status === 0 ? 'passed' : 'failed',
         output: combinedOutput || null
-      });
+      }, 0);
     }
+    return results;
   } finally {
     try { if (fs.existsSync(specPath)) fs.unlinkSync(specPath); } catch (_) {}
     try { if (fs.existsSync(configPath)) fs.unlinkSync(configPath); } catch (_) {}
@@ -708,7 +796,7 @@ function flattenPlaywrightJsonReport(report) {
   return out;
 }
 
-async function recordResult(runId, order, testName, status, durationMs, endpoint, errorMessage, assertions) {
+async function recordResult(runId, order, testName, status, durationMs, endpoint, errorMessage, assertions, screenshotPath = null) {
   await PlaywrightResult.create({
     playwright_run_id: runId,
     test_name: testName,
@@ -717,7 +805,8 @@ async function recordResult(runId, order, testName, status, durationMs, endpoint
     endpoint: endpoint || null,
     error_message: errorMessage || null,
     assertions: assertions || null,
-    execution_order: order
+    execution_order: order,
+    screenshot_path: screenshotPath || null
   });
 }
 

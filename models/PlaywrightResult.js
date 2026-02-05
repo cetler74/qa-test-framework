@@ -43,6 +43,10 @@ const PlaywrightResult = sequelize.define('PlaywrightResult', {
     type: DataTypes.INTEGER,
     allowNull: true
   },
+  screenshot_path: {
+    type: DataTypes.STRING(512),
+    allowNull: true
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

@@ -59,6 +59,7 @@ const reportTemplate = `
         .validation-badge.failed { background: #fee2e2; color: #991b1b; }
         .validation-desc { flex: 1; font-size: 14px; color: #1f2937; }
         .validation-detail { font-size: 12px; color: #6b7280; margin-top: 4px; }
+        .failure-screenshot { max-width: 100%; max-height: 70vh; border: 1px solid #e5e7eb; border-radius: 8px; display: block; }
         .footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid #e5e7eb; text-align: center; color: #6b7280; font-size: 13px; }
     </style>
 </head>
@@ -137,6 +138,12 @@ const reportTemplate = `
                     <div class="detail-section"><div class="detail-label">Details</div><div class="detail-value">{{json this.assertions}}</div></div>
                     {{/unless}}
                     {{/if}}
+                    {{#if this.screenshotDataUrl}}
+                    <div class="detail-section">
+                        <div class="detail-label">Screenshot at failure</div>
+                        <img src="{{this.screenshotDataUrl}}" alt="Screenshot at failure" class="failure-screenshot" />
+                    </div>
+                    {{/if}}
                 </div>
             </div>
             {{/each}}
@@ -171,10 +178,24 @@ async function generatePlaywrightReport(playwrightRunId) {
     order: [['execution_order', 'ASC'], ['id', 'ASC']]
   });
 
+  const screenshotsDir = path.join(reportsDir, 'playwright-screenshots');
+  const resultsForTemplate = results.map(r => {
+    const j = r.toJSON();
+    if (j.screenshot_path) {
+      const fp = path.join(screenshotsDir, j.screenshot_path);
+      if (fs.existsSync(fp)) {
+        try {
+          j.screenshotDataUrl = 'data:image/png;base64,' + fs.readFileSync(fp).toString('base64');
+        } catch (_) { /* leave undefined */ }
+      }
+    }
+    return j;
+  });
+
   const template = handlebars.compile(reportTemplate);
   const html = template({
     run: run.toJSON(),
-    results: results.map(r => r.toJSON())
+    results: resultsForTemplate
   });
 
   const fileName = `playwright-report-${playwrightRunId}-${Date.now()}.html`;
