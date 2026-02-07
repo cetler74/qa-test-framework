@@ -1206,9 +1206,9 @@ async function executeTests(projectId, testRunName, options = {}) {
     
     console.log(`[testRunner] Final statistics: ${totalTests} total, ${passedTests} passed, ${failedTests} failed`);
 
-    // Update test run record with correct counts
+    // Update test run record with correct counts (partial_failed when some pass and some fail)
     await testRun.update({
-      status: failedTests > 0 ? 'failed' : 'passed',
+      status: (failedTests > 0 && passedTests > 0) ? 'partial_failed' : (failedTests > 0 ? 'failed' : 'passed'),
       total_tests: totalTests,
       passed_tests: passedTests,
       failed_tests: failedTests,

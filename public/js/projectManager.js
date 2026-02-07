@@ -709,8 +709,9 @@ async function showRunFuzzModal() {
           body: { projectId: Number(projectId), apiSpecId: Number(apiSpecId), name, serverUrl }
         });
         hideModal();
-        alert('Fuzz run started. View results in Test Runs (filter by Fuzz).');
+        showView('test-runs');
         if (typeof loadTestRuns === 'function') loadTestRuns();
+        alert('Fuzz run started. It appears in Test Runs as running.');
       } catch (err) {
         alert('Error starting fuzz run: ' + (err.message || err));
       }

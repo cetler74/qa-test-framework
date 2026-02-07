@@ -163,23 +163,16 @@
                             </svg>
                             Upload Postman Collection
                         </button>
-                        <button class="btn btn-primary" id="run-tests-btn">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
+                        <button class="btn btn-run-type-api" id="run-tests-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
                             Run API tests
                         </button>
-                        <button class="btn btn-primary" id="run-ui-test-btn">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                            </svg>
+                        <button class="btn btn-run-type-ui" id="run-ui-test-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
                             Run UI Test
                         </button>
-                        <button class="btn btn-primary" id="run-fuzz-btn">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                            </svg>
+                        <button class="btn btn-run-type-fuzz" id="run-fuzz-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
                             Run Fuzz
                         </button>
                         <button class="btn btn-secondary" id="manage-project-recorded-tests-btn">Manage recorded tests</button>
@@ -305,6 +298,18 @@
                 </div>
                 <div class="recorded-test-page">
                     <p class="recorded-test-intro">Use Playwright Codegen to record browser interactions. Click "Launch Codegen" to open the browser and Inspector automatically, or copy the command to run it manually in a terminal.</p>
+                    <p class="recorded-test-docs">For more information, view the documentation at <a href="https://playwright.dev/docs/intro" target="_blank" rel="noopener noreferrer">https://playwright.dev/docs/intro</a>.</p>
+                    <div class="recorded-test-example">
+                        <strong class="recorded-test-example-title">Example — what you can record</strong>
+                        <p class="recorded-test-example-desc">Access page https://www.meo.pt/empresas/ and search for text "connect" and click it. Codegen will generate code like:</p>
+                        <pre class="recorded-test-example-code"><code>import { test, expect } from '@playwright/test';
+
+test('test', async ({ page }) => {
+  await page.goto('https://www.meo.pt/empresas');
+  await page.getByRole('button', { name: 'CONCORDO' }).click();
+  await page.getByLabel('Navegação principal').getByRole('menuitem', { name: 'Connect' }).click();
+});</code></pre>
+                    </div>
                     <div class="form-group">
                         <label for="recorded-test-codegen-url">Base URL for recording</label>
                         <div class="input-with-button">
@@ -313,6 +318,46 @@
                             <button type="button" class="btn btn-secondary" id="copy-codegen-cmd-btn">Copy command</button>
                         </div>
                     </div>
+
+                    <!-- Remote Codegen noVNC panel (hidden by default; shown when a remote session is active) -->
+                    <div id="codegen-vnc-panel" class="codegen-vnc-panel" style="display: none;">
+                        <div class="codegen-vnc-header">
+                            <div class="codegen-vnc-status">
+                                <span class="codegen-vnc-indicator"></span>
+                                <span id="codegen-vnc-status-text">Recording session active</span>
+                            </div>
+                            <div class="codegen-vnc-timer">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span id="codegen-vnc-timer-text">00:00</span>
+                                <span id="codegen-vnc-remaining" class="codegen-vnc-remaining"></span>
+                            </div>
+                            <button type="button" class="btn btn-secondary" id="codegen-vnc-fullscreen-btn" title="Expand viewer to full screen">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                                </svg>
+                                Full screen
+                            </button>
+                            <button type="button" class="btn btn-error" id="stop-codegen-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                                </svg>
+                                Stop Recording
+                            </button>
+                        </div>
+                        <div class="codegen-vnc-info-box" id="codegen-vnc-connecting-msg">
+                            <p><strong>Status:</strong> Connecting to remote desktop…</p>
+                            <p class="codegen-vnc-info-detail">The viewer below shows the remote browser. A black screen is normal at first — the browser often takes <strong>20–30 seconds</strong> to start. Check the status bar inside the viewer (above the black area) for connection state and hints.</p>
+                        </div>
+                        <div class="codegen-vnc-frame-wrap" id="codegen-vnc-frame-wrap">
+                            <iframe id="codegen-vnc-iframe" class="codegen-vnc-iframe" src="" allow="clipboard-read; clipboard-write" title="Remote Codegen browser"></iframe>
+                            <button type="button" class="codegen-vnc-exit-fullscreen-btn" id="codegen-vnc-exit-fullscreen-btn" title="Exit full screen (Esc)">Exit full screen</button>
+                        </div>
+                        <p class="codegen-vnc-hint">Interact with the browser above to record your test. When done, click <strong>Stop Recording</strong> to save the generated code. If it never appears, see the status bar in the viewer or the browser console (F12) for errors.</p>
+                    </div>
+
                     <form id="recorded-test-form">
                         <input type="hidden" id="recorded-test-id" value="" />
                         <div class="form-group">
@@ -387,10 +432,20 @@
                     <h2>Run UI Tests</h2>
                 </div>
                 <div class="run-ui-tests-page">
-                    <p class="run-ui-tests-intro">Choose which tests to run, then start the run.</p>
+                    <p class="run-ui-tests-intro">Choose a test suite, select which tests to run, then start the run.</p>
                     <div class="run-ui-tests-options">
-                        <label class="radio-label"><input type="radio" name="test-list-type" value="full" checked /> Complete test list</label>
-                        <label class="radio-label"><input type="radio" name="test-list-type" value="selected" /> Select test list</label>
+                        <div class="form-group run-ui-tests-suite-wrap">
+                            <label for="run-ui-tests-suite">Test suite</label>
+                            <select id="run-ui-tests-suite">
+                                <option value="all">All tests (built-in + recorded)</option>
+                                <option value="builtin">Built-in tests only</option>
+                                <option value="recorded">Recorded tests only</option>
+                            </select>
+                        </div>
+                        <div class="run-ui-tests-list-type">
+                            <label class="radio-label"><input type="radio" name="test-list-type" value="full" /> Run entire suite</label>
+                            <label class="radio-label"><input type="radio" name="test-list-type" value="selected" checked /> Select which tests to run</label>
+                        </div>
                     </div>
                     <div id="playwright-test-list-container" class="test-list-container"></div>
                     <form id="run-ui-tests-page-form" class="run-ui-tests-form">
@@ -409,11 +464,19 @@
                             <input type="url" id="run-ui-tests-base-url" placeholder="https://5gapisprint.meoempresas.pt/apis" />
                         </div>
                         <div class="form-group run-ui-tests-show-browser-wrap">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="run-ui-tests-show-browser" />
-                                Show browser during run
-                            </label>
-                            <span class="form-hint">When checked, the browser window will be visible while tests run; when unchecked, tests run headless.</span>
+                            <div class="run-ui-tests-show-browser-options">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="run-ui-tests-show-browser" />
+                                    Show browser during run
+                                </label>
+                                <span class="form-hint">When checked, the browser window will be visible while tests run; when unchecked, tests run headless.</span>
+                            </div>
+                            <p id="run-ui-tests-no-display-msg" class="form-hint run-ui-tests-no-display-hint" style="display: none;">Show browser is not available on this server (no display). UI tests will run headless.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-timeout">Test timeout (seconds)</label>
+                            <input type="number" id="run-ui-tests-timeout" min="10" max="300" step="10" placeholder="e.g. 60 (default from server)" />
+                            <span class="form-hint">Optional. Max time per test (default 60s). Increase if recorded tests time out (e.g. 90 or 120).</span>
                         </div>
                         <div class="form-actions">
                             <button type="button" class="btn btn-secondary" id="run-ui-tests-cancel">Cancel</button>

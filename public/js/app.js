@@ -46,6 +46,10 @@ function showView(viewId) {
     clearDetailPolling();
   }
   const activeEl = document.querySelector('.view.active');
+  if (activeEl && activeEl.id === 'test-runs-view') {
+    clearInterval(window._testRunsRefreshInterval);
+    window._testRunsRefreshInterval = null;
+  }
   const currentId = activeEl && activeEl.id ? activeEl.id.replace(/-view$/, '') : null;
   if (currentId && currentId !== viewId) {
     window._uiTestsReturnView = currentId;
@@ -310,7 +314,7 @@ async function loadDashboard() {
             <h3>${typeBadge} ${run.name}</h3>
             <p>Project: ${run.project?.name || 'Unknown'}${flowLabel} • ${formatDateTime(run.created_at)}</p>
           </div>
-          <span class="status-badge ${run.status}">${run.status}</span>
+          <span class="status-badge ${run.status}">${run.status === 'partial_failed' ? 'Partial Failed' : run.status}</span>
         </div>
       `;
       }).join('');
@@ -498,13 +502,23 @@ async function loadTestRuns() {
             </p>
             ${runningLine}
           </div>
-          <span class="status-badge ${run.status || 'pending'}">${run.status || 'pending'}</span>
+          <span class="status-badge ${run.status || 'pending'}">${run.status === 'partial_failed' ? 'Partial Failed' : (run.status || 'pending')}</span>
         </div>
       `;
       }).join('');
     }
+    const hasRunning = Array.isArray(testRuns) && testRuns.some(r => (r.status || '').toLowerCase() === 'running');
+    if (hasRunning) {
+      clearInterval(window._testRunsRefreshInterval);
+      window._testRunsRefreshInterval = setInterval(loadTestRuns, 3000);
+    } else {
+      clearInterval(window._testRunsRefreshInterval);
+      window._testRunsRefreshInterval = null;
+    }
   } catch (error) {
     console.error('Error loading test runs:', error);
+    clearInterval(window._testRunsRefreshInterval);
+    window._testRunsRefreshInterval = null;
   }
 }
 
@@ -531,7 +545,7 @@ async function viewTestRun(testRunId) {
       </div>
       <div style="font-size: inherit;">
         <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Status:</span>
-        <span class="status-badge ${testRun.status}" style="margin-left: 8px;">${testRun.status}</span>
+        <span class="status-badge ${testRun.status}" style="margin-left: 8px;">${testRun.status === 'partial_failed' ? 'Partial Failed' : testRun.status}</span>
         ${isRunning ? '<p style="margin-top: 8px; color: var(--color-warning, #f59e0b); font-weight: 600;">Run in progress — results will update automatically.</p>' : ''}
       </div>
     `;
@@ -655,9 +669,9 @@ async function viewFuzzRun(fuzzRunId) {
       </div>
       <div style="font-size: inherit;">
         <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Status:</span>
-        <span class="status-badge ${fuzzRun.status || 'pending'}" style="margin-left: 8px;">${fuzzRun.status || 'pending'}</span>
+        <span class="status-badge ${fuzzRun.status || 'pending'}" style="margin-left: 8px;">${fuzzRun.status === 'partial_failed' ? 'Partial Failed' : (fuzzRun.status || 'pending')}</span>
         ${isRunning ? '<p class="run-status-in-progress" style="margin-top: 8px;">Fuzz run in progress — results will update automatically.</p>' : ''}
-        ${isRunning && fuzzRun.progress_message ? `<div class="fuzz-detail-progress"><span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Progress:</span><pre class="fuzz-progress-pre">${(fuzzRun.progress_message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre></div>` : ''}
+        ${(isRunning || (fuzzRun.status || '').toLowerCase() === 'failed') && fuzzRun.progress_message ? `<div class="fuzz-detail-progress"><span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">${(fuzzRun.status || '').toLowerCase() === 'failed' ? 'Reason:' : 'Progress:'}</span><pre class="fuzz-progress-pre">${(fuzzRun.progress_message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre></div>` : ''}
       </div>
     `;
     const info = document.getElementById('test-run-info');
@@ -702,7 +716,12 @@ async function viewFuzzRun(fuzzRunId) {
       `;
       }).join('');
     } else {
-      const emptyMsg = isRunning ? 'Fuzz run in progress. No results yet — they will appear when the run completes.' : 'No fuzz results';
+      const isFailed = (fuzzRun.status || '').toLowerCase() === 'failed';
+      const emptyMsg = isRunning
+        ? 'Fuzz run in progress. No results yet — they will appear when the run completes.'
+        : isFailed && fuzzRun.total_tests === 0
+          ? 'No tests ran. See the reason above (e.g. CATS not installed, invalid OpenAPI, or missing server URL).'
+          : 'No fuzz results';
       resultsList.innerHTML = `
         <div class="empty-state">
           <p>${emptyMsg}</p>

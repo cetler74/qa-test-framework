@@ -1,4 +1,4 @@
-# CG API Test Framework
+# QA Test Framework
 
 A comprehensive API testing tool with Postman integration that allows you to manage projects, upload API specifications, run tests, and generate HTML reports.
 
@@ -23,19 +23,22 @@ A comprehensive API testing tool with Postman integration that allows you to man
 ## Installation
 
 1. Clone the repository and navigate to the project directory
-
 2. Install dependencies and run migrations (complete build):
+
 ```bash
 npm run build
 ```
+
 Or separately: `npm install` then `npm run migrate`.
 
-3. Create a `.env` file based on `.env.example`:
+1. Create a `.env` file based on `.env.example`:
+
 ```bash
 cp .env.example .env
 ```
 
-4. Update the `.env` file with your database credentials (use your actual PostgreSQL database name; e.g. `linkuup_db` or `qa_framework`):
+1. Update the `.env` file with your database credentials (use your actual PostgreSQL database name; e.g. `linkuup_db` or `qa_framework`):
+
 ```env
 DB_HOST=localhost
 DB_PORT=5432
@@ -51,20 +54,21 @@ DB_PASSWORD=your_password
 The application requires PostgreSQL to be installed and running. Follow these steps to set up the database:
 
 1. **Ensure PostgreSQL is running** on your system
-
 2. **Configure database credentials** in your `.env` file (see Installation step 4 above)
-
 3. **Run database migrations** to create the database and all required tables:
+
 ```bash
 npm run migrate
 ```
 
 Or manually:
+
 ```bash
 node scripts/migrate.js
 ```
 
 This migration script will:
+
 - Connect to PostgreSQL using your `.env` credentials
 - Create the `qa_framework` database if it doesn't exist
 - Run all migration files in order:
@@ -99,16 +103,19 @@ The `migrations/` directory contains SQL migration files that are executed in al
 If you prefer to set up the database manually:
 
 1. **Create the database**:
+
 ```sql
 CREATE DATABASE qa_framework;
 ```
 
-2. **Connect to the database**:
+1. **Connect to the database**:
+
 ```bash
 psql -U postgres -d qa_framework
 ```
 
-3. **Run migration files** in order:
+1. **Run migration files** in order:
+
 ```sql
 \i migrations/001_create_tables.sql
 \i migrations/002_add_execution_order_and_test_id.sql
@@ -136,18 +143,22 @@ The application uses the following main tables:
 ### Troubleshooting Database Issues
 
 **Error: "column execution_order does not exist"**
+
 - Solution: Run the migration script to add the new columns:
   ```bash
   npm run migrate
   ```
 
 **Error: "client password must be a string"**
+
 - Solution: Ensure `DB_PASSWORD` in your `.env` file is set and not empty
 
 **Error: "Connection refused"**
+
 - Solution: Verify PostgreSQL is running and check `DB_HOST`, `DB_PORT`, and `DB_USER` in your `.env` file
 
 **Error: "database does not exist"**
+
 - Solution: The migration script should create it automatically. If not, create it manually:
   ```sql
   CREATE DATABASE qa_framework;
@@ -156,11 +167,13 @@ The application uses the following main tables:
 ## Running the Application
 
 Start the server:
+
 ```bash
 npm start
 ```
 
 For development with auto-reload:
+
 ```bash
 npm run dev
 ```
@@ -170,35 +183,33 @@ The application will be available at `http://localhost:3000`
 ## Usage
 
 1. **Create a Project**: Navigate to Projects and create a new project/workspace
-
-2. **Upload API Specifications**: 
-   - Go to API Specs
-   - Upload YAML or JSON OpenAPI specification files
-   - The system will automatically convert them to Postman collections
-
+2. **Upload API Specifications**:
+  - Go to API Specs
+  - Upload YAML or JSON OpenAPI specification files
+  - The system will automatically convert them to Postman collections
 3. **Add API Specs to Project**:
-   - Open your project
-   - Click "Add API Spec" to add API specifications from the library
-
+  - Open your project
+  - Click "Add API Spec" to add API specifications from the library
 4. **Run Tests**:
-   - In your project, click "Run Tests"
-   - Select which tests to run
-   - Provide a test run name (e.g., "Release 1.0")
-   - Optionally configure delays:
-     - **Global Delay**: set "Delay between tests (seconds)" — the runner will wait this many seconds before starting the next test.
-     - **Per-test Delay**: each test row includes a "Delay s" input to specify seconds to wait *after* that specific test; per-test delays override the global delay for that transition.
-     - Delays accept numbers (seconds); fractional values (e.g., 0.5) are supported. A value of 0 disables delay.
-   - Click "Run Tests"
+  - In your project, click "Run Tests"
+  - Select which tests to run
+  - Provide a test run name (e.g., "Release 1.0")
+  - Optionally configure delays:
+    - **Global Delay**: set "Delay between tests (seconds)" — the runner will wait this many seconds before starting the next test.
+    - **Per-test Delay**: each test row includes a "Delay s" input to specify seconds to wait *after* that specific test; per-test delays override the global delay for that transition.
+    - Delays accept numbers (seconds); fractional values (e.g., 0.5) are supported. A value of 0 disables delay.
+  - Click "Run Tests"
 
 **Delay behavior notes:**
+
 - When delays are present the runner executes tests **sequentially** (each test runs as its own Newman invocation), and waits the configured seconds before the next test. The total test run duration includes delays.
 - Use per-test delays when you need custom wait times between specific consecutive tests; otherwise use the global delay for a consistent pause between tests.
 
-5. **View Reports**:
-   - Go to Test Runs to see all test executions
-   - Click on a test run to view details
-   - Click "View Report" to see the HTML report in a new window
-   - Click "Download Report" to download the report as an HTML file
+1. **View Reports**:
+  - Go to Test Runs to see all test executions
+  - Click on a test run to view details
+  - Click "View Report" to see the HTML report in a new window
+  - Click "Download Report" to download the report as an HTML file
 
 ### REST API Fuzzing (Fuzz runs)
 
@@ -207,6 +218,7 @@ Fuzz runs use [CATS](https://github.com/Endava/cats) (Contract API Testing Servi
 **Installing CATS:** You need Java 17+ and the CATS JAR (or native binary on macOS/Linux). See [SETUP.md – Installing CATS](SETUP.md#5-optional-rest-api-fuzzing-cats) for step-by-step instructions (download JAR, set `CATS_CMD` in `.env`, verify). Without CATS installed, "Run Fuzz" will create a run that immediately fails with no results.
 
 **Verification scripts:**
+
 - `scripts/run-sample-execution-with-delay.js` — creates a small two-request collection and runs it with a configured `delayBetweenTests` to validate delay timing.
 - `scripts/create-test-run-fixture.js` — creates a synthetic test run (success + failure) and generates an HTML report for manual verification of report content (response bodies, errors).
 
@@ -215,6 +227,7 @@ Fuzz runs use [CATS](https://github.com/Endava/cats) (Contract API Testing Servi
 You can convert a Postman collection (JSON) to OpenAPI 3.0 YAML for use with CATS fuzzing, Swagger UI, or other OpenAPI-based tools.
 
 **What the converter does:**
+
 - Walks all requests in the collection (including nested folders)
 - Builds OpenAPI paths, operations, and parameters from method, URL, headers, query, and body
 - Uses collection `info` and variables (e.g. `base_url`) for `info` and `servers`
@@ -248,22 +261,39 @@ UI tests run in a separate **UI Tests** section (nav: "UI Tests"). They target a
 
 **Setup:**
 
-1. Install dependencies (Playwright is included):  
-   `npm install`
-
-2. Install Playwright browser (required once per machine or CI):  
-   `npx playwright install chromium`
-
+1. Install dependencies (Playwright is included):
+  `npm install`
+2. Install Playwright browser (required once per machine or CI):
+  `npx playwright install chromium`
 3. Optional: in `.env` set:
-   - `PLAYWRIGHT_BASE_URL` – default URL to test (e.g. `https://5gapisprint.meoempresas.pt/apis`)
-   - `PLAYWRIGHT_TIMEOUT_MS` – timeout in ms (default: 30000)
-   - `PLAYWRIGHT_HEADLESS` – `true` or `false` (default: true)
+  - `PLAYWRIGHT_BASE_URL` – default URL to test (e.g. `https://5gapisprint.meoempresas.pt/apis`)
+  - `PLAYWRIGHT_TIMEOUT_MS` – timeout in ms (default: 30000)
+  - `PLAYWRIGHT_HEADLESS` – `true` or `false` (default: true)
 
 **From the app:** Open **UI Tests**, click **Run UI Tests**, enter a run name and optionally override the base URL, then Run. View list, open a run for details, and use **View Report** / **Download Report** for the HTML report.
 
 **From the CLI:**  
 `npm run test:playwright`  
 This runs the same suite using the default base URL from config and stores results in the database.
+
+**Run a full spec from Cursor / Playwright Agents / terminal:**  
+Use the root `playwright.config.js` (points at `e2e/`) so you can run specs directly with the Playwright Test runner:
+
+```bash
+# Run all e2e specs
+npx playwright test
+
+# Run one spec file
+npx playwright test e2e/recorded/recorded-1770467547370.spec.js
+
+# Run headed (see browser)
+npx playwright test --headed
+
+# Run with UI (debug)
+npx playwright test --ui
+```
+
+Respects `.env`: `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_TIMEOUT_MS`, `PLAYWRIGHT_HEADLESS`.
 
 **Recorded UI tests:** You can define extra test cases by recording browser interactions with Playwright Codegen and saving them in the app.
 
@@ -273,7 +303,109 @@ This runs the same suite using the default base URL from config and stores resul
 4. Recorded tests appear in the test list when you click **Run UI Tests** (they are listed as "Recorded: &lt;name&gt;"). You can run them alone or together with the built-in tests.
 5. Use **Manage recorded tests** to edit or delete saved recordings.
 
-Note: "Launch Codegen" from the app (if added) requires a display (e.g. local or dev environment); on headless servers use the paste-and-save flow above.
+**Note:** On headless Linux/Docker servers, "Launch Codegen" uses **remote recording via noVNC** — the browser runs on the server and is streamed to your browser. No local software installation is needed. See [Remote Codegen (Recording UI Tests in the Browser)](#remote-codegen-recording-ui-tests-in-the-browser) below. On Windows/desktop, Codegen opens locally as before. You can also always use the paste-and-save flow above.
+
+### Remote Codegen (Recording UI Tests in the Browser)
+
+When deployed on a **headless Linux server or Docker container**, the app provides a fully browser-based test recording experience using **Xvfb** (virtual display), **x11vnc**, and **noVNC**. Users can record Playwright tests without installing any software on their laptops.
+
+#### How it works
+
+1. **Launch Codegen** — user clicks the button and enters a target URL
+2. **Remote session starts** — the server creates a virtual display, launches Chromium with Playwright Codegen, and streams the browser to the user via noVNC
+3. **Interact** — user sees and controls the remote browser in an embedded panel within the app, clicking through the site to record actions
+4. **Stop Recording** — user clicks "Stop Recording"; the server kills the session and returns the generated Playwright spec
+5. **Save** — the generated code populates the spec textarea; user reviews, names the test, and saves it
+
+#### Architecture
+
+```mermaid
+graph TB
+    subgraph userBrowser [User Browser]
+        WebApp[QA Test Hub UI]
+        NoVNCClient[noVNC Viewer Panel]
+    end
+
+    subgraph dockerContainer [Docker Container]
+        Express[Express Server :3000]
+        SessionMgr[Codegen Session Manager]
+
+        subgraph codegenSession [Per-User Codegen Session]
+            XvfbDisplay["Xvfb virtual display :N"]
+            Chromium[Chromium + Playwright Codegen]
+            X11vnc[x11vnc]
+            Websockify["websockify :608N"]
+        end
+
+        OutputFile[".spec.js output file"]
+        Database[(PostgreSQL)]
+    end
+
+    WebApp -->|"REST API"| Express
+    Express --> SessionMgr
+    SessionMgr --> XvfbDisplay
+    SessionMgr --> X11vnc
+    SessionMgr --> Websockify
+    XvfbDisplay --> Chromium
+    Chromium --> OutputFile
+    NoVNCClient -->|"WebSocket"| Websockify
+    Websockify --> X11vnc
+    X11vnc --> XvfbDisplay
+    Express --> Database
+```
+
+#### User flow
+
+```mermaid
+flowchart TD
+    A[User opens QA Test Hub] --> B[Navigate to UI Tests]
+    B --> C[Click Add Recorded Test]
+    C --> D[Enter Base URL for recording]
+    D --> E[Click Launch Codegen]
+    E --> F{Server environment?}
+    F -->|"Headless Linux/Docker"| G[Session Manager starts Xvfb + VNC + Codegen]
+    F -->|"Windows/Desktop"| H[Codegen opens locally as before]
+    G --> I[noVNC panel appears in browser]
+    I --> J[User interacts with remote browser]
+    J --> K[User performs clicks and navigation]
+    K --> L[User clicks Stop Recording]
+    L --> M[Server kills session and reads output file]
+    M --> N[Generated spec populates textarea]
+    H --> N
+    N --> O[User reviews and edits spec]
+    O --> P[User enters test name]
+    P --> Q[User clicks Save]
+    Q --> R[Recorded test saved to database]
+    R --> S[Test available in Run UI Tests]
+```
+
+#### Quick start with Docker
+
+```bash
+cp .env.example .env
+# Edit .env — set DB_PASSWORD at minimum
+docker compose up --build -d
+# First time: run database migrations
+docker compose exec app npm run migrate
+# Open http://<server-ip>:3000
+```
+
+#### Remote Codegen environment variables
+
+
+| Variable                     | Default  | Description                                            |
+| ---------------------------- | -------- | ------------------------------------------------------ |
+| `CODEGEN_MAX_SESSIONS`       | `3`      | Maximum concurrent remote Codegen sessions             |
+| `CODEGEN_SESSION_TIMEOUT_MS` | `600000` | Session auto-timeout in milliseconds (default: 10 min) |
+| `CODEGEN_VNC_PORT_START`     | `6080`   | First websockify port; sessions use 6080, 6081, ...    |
+
+
+#### Limitations and notes
+
+- Each remote session uses one Xvfb display + one Chromium instance, so server resources limit concurrency. Adjust `CODEGEN_MAX_SESSIONS` based on your VM's RAM and CPU.
+- Sessions auto-terminate after the timeout. The frontend shows a countdown timer.
+- On **Windows or desktop Linux with a display**, "Launch Codegen" uses the existing local behavior (opens a Codegen window on the server). The remote noVNC path only activates on headless Linux.
+- **Paste-and-save still works:** users with local Playwright installed can still run `npx playwright codegen <url>` on their machine and paste the generated code.
 
 ## Project Structure
 
@@ -286,14 +418,17 @@ Note: "Launch Codegen" from the app (if added) requires a display (e.g. local or
 ├── public/          # Frontend files (HTML, CSS, JS)
 ├── routes/          # Express routes
 ├── scripts/         # Utility scripts
-├── services/        # Business logic services
+├── services/        # Business logic services (including codegenSessionManager.js)
 ├── server.js        # Application entry point
+├── Dockerfile       # Production Docker image
+├── docker-compose.yml # Docker Compose (app + PostgreSQL)
 └── package.json     # Dependencies and scripts
 ```
 
 ## API Endpoints
 
 ### Projects
+
 - `GET /api/projects` - List all projects
 - `POST /api/projects` - Create a project
 - `GET /api/projects/:id` - Get project details
@@ -301,17 +436,20 @@ Note: "Launch Codegen" from the app (if added) requires a display (e.g. local or
 - `DELETE /api/projects/:id` - Delete project
 
 ### API Specifications
+
 - `GET /api/api-specs` - List all API specs
 - `POST /api/api-specs/upload` - Upload API spec file
 - `GET /api/api-specs/:id` - Get API spec details
 - `DELETE /api/api-specs/:id` - Delete API spec
 
 ### Collections
+
 - `GET /api/collections` - List all collections
 - `GET /api/projects/:projectId/collections` - Get collections for a project
 - `POST /api/collections/upload` - Upload Postman collection
 
 ### Test Runs
+
 - `GET /api/test-runs` - List test runs
 - `POST /api/test-runs/execute` - Execute tests (supports optional `delayBetweenTests` in seconds and `testDelays` mapping for per-test delays in seconds)
 - `GET /api/test-runs/:id` - Get test run details
@@ -319,6 +457,7 @@ Note: "Launch Codegen" from the app (if added) requires a display (e.g. local or
 - `GET /api/test-runs/:id/report/download` - Download report
 
 ### Fuzz Runs (REST API Fuzzing with CATS)
+
 - `POST /api/fuzz-runs/execute` - Start a fuzz run (body: `projectId`, `apiSpecId`, `name`, `serverUrl`; optional: `flowId`, `paths`, `skipPaths`)
 - `GET /api/fuzz-runs` - List fuzz runs (query: `projectId`, `limit`, `offset`)
 - `GET /api/fuzz-runs/:id` - Get fuzz run with results
@@ -327,6 +466,7 @@ Note: "Launch Codegen" from the app (if added) requires a display (e.g. local or
 - `DELETE /api/fuzz-runs/:id` - Delete fuzz run
 
 ### Playwright / UI Tests
+
 - `GET /api/playwright-config` - Get default base URL for UI
 - `GET /api/playwright-tests/list` - List all tests (built-in + recorded)
 - `POST /api/playwright-runs/execute` - Start a UI test run (body: `name`, optional `baseUrl`, `suite`, optional `selectedTestIds` for "selected" suite)
@@ -337,6 +477,7 @@ Note: "Launch Codegen" from the app (if added) requires a display (e.g. local or
 - `DELETE /api/playwright-runs/:id` - Delete run
 
 ### Playwright recorded tests (Codegen paste-and-save)
+
 - `GET /api/playwright-recorded-tests` - List recorded tests
 - `POST /api/playwright-recorded-tests` - Create (body: `name`, `spec_content`, optional `base_url`)
 - `GET /api/playwright-recorded-tests/:id` - Get one recorded test
@@ -350,19 +491,14 @@ The application uses PostgreSQL with the following main tables:
 
 - **projects** - Project/workspace information
   - `id`, `name`, `description`, `created_at`, `updated_at`
-
 - **api_specs** - API specification files (OpenAPI YAML/JSON)
   - `id`, `name`, `description`, `format`, `file_path`, `spec_content`, etc.
-
 - **collections** - Postman collections
   - `id`, `name`, `version`, `collection_json`, `api_spec_id`
-
 - **project_api_specs** - Many-to-many relationship between projects and API specs
   - `id`, `project_id`, `api_spec_id`, `added_at`
-
 - **test_runs** - Test execution metadata
   - `id`, `name`, `status`, `project_id`, `total_tests`, `passed_tests`, `failed_tests`, `duration_ms`, `created_at`
-
 - **test_results** - Individual test results
   - `id`, `test_run_id`, `test_name`, `endpoint`, `method`, `status`
   - `duration_ms`, `request_body`, `response_body`, `response_code`
@@ -370,22 +506,16 @@ The application uses PostgreSQL with the following main tables:
   - `execution_order` - Preserves the order tests were executed (added in migration 002)
   - `test_id` - Unique identifier for each test, e.g., TEST-1, TEST-2 (added in migration 002)
   - `created_at`
-
 - **playwright_runs** - UI test run metadata (migration 003; migration 005 adds `project_id`)
   - `id`, `name`, `status`, `base_url`, `total_tests`, `passed_tests`, `failed_tests`, `duration_ms`, `project_id`, `created_at`
-
 - **playwright_results** - Individual UI test results (migration 003)
   - `id`, `playwright_run_id`, `test_name`, `status`, `duration_ms`, `error_message`, `created_at`
-
 - **playwright_recorded_tests** - Saved Codegen specs (migration 004)
   - `id`, `name`, `spec_content`, `base_url`, `created_at`, `updated_at`
-
 - **project_recorded_tests** - Many-to-many: projects ↔ recorded UI tests (migration 005)
   - `id`, `project_id`, `recorded_test_id`, `added_at`
-
 - **fuzz_runs** - Fuzz run metadata (migration 009)
   - `id`, `name`, `status`, `project_id`, `api_spec_id`, `flow_id`, `total_tests`, `passed_tests`, `failed_tests`, `duration_ms`, `report_path`, `created_at`
-
 - **fuzz_results** - Individual fuzz test results (migration 009)
   - `id`, `fuzz_run_id`, `test_name`, `endpoint`, `method`, `status`, `duration_ms`, `request_body`, `response_body`, `response_code`, `fuzzer_name`, `error_message`, `execution_order`, `created_at`
 
@@ -400,12 +530,14 @@ The application uses PostgreSQL with the following main tables:
 - `UPLOAD_DIR` - Directory for uploaded files (default: ./uploads)
 - `REPORTS_DIR` - Directory for generated reports (default: ./reports)
 - `MAX_FILE_SIZE` - Maximum upload file size in bytes (default: 10485760)
-- `PLAYWRIGHT_BASE_URL` - Default URL for UI tests (e.g. https://5gapisprint.meoempresas.pt/apis)
+- `PLAYWRIGHT_BASE_URL` - Default URL for UI tests (e.g. [https://5gapisprint.meoempresas.pt/apis](https://5gapisprint.meoempresas.pt/apis))
 - `PLAYWRIGHT_TIMEOUT_MS` - Timeout for Playwright actions in ms (default: 30000)
 - `PLAYWRIGHT_HEADLESS` - Run browser headless: true or false (default: true)
 - `CATS_CMD` - Optional; CATS CLI command (e.g. `cats` or `java -jar /path/to/cats.jar`) when not on PATH
+- `CODEGEN_MAX_SESSIONS` - Maximum concurrent remote Codegen sessions (default: 3)
+- `CODEGEN_SESSION_TIMEOUT_MS` - Remote Codegen session auto-timeout in ms (default: 600000 = 10 min)
+- `CODEGEN_VNC_PORT_START` - First websockify port for noVNC sessions (default: 6080)
 
 ## License
 
 ISC
-
