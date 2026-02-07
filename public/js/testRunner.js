@@ -848,9 +848,11 @@ function showRunTestsModal() {
           body: requestBody
         });
         
-        // Start polling for progress immediately
         const testRunId = result.testRun.id;
         console.log('[frontend] Starting progress polling for test run:', testRunId);
+        hideModal();
+        showView('test-runs');
+        loadTestRuns();
         
         // Poll immediately first time, then every second
         const pollProgress = async () => {

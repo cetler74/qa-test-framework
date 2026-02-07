@@ -1,0 +1,50 @@
+# QA Test Hub – Docker Compose
+# Usage:
+#   cp .env.example .env   # then edit DB_PASSWORD
+#   docker compose up --build -d
+#   docker compose exec app npm run migrate   # first time only
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-qa_framework}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+      # noVNC WebSocket ports for remote Codegen sessions (one per concurrent session)
+      - "6080-6089:6080-6089"
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-qa_framework}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      PORT: 3000
+      NODE_ENV: production
+      PLAYWRIGHT_HEADLESS: "true"
+      # Remote Codegen session limits
+      CODEGEN_MAX_SESSIONS: ${CODEGEN_MAX_SESSIONS:-3}
+      CODEGEN_SESSION_TIMEOUT_MS: ${CODEGEN_SESSION_TIMEOUT_MS:-600000}
+      CODEGEN_VNC_PORT_START: ${CODEGEN_VNC_PORT_START:-6080}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

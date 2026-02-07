@@ -239,9 +239,9 @@ async function runPlaywrightTests(options = {}) {
     // Use a desktop viewport so headless matches headed (headless default is small; site may use mobile layout).
     const viewport = { width: 1280, height: 720 };
     const contextOptions = { baseURL: baseUrl, viewport };
-    // In headless, use a normal Chrome user agent so sites don't hide consent/banners for "HeadlessChrome".
-    if (headless) {
-      contextOptions.userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    // Use a normal Chrome user agent so sites don't return 403 for headless/automation (HeadlessChrome).
+    if (playwrightConfig.userAgent) {
+      contextOptions.userAgent = playwrightConfig.userAgent;
     }
     const context = await browser.newContext(contextOptions);
     context.setDefaultTimeout(timeoutMs);
@@ -525,7 +525,7 @@ async function runPlaywrightTests(options = {}) {
   for (const recId of recordedIds) {
     try {
       const startOrder = order + 1;
-      const recResults = await runRecordedSpec(runId, recId, baseUrl, startOrder);
+      const recResults = await runRecordedSpec(runId, recId, baseUrl, startOrder, { timeoutMs, headless });
       for (const r of recResults) {
         await record(++order, r.testName, r.status, r.durationMs, null, r.errorMessage || null, r.assertions || null, r.screenshotPath || null);
       }
@@ -535,7 +535,7 @@ async function runPlaywrightTests(options = {}) {
   }
 
   const durationMs = Date.now() - startTime;
-  const status = failed > 0 ? 'failed' : 'passed';
+  const status = (failed > 0 && passed > 0) ? 'partial_failed' : (failed > 0 ? 'failed' : 'passed');
   await updateRunSummary(runId, total, passed, failed, durationMs, status);
 
   return { summary: { total, passed, failed }, results };
@@ -567,13 +567,15 @@ function collectScreenshotPaths(dir) {
  * @param {string} recordedId - PlaywrightRecordedTest id (numeric string)
  * @param {string} baseUrl - Base URL for the run
  * @param {number} startOrder - execution_order for the first result (so we can name screenshots runId_startOrder.png, etc.)
+ * @param {{ timeoutMs?: number, headless?: boolean }} [runOptions] - Optional timeout and headless from the run (so "show browser" and per-run timeout work)
  * @returns {Promise<Array<{ testName, status, durationMs, errorMessage, assertions, screenshotPath? }>>}
  */
-async function runRecordedSpec(runId, recordedId, baseUrl, startOrder) {
+async function runRecordedSpec(runId, recordedId, baseUrl, startOrder, runOptions = {}) {
   const test = await PlaywrightRecordedTest.findByPk(recordedId);
   if (!test) throw new Error(`Recorded test ${recordedId} not found`);
   const baseUrlToUse = baseUrl || test.base_url || playwrightConfig.baseUrl || 'https://example.com';
-  const headless = playwrightConfig.headless !== undefined ? playwrightConfig.headless : true;
+  const headless = runOptions.headless !== undefined ? runOptions.headless : (playwrightConfig.headless !== undefined ? playwrightConfig.headless : true);
+  const timeoutMs = runOptions.timeoutMs || playwrightConfig.timeoutMs || 60000;
   if (!fs.existsSync(REPORTS_DIR)) fs.mkdirSync(REPORTS_DIR, { recursive: true });
   const slug = `recorded-${recordedId}-${Date.now()}`;
   const specPath = path.join(REPORTS_DIR, `${slug}.spec.js`);
@@ -584,6 +586,7 @@ async function runRecordedSpec(runId, recordedId, baseUrl, startOrder) {
     fs.writeFileSync(specPath, test.spec_content, 'utf8');
     const specFileName = path.basename(specPath);
     const launchArgs = playwrightConfig.launchArgs || [];
+    const userAgent = playwrightConfig.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
     const configContent = `
 module.exports = {
   testDir: ${JSON.stringify(REPORTS_DIR)},
@@ -591,12 +594,13 @@ module.exports = {
   outputDir: ${JSON.stringify(testResultsDir)},
   use: {
     baseURL: ${JSON.stringify(baseUrlToUse)},
+    userAgent: ${JSON.stringify(userAgent)},
     trace: 'off',
     screenshot: 'only-on-failure',
     launchOptions: { headless: ${headless}, args: ${JSON.stringify(launchArgs)} }
   },
   projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
-  timeout: ${playwrightConfig.timeoutMs || 30000},
+  timeout: ${timeoutMs},
   reporter: [['json', { outputFile: ${JSON.stringify(resultPath)} }]]
 };
 `;
@@ -612,7 +616,7 @@ module.exports = {
     const result = spawnSync(command, finalArgs, {
       cwd,
       encoding: 'utf8',
-      timeout: (playwrightConfig.timeoutMs || 30000) * 2 + 10000,
+      timeout: timeoutMs * 2 + 10000,
       maxBuffer: 4 * 1024 * 1024,
       shell: isWin
     });

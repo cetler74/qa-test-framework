@@ -259,8 +259,44 @@ function parseRequestResponseFromOutput(text) {
 }
 
 /**
+ * Normalize path for matching: strip protocol/host, leading/trailing slashes, query string.
+ */
+function normalizePathForMatching(pathOrUrl) {
+  if (!pathOrUrl || typeof pathOrUrl !== 'string') return '';
+  let s = pathOrUrl.trim();
+  try {
+    if (s.startsWith('http://') || s.startsWith('https://')) {
+      const u = new URL(s);
+      s = u.pathname || s;
+    }
+  } catch (_) {}
+  s = s.replace(/^\//, '').replace(/\/$/, '').split('?')[0].trim();
+  return s;
+}
+
+/**
+ * Extract fuzzer name from CATS JSON or from request (e.g. User-Agent "Test N - FuzzerName").
+ */
+function extractFuzzerFromCatsJson(data, req) {
+  const fromData = data.scenario ?? data.fuzzer ?? data.fuzzerName ?? data.fuzzer_name ?? null;
+  if (fromData && typeof fromData === 'string') return fromData.trim() || null;
+  if (req && typeof req === 'object') {
+    const headers = req.headers || req.header;
+    if (Array.isArray(headers)) {
+      const ua = headers.find((h) => (h.key || h.name || '').toLowerCase() === 'user-agent');
+      const val = ua && (ua.value || ua.val);
+      if (val && typeof val === 'string') {
+        const m = val.match(/Test\s*\d+\s*-\s*(\S+)/);
+        if (m) return m[1].trim();
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Scan CATS output folder for JSON files and extract request/response per test.
- * Returns array of { request_body, response_body, endpoint, method, response_code } in file order.
+ * Returns array of { request_body, response_body, endpoint, method, response_code, path_normalized, fuzzer_name } in file order.
  */
 function loadRequestResponseFromCatsOutput(outputDir) {
   const entries = [];
@@ -284,28 +320,92 @@ function loadRequestResponseFromCatsOutput(outputDir) {
       const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
       const req = data.requestPayload ?? data.request ?? data.requestBody ?? data.requestContent ?? data.requestPayloadContent ?? data.requestBodyContent ?? (data.request && data.request.payload) ?? (data.request && data.request.body) ?? null;
       const res = data.responsePayload ?? data.response ?? data.responseBody ?? data.responseContent ?? data.responsePayloadContent ?? data.responseBodyContent ?? (data.response && data.response.payload) ?? (data.response && data.response.body) ?? null;
+      const reqObj = data.request ?? (typeof req === 'object' ? req : null);
       let requestBody = null;
       let responseBody = null;
       if (req != null) requestBody = typeof req === 'string' ? req : JSON.stringify(req, null, 2);
       if (res != null) responseBody = typeof res === 'string' ? res : JSON.stringify(res, null, 2);
       if (requestBody && requestBody.length > MAX_RESPONSE_BODY_LENGTH) requestBody = requestBody.slice(0, MAX_RESPONSE_BODY_LENGTH);
       if (responseBody && responseBody.length > MAX_RESPONSE_BODY_LENGTH) responseBody = responseBody.slice(0, MAX_RESPONSE_BODY_LENGTH);
-      const endpoint = (data.path ?? data.endpoint ?? data.url ?? (data.request && data.request.path) ?? (data.request && data.request.uri)) || null;
-      const method = (data.method ?? (data.request && data.request.method)) ? String(data.method ?? data.request.method).toUpperCase().slice(0, 10) : null;
+      const endpoint = (data.path ?? data.endpoint ?? data.url ?? (data.request && data.request.path) ?? (data.request && data.request.uri) ?? (data.request && data.request.url)) || null;
+      const method = (data.method ?? data.httpMethod ?? (data.request && data.request.method)) ? String(data.method ?? data.httpMethod ?? data.request.method).toUpperCase().slice(0, 10) : null;
       const responseCode = data.responseCode ?? data.statusCode ?? data.status ?? (data.response && data.response.code) ?? (data.response && data.response.status) ?? null;
       const code = responseCode != null ? parseInt(responseCode, 10) : null;
+      const path_normalized = normalizePathForMatching(endpoint);
+      const fuzzer_name = extractFuzzerFromCatsJson(data, reqObj);
       entries.push({
         request_body: requestBody || null,
         response_body: responseBody || null,
         endpoint: endpoint ? String(endpoint).slice(0, 500) : null,
         method: method || null,
-        response_code: Number.isInteger(code) ? code : null
+        response_code: Number.isInteger(code) ? code : null,
+        path_normalized: path_normalized || null,
+        fuzzer_name: fuzzer_name || null
       });
     } catch (e) {
       // Skip malformed or non-test JSON
     }
   }
   return entries;
+}
+
+/**
+ * Build matching key for a DB result: (path_normalized, method, fuzzer_name).
+ * Path from result.endpoint or parsed from result.test_name (e.g. "Test97 - /path").
+ */
+function resultMatchingKey(result) {
+  let pathStr = (result.endpoint || '').trim();
+  if (!pathStr && result.test_name) {
+    const m = result.test_name.match(/\s+(\/[^\s]+)/);
+    if (m) pathStr = m[1];
+  }
+  const pathNorm = normalizePathForMatching(pathStr);
+  const method = (result.method || '').toUpperCase().slice(0, 10) || null;
+  const fuzzer = (result.fuzzer_name || '').trim() || null;
+  return `${pathNorm}|${method || ''}|${fuzzer || ''}`;
+}
+
+/**
+ * Match CATS JSON entries to DB results by (path, method, fuzzer_name).
+ * When multiple entries share the same key, assigns by order within that key.
+ * Falls back to index-based match when no key match is possible.
+ */
+function matchCatsEntriesToResults(dbResults, catsEntries) {
+  const indexByKey = new Map();
+  const assignedCats = new Set();
+
+  function entryKey(entry) {
+    const pathNorm = (entry.path_normalized || normalizePathForMatching(entry.endpoint) || '').trim();
+    const method = (entry.method || '').toUpperCase().slice(0, 10) || '';
+    const fuzzer = (entry.fuzzer_name || '').trim() || '';
+    return `${pathNorm}|${method}|${fuzzer}`;
+  }
+
+  const resultIndexToEntry = new Map();
+
+  for (let i = 0; i < dbResults.length; i++) {
+    const result = dbResults[i];
+    const key = resultMatchingKey(result);
+    if (!indexByKey.has(key)) indexByKey.set(key, 0);
+    const orderWithinKey = indexByKey.get(key);
+
+    const candidates = catsEntries
+      .map((entry, idx) => ({ entry, idx }))
+      .filter(({ entry }) => entryKey(entry) === key);
+    const chosen = candidates[orderWithinKey];
+    if (chosen && !assignedCats.has(chosen.idx)) {
+      resultIndexToEntry.set(i, chosen.entry);
+      assignedCats.add(chosen.idx);
+    }
+    indexByKey.set(key, orderWithinKey + 1);
+  }
+
+  if (resultIndexToEntry.size === 0 && dbResults.length > 0 && catsEntries.length > 0) {
+    for (let i = 0; i < dbResults.length && i < catsEntries.length; i++) {
+      resultIndexToEntry.set(i, catsEntries[i]);
+    }
+  }
+  return resultIndexToEntry;
 }
 
 const MAX_RESPONSE_BODY_LENGTH = 65536;
@@ -364,13 +464,14 @@ async function executeFuzz(projectId, apiSpecId, name, options = {}) {
     });
 
     if (!junitPath) {
+      const noReportMsg = `CATS did not produce a JUNIT report (exit code: ${exitCode}). Check that CATS is installed (Java + CATS JAR or \`cats\` CLI) and the OpenAPI spec is valid.`;
       await fuzzRun.update({
         status: 'failed',
         total_tests: 0,
         passed_tests: 0,
         failed_tests: 0,
         duration_ms: 0,
-        progress_message: null
+        progress_message: noReportMsg
       });
       console.error('[fuzzRunner] No JUNIT report produced by CATS. Exit code:', exitCode);
       return fuzzRun;
@@ -401,15 +502,18 @@ async function executeFuzz(projectId, apiSpecId, name, options = {}) {
     if (results.length > 0) {
       await FuzzResult.bulkCreate(results);
 
-      // Enrich from CATS JSON reports if present (request/response for copy-to-issue)
+      // Enrich from CATS JSON reports if present (request/response for copy-to-issue).
+      // Match by (path, method, fuzzer_name) so the correct request/response is attached to each result.
       const catsEntries = loadRequestResponseFromCatsOutput(outputDir);
       if (catsEntries.length > 0) {
         const dbResults = await FuzzResult.findAll({
           where: { fuzz_run_id: fuzzRun.id },
           order: [['execution_order', 'ASC']]
         });
-        for (let i = 0; i < dbResults.length && i < catsEntries.length; i++) {
-          const entry = catsEntries[i];
+        const matchMap = matchCatsEntriesToResults(dbResults, catsEntries);
+        for (let i = 0; i < dbResults.length; i++) {
+          const entry = matchMap.get(i);
+          if (!entry) continue;
           if (entry.request_body || entry.response_body || entry.endpoint || entry.method != null || entry.response_code != null) {
             await dbResults[i].update({
               request_body: entry.request_body ?? dbResults[i].request_body,
@@ -429,7 +533,7 @@ async function executeFuzz(projectId, apiSpecId, name, options = {}) {
     const actualFailed = actualTotal - actualPassed;
 
     await fuzzRun.update({
-      status: actualFailed > 0 ? 'failed' : 'passed',
+      status: (actualFailed > 0 && actualPassed > 0) ? 'partial_failed' : (actualFailed > 0 ? 'failed' : 'passed'),
       total_tests: actualTotal,
       passed_tests: actualPassed,
       failed_tests: actualFailed,
@@ -448,12 +552,13 @@ async function executeFuzz(projectId, apiSpecId, name, options = {}) {
     return fuzzRun;
   } catch (err) {
     console.error('[fuzzRunner] executeFuzz error:', err);
+    const errMsg = (err && err.message) ? String(err.message).slice(0, 2000) : null;
     await fuzzRun.update({
       status: 'failed',
       total_tests: fuzzRun.total_tests || 0,
       passed_tests: fuzzRun.passed_tests || 0,
       failed_tests: fuzzRun.failed_tests || 0,
-      progress_message: null
+      progress_message: errMsg
     });
     throw err;
   } finally {

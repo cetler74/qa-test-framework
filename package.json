@@ -35,7 +35,8 @@
     "pg": "^8.11.3",
     "playwright": "^1.49.0",
     "sequelize": "^6.35.0",
-    "soap": "^1.0.0"
+    "soap": "^1.0.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

@@ -81,7 +81,7 @@
               ${run.passed_tests != null ? run.passed_tests : '-'} passed, ${run.failed_tests != null ? run.failed_tests : '-'} failed of ${run.total_tests != null ? run.total_tests : '-'} total
             </p>
           </div>
-          <span class="status-badge ${run.status}">${run.status}</span>
+          <span class="status-badge ${run.status}">${run.status === 'partial_failed' ? 'Partial Failed' : run.status}</span>
         </div>
       `).join('');
     }
@@ -97,12 +97,19 @@
 
   let testList = [];
 
+  function filterTestsBySuite(list, suite) {
+    if (suite === 'builtin') return list.filter(t => !String(t.id).startsWith('recorded-'));
+    if (suite === 'recorded') return list.filter(t => String(t.id).startsWith('recorded-'));
+    return list;
+  }
+
   async function loadRunUiTestsPage() {
     const container = document.getElementById('playwright-test-list-container');
     const nameInput = document.getElementById('run-ui-tests-name');
     const urlInput = document.getElementById('run-ui-tests-base-url');
     const projectSelectWrap = document.getElementById('run-ui-tests-project-wrap');
     const projectSelect = document.getElementById('run-ui-tests-project-select');
+    const suiteSelect = document.getElementById('run-ui-tests-suite');
     const projectId = window._runUiTestsProjectId ? String(window._runUiTestsProjectId) : null;
     if (projectSelectWrap) {
       projectSelectWrap.style.display = projectId ? 'none' : 'block';
@@ -123,14 +130,26 @@
       ]);
       testList = tests;
       if (urlInput && config.baseUrl) urlInput.value = config.baseUrl;
+      const showBrowserOptions = document.querySelector('.run-ui-tests-show-browser-options');
+      const noDisplayMsg = document.getElementById('run-ui-tests-no-display-msg');
       const showBrowserCb = document.getElementById('run-ui-tests-show-browser');
-      if (showBrowserCb && typeof config.headless === 'boolean') {
-        showBrowserCb.checked = !config.headless;
-      }
-      renderTestList(false);
+      const hasDisplay = config.hasDisplay !== false;
+      if (showBrowserOptions) showBrowserOptions.style.display = hasDisplay ? '' : 'none';
+      if (noDisplayMsg) noDisplayMsg.style.display = hasDisplay ? 'none' : 'block';
+      if (showBrowserCb && typeof config.headless === 'boolean') showBrowserCb.checked = !config.headless;
+      const suite = suiteSelect ? suiteSelect.value : 'all';
+      const showCheckboxes = document.querySelector('input[name="test-list-type"]:checked')?.value === 'selected';
+      renderTestList(showCheckboxes, suite);
+      suiteSelect?.addEventListener('change', () => {
+        const s = document.getElementById('run-ui-tests-suite')?.value || 'all';
+        const sel = document.querySelector('input[name="test-list-type"]:checked')?.value === 'selected';
+        renderTestList(sel, s);
+      });
       const radios = document.querySelectorAll('input[name="test-list-type"]');
       radios.forEach(r => r.addEventListener('change', () => {
-        renderTestList(document.querySelector('input[name="test-list-type"]:checked').value === 'selected');
+        const sel = document.querySelector('input[name="test-list-type"]:checked').value === 'selected';
+        const s = document.getElementById('run-ui-tests-suite')?.value || 'all';
+        renderTestList(sel, s);
       }));
       if (!projectId) {
         const sel = document.getElementById('run-ui-tests-project-select');
@@ -144,9 +163,60 @@
     }
   }
 
-  function renderTestList(showCheckboxes) {
+  function renderTestList(showCheckboxes, suiteFilter) {
     const container = document.getElementById('playwright-test-list-container');
-    if (!container || !testList.length) return;
+    if (!container) return;
+    const filtered = filterTestsBySuite(testList, suiteFilter || 'all');
+    if (!filtered.length) {
+      container.innerHTML = `
+        <h3 class="test-list-title">Tests that will run</h3>
+        <p class="test-list-empty">No tests in this suite. Choose another test suite or ensure recorded tests are linked to the project.</p>
+      `;
+      return;
+    }
+    const builtin = filtered.filter(t => !String(t.id).startsWith('recorded-'));
+    const recorded = filtered.filter(t => String(t.id).startsWith('recorded-'));
+    const showSections = (suiteFilter === 'all') && builtin.length > 0 && recorded.length > 0;
+
+    let listHtml = '';
+    if (showSections) {
+      listHtml += `
+        <div class="test-list-section">
+          <h4 class="test-list-section-title">Built-in tests</h4>
+          <ul class="playwright-test-list ${showCheckboxes ? 'selectable' : ''}">
+            ${builtin.map((t, i) => `
+              <li class="playwright-test-item">
+                ${showCheckboxes ? `<input type="checkbox" class="playwright-test-cb" data-test-id="${t.id}" id="pt-${t.id}" />` : ''}
+                <span class="playwright-test-name">${i + 1}. ${t.name}</span>
+              </li>
+            `).join('')}
+          </ul>
+        </div>
+        <div class="test-list-section">
+          <h4 class="test-list-section-title">Recorded tests</h4>
+          <ul class="playwright-test-list ${showCheckboxes ? 'selectable' : ''}">
+            ${recorded.map((t, i) => `
+              <li class="playwright-test-item">
+                ${showCheckboxes ? `<input type="checkbox" class="playwright-test-cb" data-test-id="${t.id}" id="pt-${t.id}" />` : ''}
+                <span class="playwright-test-name">${builtin.length + i + 1}. ${t.name}</span>
+              </li>
+            `).join('')}
+          </ul>
+        </div>
+      `;
+    } else {
+      listHtml = `
+        <ul class="playwright-test-list ${showCheckboxes ? 'selectable' : ''}">
+          ${filtered.map((t, i) => `
+            <li class="playwright-test-item">
+              ${showCheckboxes ? `<input type="checkbox" class="playwright-test-cb" data-test-id="${t.id}" id="pt-${t.id}" />` : ''}
+              <span class="playwright-test-name">${i + 1}. ${t.name}</span>
+            </li>
+          `).join('')}
+        </ul>
+      `;
+    }
+
     container.innerHTML = `
       <h3 class="test-list-title">Tests that will run</h3>
       ${showCheckboxes ? `
@@ -154,24 +224,34 @@
           <button type="button" class="btn btn-link" id="select-all-tests">Select all</button>
           <span class="test-list-select-sep">|</span>
           <button type="button" class="btn btn-link" id="deselect-all-tests">Deselect all</button>
+          ${showSections ? `
+            <span class="test-list-select-sep">|</span>
+            <button type="button" class="btn btn-link" id="select-builtin-tests">Built-in only</button>
+            <span class="test-list-select-sep">|</span>
+            <button type="button" class="btn btn-link" id="select-recorded-tests">Recorded only</button>
+          ` : ''}
         </div>
       ` : ''}
-      <ul class="playwright-test-list ${showCheckboxes ? 'selectable' : ''}">
-        ${testList.map((t, i) => `
-          <li class="playwright-test-item">
-            ${showCheckboxes ? `<input type="checkbox" class="playwright-test-cb" data-test-id="${t.id}" id="pt-${t.id}" />` : ''}
-            <span class="playwright-test-name">${i + 1}. ${t.name}</span>
-          </li>
-        `).join('')}
-      </ul>
+      ${listHtml}
     `;
+
     if (showCheckboxes) {
-      container.querySelectorAll('.playwright-test-cb').forEach(cb => cb.checked = true);
+      container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = true; });
       container.querySelector('#select-all-tests')?.addEventListener('click', () => {
         container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = true; });
       });
       container.querySelector('#deselect-all-tests')?.addEventListener('click', () => {
         container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = false; });
+      });
+      const builtinCbs = showSections ? container.querySelectorAll('.test-list-section:first-of-type .playwright-test-cb') : [];
+      const recordedCbs = showSections ? container.querySelectorAll('.test-list-section:last-of-type .playwright-test-cb') : [];
+      container.querySelector('#select-builtin-tests')?.addEventListener('click', () => {
+        container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = false; });
+        builtinCbs.forEach(cb => { cb.checked = true; });
+      });
+      container.querySelector('#select-recorded-tests')?.addEventListener('click', () => {
+        container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = false; });
+        recordedCbs.forEach(cb => { cb.checked = true; });
       });
     }
   }
@@ -190,7 +270,8 @@
       alert('Please enter a run name.');
       return;
     }
-    const listType = document.querySelector('input[name="test-list-type"]:checked')?.value || 'full';
+    const listType = document.querySelector('input[name="test-list-type"]:checked')?.value || 'selected';
+    const suiteFilter = document.getElementById('run-ui-tests-suite')?.value || 'all';
     let projectId = window._runUiTestsProjectId;
     if (!projectId) {
       const sel = document.getElementById('run-ui-tests-project-select');
@@ -200,16 +281,25 @@
       alert('Please select a project.');
       return;
     }
+    const filtered = filterTestsBySuite(testList, suiteFilter);
+    const runOnlyIds = listType === 'selected'
+      ? Array.from(document.querySelectorAll('.playwright-test-cb:checked')).map(cb => cb.getAttribute('data-test-id'))
+      : filtered.map(t => t.id);
+    if (runOnlyIds.length === 0) {
+      alert(listType === 'selected' ? 'Select at least one test.' : 'No tests in this suite.');
+      return;
+    }
     const showBrowser = document.getElementById('run-ui-tests-show-browser')?.checked === true;
-    const body = { name, suite: listType, projectId: Number(projectId), headless: !showBrowser };
+    const timeoutInput = document.getElementById('run-ui-tests-timeout');
+    const timeoutSeconds = timeoutInput && timeoutInput.value.trim() !== '' ? parseInt(timeoutInput.value.trim(), 10) : null;
+    const body = { name, projectId: Number(projectId), headless: !showBrowser };
     if (baseUrlInput) body.baseUrl = baseUrlInput;
-    if (listType === 'selected') {
-      const checked = document.querySelectorAll('.playwright-test-cb:checked');
-      body.selectedTestIds = Array.from(checked).map(cb => cb.getAttribute('data-test-id'));
-      if (body.selectedTestIds.length === 0) {
-        alert('Select at least one test.');
-        return;
-      }
+    if (typeof timeoutSeconds === 'number' && timeoutSeconds >= 10 && timeoutSeconds <= 300) body.timeoutSeconds = timeoutSeconds;
+    if (suiteFilter === 'all' && listType === 'full' && runOnlyIds.length === filtered.length) {
+      body.suite = 'full';
+    } else {
+      body.suite = 'selected';
+      body.selectedTestIds = runOnlyIds;
     }
     const loadingContent = `
       <div class="loading" style="text-align: center; padding: 20px;">
@@ -234,6 +324,9 @@
           alert('Error: No run id returned.');
           return;
         }
+        hideModal();
+        showView('test-runs');
+        if (typeof window.loadTestRuns === 'function') window.loadTestRuns();
         let pollCount = 0;
         const maxPoll = 120;
         const pollProgress = async () => {
@@ -301,7 +394,11 @@
   });
 
   let currentCodegenSlug = null;
+  let currentCodegenMode = null; // 'remote' or 'local'
   let autoRefreshInterval = null;
+  let remoteSessionTimerInterval = null;
+  let remoteSessionStartTime = null;
+  let remoteSessionTimeoutMs = 600000;
 
   function stopAutoRefresh() {
     if (autoRefreshInterval) {
@@ -325,7 +422,7 @@
     autoRefreshBtn.classList.add('btn-primary');
     autoRefreshInterval = setInterval(() => {
       loadCodegenOutput(currentCodegenSlug, false);
-    }, 2000); // Check every 2 seconds
+    }, 2000);
   }
 
   async function loadCodegenOutput(slug, showAlert = true) {
@@ -345,6 +442,126 @@
       }
     }
   }
+
+  // --- Remote Codegen (noVNC) helpers ---
+
+  function showRemoteCodegenPanel(slug, timeoutMs) {
+    const panel = document.getElementById('codegen-vnc-panel');
+    const iframe = document.getElementById('codegen-vnc-iframe');
+    if (!panel || !iframe) return;
+
+    // Use our custom VNC client page: it builds the exact WebSocket URL and uses noVNC core from /novnc.
+    const vncClientUrl = window.location.origin + '/codegen-vnc.html?slug=' + encodeURIComponent(slug);
+    iframe.src = vncClientUrl;
+
+    panel.style.display = 'block';
+    remoteSessionStartTime = Date.now();
+    remoteSessionTimeoutMs = timeoutMs || 600000;
+
+    // Start timer display
+    stopRemoteSessionTimer();
+    updateRemoteTimerDisplay();
+    remoteSessionTimerInterval = setInterval(updateRemoteTimerDisplay, 1000);
+  }
+
+  function hideRemoteCodegenPanel() {
+    const panel = document.getElementById('codegen-vnc-panel');
+    const iframe = document.getElementById('codegen-vnc-iframe');
+    if (panel) panel.style.display = 'none';
+    if (iframe) iframe.src = '';
+    stopRemoteSessionTimer();
+  }
+
+  function stopRemoteSessionTimer() {
+    if (remoteSessionTimerInterval) {
+      clearInterval(remoteSessionTimerInterval);
+      remoteSessionTimerInterval = null;
+    }
+  }
+
+  function updateRemoteTimerDisplay() {
+    const timerText = document.getElementById('codegen-vnc-timer-text');
+    const remainingText = document.getElementById('codegen-vnc-remaining');
+    if (!timerText || !remoteSessionStartTime) return;
+
+    const elapsed = Date.now() - remoteSessionStartTime;
+    const mins = Math.floor(elapsed / 60000);
+    const secs = Math.floor((elapsed % 60000) / 1000);
+    timerText.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+    if (remainingText && remoteSessionTimeoutMs) {
+      const remaining = Math.max(0, remoteSessionTimeoutMs - elapsed);
+      const remMins = Math.floor(remaining / 60000);
+      const remSecs = Math.floor((remaining % 60000) / 1000);
+      remainingText.textContent = `(${remMins}m ${remSecs}s remaining)`;
+      if (remaining < 60000) {
+        remainingText.classList.add('codegen-vnc-remaining-warn');
+      } else {
+        remainingText.classList.remove('codegen-vnc-remaining-warn');
+      }
+      if (remaining <= 0) {
+        // Auto-stop when timeout reached
+        document.getElementById('stop-codegen-btn')?.click();
+      }
+    }
+  }
+
+  async function stopRemoteCodegenSession() {
+    if (!currentCodegenSlug || currentCodegenMode !== 'remote') return;
+    const statusText = document.getElementById('codegen-vnc-status-text');
+    if (statusText) statusText.textContent = 'Stopping session...';
+    try {
+      const res = await apiRequest(`/playwright-recorded-tests/stop-codegen/${currentCodegenSlug}`, {
+        method: 'POST',
+      });
+      hideRemoteCodegenPanel();
+      // Populate the spec textarea with the generated code
+      const specInput = document.getElementById('recorded-test-spec');
+      if (specInput && res.specContent) {
+        specInput.value = res.specContent;
+        alert('Recording stopped. Generated code has been loaded into the spec field. Review and save your test.');
+      } else {
+        alert('Recording stopped. No generated code was captured — the Codegen window may have been closed before saving. You can paste code manually.');
+      }
+    } catch (err) {
+      hideRemoteCodegenPanel();
+      alert('Error stopping session: ' + err.message);
+    }
+    currentCodegenMode = null;
+  }
+
+  // Stop Recording button
+  document.getElementById('stop-codegen-btn')?.addEventListener('click', () => {
+    stopRemoteCodegenSession();
+  });
+
+  // Full screen viewer
+  (function() {
+    const frameWrap = document.getElementById('codegen-vnc-frame-wrap');
+    const fullscreenBtn = document.getElementById('codegen-vnc-fullscreen-btn');
+    const exitFullscreenBtn = document.getElementById('codegen-vnc-exit-fullscreen-btn');
+    if (!frameWrap || !fullscreenBtn) return;
+    function updateFullscreenState() {
+      const isFs = !!document.fullscreenElement;
+      frameWrap.classList.toggle('is-fullscreen', isFs);
+      fullscreenBtn.innerHTML = isFs
+        ? '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg> Exit full screen'
+        : '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg> Full screen';
+      fullscreenBtn.title = isFs ? 'Exit full screen' : 'Expand viewer to full screen';
+    }
+    fullscreenBtn.addEventListener('click', () => {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      } else {
+        frameWrap.requestFullscreen().catch(() => {});
+      }
+    });
+    exitFullscreenBtn?.addEventListener('click', () => {
+      document.exitFullscreen().catch(() => {});
+    });
+    document.addEventListener('fullscreenchange', updateFullscreenState);
+    updateFullscreenState();
+  })();
 
   function showAddRecordedTestView(editId) {
     const form = document.getElementById('recorded-test-form');
@@ -366,7 +583,9 @@
     // Reset codegen state when opening form (unless editing)
     if (!editId) {
       currentCodegenSlug = null;
+      currentCodegenMode = null;
       stopAutoRefresh();
+      hideRemoteCodegenPanel();
       if (loadBtn) loadBtn.style.display = 'none';
       if (autoRefreshBtn) autoRefreshBtn.style.display = 'none';
     }
@@ -408,13 +627,24 @@
   document.getElementById('add-recorded-test-btn-main')?.addEventListener('click', () => showAddRecordedTestView());
   document.getElementById('back-from-recorded-test')?.addEventListener('click', () => {
     stopAutoRefresh();
+    hideRemoteCodegenPanel();
+    if (currentCodegenMode === 'remote' && currentCodegenSlug) {
+      // Stop remote session in background
+      apiRequest(`/playwright-recorded-tests/stop-codegen/${currentCodegenSlug}`, { method: 'POST' }).catch(() => {});
+    }
     currentCodegenSlug = null;
+    currentCodegenMode = null;
     showView('ui-tests');
     loadPlaywrightRuns();
   });
   document.getElementById('recorded-test-cancel')?.addEventListener('click', () => {
     stopAutoRefresh();
+    hideRemoteCodegenPanel();
+    if (currentCodegenMode === 'remote' && currentCodegenSlug) {
+      apiRequest(`/playwright-recorded-tests/stop-codegen/${currentCodegenSlug}`, { method: 'POST' }).catch(() => {});
+    }
     currentCodegenSlug = null;
+    currentCodegenMode = null;
     showView('ui-tests');
     loadPlaywrightRuns();
   });
@@ -432,20 +662,31 @@
         method: 'POST',
         body: { baseUrl: url }
       });
-      // Store the slug for loading the output
       currentCodegenSlug = res.slug;
-      // Show the load button
-      const loadBtn = document.getElementById('load-codegen-output-btn');
-      const autoRefreshBtn = document.getElementById('auto-refresh-codegen-btn');
-      if (loadBtn) loadBtn.style.display = 'inline-block';
-      if (autoRefreshBtn) autoRefreshBtn.style.display = 'inline-block';
-      
+      currentCodegenMode = res.mode || 'local';
+
       // Also update base URL field if empty
       if (baseUrlInput && !baseUrlInput.value.trim()) {
         baseUrlInput.value = url;
       }
-      
-      alert(res.message || 'Codegen launched! Browser and Inspector should open. Record your interactions, then click "Load generated code" to load the test code.');
+
+      if (currentCodegenMode === 'remote') {
+        // --- Remote mode: show embedded noVNC panel (same-origin + WS proxy) ---
+        showRemoteCodegenPanel(res.slug, res.timeoutMs);
+        // Hide the local-mode buttons (they're not needed for remote)
+        const loadBtn = document.getElementById('load-codegen-output-btn');
+        const autoRefreshBtn = document.getElementById('auto-refresh-codegen-btn');
+        if (loadBtn) loadBtn.style.display = 'none';
+        if (autoRefreshBtn) autoRefreshBtn.style.display = 'none';
+      } else {
+        // --- Local mode: existing behavior ---
+        hideRemoteCodegenPanel();
+        const loadBtn = document.getElementById('load-codegen-output-btn');
+        const autoRefreshBtn = document.getElementById('auto-refresh-codegen-btn');
+        if (loadBtn) loadBtn.style.display = 'inline-block';
+        if (autoRefreshBtn) autoRefreshBtn.style.display = 'inline-block';
+        alert(res.message || 'Codegen launched! Browser and Inspector should open. Record your interactions, then click "Load generated code" to load the test code.');
+      }
     } catch (err) {
       alert('Error launching Codegen: ' + err.message);
     }
@@ -501,6 +742,8 @@
         alert('Recorded test saved. It will appear in the test list when you run UI tests.');
       }
       currentCodegenSlug = null;
+      currentCodegenMode = null;
+      hideRemoteCodegenPanel();
       showView('ui-tests');
       loadPlaywrightRuns();
     } catch (err) {

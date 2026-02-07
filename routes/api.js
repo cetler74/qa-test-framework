@@ -20,6 +20,7 @@ const { generateFuzzReport, getStableReportPath } = require('../services/fuzzRep
 const { generatePlaywrightReport } = require('../services/playwrightReportGenerator');
 const playwrightConfig = require('../config/playwright');
 const { validateSpecContent } = require('../services/recordedTestValidation');
+const codegenSessionManager = require('../services/codegenSessionManager');
 
 function normalizeRecordedSpecTitle(specContent, recordedName) {
   if (typeof specContent !== 'string') return specContent;
@@ -1216,7 +1217,8 @@ router.post('/fuzz-runs/execute', async (req, res) => {
       skipPaths: skipPaths || null
     }).catch((err) => {
       console.error(`[api] Fuzz run ${fuzzRun.id} failed:`, err);
-      FuzzRun.update({ status: 'failed' }, { where: { id: fuzzRun.id } }).catch(() => {});
+      const msg = (err && err.message) ? String(err.message).slice(0, 2000) : 'Fuzz run failed';
+      FuzzRun.update({ status: 'failed', progress_message: msg }, { where: { id: fuzzRun.id } }).catch(() => {});
     });
     res.status(201).json({
       fuzzRun: { id: fuzzRun.id },
@@ -1247,12 +1249,19 @@ router.get('/fuzz-runs', async (req, res) => {
   }
 });
 
-// Get single fuzz run with results
+// Get single fuzz run with results (excludes request_body/response_body by default for fast loading)
+// Optional: ?includeBodies=1 to include request/response bodies in each result
 router.get('/fuzz-runs/:id', async (req, res) => {
   try {
+    const includeBodies = req.query.includeBodies === '1' || req.query.includeBodies === 'true';
     const run = await FuzzRun.findByPk(req.params.id, {
       include: [
-        { model: FuzzResult, as: 'fuzzResults', order: [['execution_order', 'ASC']] },
+        {
+          model: FuzzResult,
+          as: 'fuzzResults',
+          order: [['execution_order', 'ASC']],
+          attributes: includeBodies ? undefined : { exclude: ['request_body', 'response_body'] }
+        },
         { model: ApiSpec, as: 'apiSpec', attributes: ['id', 'name'] },
         { model: Project, as: 'project', attributes: ['id', 'name'] }
       ]
@@ -1261,6 +1270,25 @@ router.get('/fuzz-runs/:id', async (req, res) => {
       return res.status(404).json({ error: 'Fuzz run not found' });
     }
     res.json(run);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get single fuzz result with request/response bodies (for copy-to-issue when viewing run detail)
+router.get('/fuzz-runs/:runId/results/:resultId', async (req, res) => {
+  try {
+    const result = await FuzzResult.findOne({
+      where: {
+        id: req.params.resultId,
+        fuzz_run_id: req.params.runId
+      },
+      attributes: ['id', 'test_name', 'fuzzer_name', 'endpoint', 'method', 'status', 'response_code', 'error_message', 'request_body', 'response_body']
+    });
+    if (!result) {
+      return res.status(404).json({ error: 'Fuzz result not found' });
+    }
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1377,9 +1405,11 @@ router.get('/test-runs/:id/report/download', async (req, res) => {
 
 // Get Playwright config (for UI default base URL and "Show browser" default)
 router.get('/playwright-config', (req, res) => {
+  const hasDisplay = process.platform === 'win32' || !!process.env.DISPLAY;
   res.json({
     baseUrl: playwrightConfig.baseUrl,
-    headless: playwrightConfig.headless
+    headless: playwrightConfig.headless,
+    hasDisplay
   });
 });
 
@@ -1397,7 +1427,7 @@ router.get('/playwright-tests/list', async (req, res) => {
 // Execute Playwright UI tests (projectId required so run is project-scoped)
 router.post('/playwright-runs/execute', async (req, res) => {
   try {
-    const { projectId, name, baseUrl, suite, selectedTestIds, headless: bodyHeadless } = req.body;
+    const { projectId, name, baseUrl, suite, selectedTestIds, headless: bodyHeadless, timeoutMs: bodyTimeoutMs, timeoutSeconds: bodyTimeoutSeconds } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'name is required' });
     }
@@ -1422,12 +1452,17 @@ router.post('/playwright-runs/execute', async (req, res) => {
       failed_tests: 0,
       duration_ms: 0
     });
-    const headless = typeof bodyHeadless === 'boolean' ? bodyHeadless : playwrightConfig.headless;
+    let headless = typeof bodyHeadless === 'boolean' ? bodyHeadless : playwrightConfig.headless;
+    const hasDisplay = process.platform === 'win32' || !!process.env.DISPLAY;
+    if (!hasDisplay && !headless) headless = true;
+    let timeoutMs = playwrightConfig.timeoutMs;
+    if (typeof bodyTimeoutMs === 'number' && bodyTimeoutMs > 0) timeoutMs = bodyTimeoutMs;
+    else if (typeof bodyTimeoutSeconds === 'number' && bodyTimeoutSeconds > 0) timeoutMs = bodyTimeoutSeconds * 1000;
     runPlaywrightTests({
       playwrightRunId: run.id,
       baseUrl: url,
       headless,
-      timeoutMs: playwrightConfig.timeoutMs,
+      timeoutMs,
       runOnly
     })
       .then(() => console.log(`[api] Playwright run ${run.id} completed`))
@@ -1555,23 +1590,40 @@ router.post('/playwright-recorded-tests', async (req, res) => {
   }
 });
 
-// Optional: launch Playwright codegen (requires display)
+// Launch Playwright Codegen
+// On headless Linux with Xvfb/noVNC: starts a remote session viewable in the browser.
+// On Windows/desktop (with DISPLAY): spawns codegen locally as before.
 router.post('/playwright-recorded-tests/launch-codegen', async (req, res) => {
   try {
     const { baseUrl } = req.body;
     const url = (baseUrl && typeof baseUrl === 'string' ? baseUrl.trim() : playwrightConfig.baseUrl) || 'https://example.com';
-    const { spawn } = require('child_process');
     const slug = `recorded-${Date.now()}`;
+
+    // --- Remote Codegen path (headless Linux with Xvfb + noVNC) ---
+    if (codegenSessionManager.isRemoteCodegenAvailable()) {
+      const session = await codegenSessionManager.createSession(slug, url);
+      return res.status(202).json({
+        mode: 'remote',
+        message: 'Remote Codegen session started. Use the embedded browser panel to record your interactions, then click "Stop Recording" to save.',
+        slug: session.slug,
+        vncPort: session.vncPort,
+        noVncUrl: session.noVncUrl,
+        timeoutMs: codegenSessionManager.SESSION_TIMEOUT_MS,
+      });
+    }
+
+    // --- Local Codegen path (Windows / desktop with DISPLAY) ---
+    const hasDisplay = process.platform === 'win32' || process.env.DISPLAY;
+    if (!hasDisplay) {
+      return res.status(503).json({
+        error: 'Cannot launch Codegen: no display available and remote Codegen (Xvfb/noVNC) is not installed. Use paste-and-save: run "npx playwright codegen <url>" locally, then paste the generated code here.'
+      });
+    }
+    const { spawn } = require('child_process');
     const outputPath = path.join(__dirname, '..', 'e2e', 'recorded', `${slug}.spec.js`);
     const e2eRecorded = path.join(__dirname, '..', 'e2e', 'recorded');
     if (!fs.existsSync(e2eRecorded)) {
       fs.mkdirSync(e2eRecorded, { recursive: true });
-    }
-    const hasDisplay = process.platform === 'win32' || process.env.DISPLAY;
-    if (!hasDisplay) {
-      return res.status(503).json({
-        error: 'Cannot launch Codegen: no display available. Use paste-and-save: run "npx playwright codegen <url>" locally, then paste the generated code here.'
-      });
     }
     const isWin = process.platform === 'win32';
     const command = isWin ? 'npx.cmd' : 'npx';
@@ -1583,13 +1635,48 @@ router.post('/playwright-recorded-tests/launch-codegen', async (req, res) => {
       cwd: path.join(__dirname, '..')
     });
     child.unref();
-    // Return relative path for security (client can request it via API)
     const relativePath = path.relative(path.join(__dirname, '..'), outputPath);
     res.status(202).json({
+      mode: 'local',
       message: 'Browser and Inspector opened. Record your interactions, then click "Load generated code" to load the test code.',
       outputPath: relativePath,
       slug: slug
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Stop a remote Codegen session and return the generated spec
+router.post('/playwright-recorded-tests/stop-codegen/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    if (!slug || typeof slug !== 'string' || slug.includes('..') || slug.includes('/')) {
+      return res.status(400).json({ error: 'Invalid slug' });
+    }
+    const result = await codegenSessionManager.stopSession(slug);
+    res.json({
+      slug: result.slug,
+      status: result.status,
+      specContent: result.specContent || null,
+    });
+  } catch (error) {
+    res.status(404).json({ error: error.message });
+  }
+});
+
+// Get remote Codegen session status
+router.get('/playwright-recorded-tests/codegen-session/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    if (!slug || typeof slug !== 'string') {
+      return res.status(400).json({ error: 'Invalid slug' });
+    }
+    const session = codegenSessionManager.getSession(slug);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    res.json(session);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Remote Codegen – VNC</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #1a1a2e; color: #e2e8f0; font-family: system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+    #status-bar { padding: 8px 12px; background: #2d2d44; font-size: 13px; }
+    #status { font-weight: 600; }
+    #status.error { color: #f87171; }
+    #status.connected { color: #4ade80; }
+    .status-info { margin-top: 6px; font-size: 12px; color: #94a3b8; }
+    #screen-wrap { flex: 1; min-height: 0; position: relative; }
+    #screen-wrap canvas { display: block; margin: auto; }
+  </style>
+</head>
+<body>
+  <div id="status-bar">
+    <div id="status">Connecting…</div>
+    <div id="status-info" class="status-info"></div>
+  </div>
+  <div id="screen-wrap"></div>
+  <!-- If you see "runtime.lastError: Receiving end does not exist" in the console, it comes from a browser extension (e.g. React DevTools, ad-blockers), not from this page. It can be ignored. -->
+  <script type="module">
+    (async function() {
+      const params = new URLSearchParams(window.location.search);
+      const slug = params.get('slug');
+      const statusEl = document.getElementById('status');
+      const infoEl = document.getElementById('status-info');
+      const wrap = document.getElementById('screen-wrap');
+      function setInfo(text) {
+        if (infoEl) infoEl.textContent = text || '';
+      }
+      if (!slug) {
+        statusEl.textContent = 'Missing slug in URL.';
+        statusEl.className = 'error';
+        setInfo('Open this page from the app after starting a remote Codegen session.');
+        return;
+      }
+      setInfo('Connecting to the server…');
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/api/playwright-recorded-tests/codegen-ws/${encodeURIComponent(slug)}`;
+      try {
+        const RFB = (await import('/novnc/core/rfb.js')).default;
+        const rfb = new RFB(wrap, wsUrl, { shared: true });
+        rfb.scaleViewport = true;
+        rfb.addEventListener('connect', () => {
+          statusEl.textContent = 'Connected.';
+          statusEl.className = 'connected';
+          setInfo('If the screen is black, the remote browser is still starting (usually 20–30 seconds). Wait a moment.');
+        });
+        rfb.addEventListener('disconnect', (e) => {
+          const reason = e.detail?.reason || e.detail?.message || 'connection closed';
+          if (!e.detail.clean || reason) {
+            statusEl.textContent = 'Disconnected: ' + reason;
+            statusEl.className = 'error';
+            setInfo('Check that the session is still active and the server has Xvfb + x11vnc + websockify running.');
+          }
+        });
+        rfb.addEventListener('credentialsrequired', () => {
+          statusEl.textContent = 'No password required for this session.';
+        });
+        rfb.addEventListener('securityfailure', (e) => {
+          statusEl.textContent = 'Security failure: ' + (e.detail && e.detail.status ? e.detail.status : 'unknown');
+          statusEl.className = 'error';
+        });
+        rfb.addEventListener('clipboard', (e) => {
+          if (e.detail.text) statusEl.textContent = 'Clipboard: ' + e.detail.text.substring(0, 40) + '…';
+        });
+      } catch (err) {
+        statusEl.textContent = 'Failed to load VNC client: ' + err.message;
+        statusEl.className = 'error';
+        console.error(err);
+      }
+    })();
+  </script>
+</body>
+</html>
