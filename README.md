@@ -13,17 +13,28 @@ A comprehensive API testing tool with Postman integration that allows you to man
 - **REST API Fuzzing (CATS)**: Run OpenAPI-based fuzz tests via CATS (Contract API Testing Service); view fuzz runs and HTML reports alongside API, UI, and SOAP runs
 - **Postman to OpenAPI**: Convert Postman collection JSON to OpenAPI 3.0 (Swagger) YAML for use with CATS, documentation, or other OpenAPI tools
 
-## Prerequisites
+## Prerequisites and dependencies
 
-- Node.js (v14 or higher)
-- PostgreSQL (v12 or higher)
-- npm or yarn
-- **Java** (required for CATS CLI when using fuzz runs; see [SETUP.md](SETUP.md))
+The following software is required or optional depending on which features you use. For a full checklist and install instructions, see [SETUP.md](SETUP.md).
+
+| Dependency | Version | Required for |
+|------------|---------|--------------|
+| **Node.js** | v18 or higher (LTS recommended) | Core app, API, UI, and all test runners |
+| **npm** | v8+ (bundled with Node) | Install dependencies and run scripts |
+| **PostgreSQL** | v12 or higher | Database (projects, specs, test runs, Playwright runs, fuzz runs, flows, schedules) |
+| **Playwright** | Installed via `npm install` | UI tests and recorded tests (built-in and Codegen) |
+| **Playwright browsers** | Chromium (required); Firefox & WebKit optional | Run UI tests; install with `npx playwright install chromium` (or `chromium firefox webkit` for all) |
+| **Newman** | Installed via `npm install` | Postman collection test execution (API tests) |
+| **Java** | 17+ | REST API fuzzing (CATS) when using the JAR; not needed if using CATS native binary or Docker |
+| **CATS** | JAR or native binary | Optional; required only for **Run Fuzz** (OpenAPI fuzzing). See [SETUP.md – CATS](SETUP.md#5-optional-rest-api-fuzzing-cats) |
+
+**When using Docker:** The Docker image includes Node.js, Playwright Chromium, Xvfb, x11vnc, noVNC/websockify (remote Codegen), Java, and the CATS binary. Database migrations run automatically on app startup. You only need Docker Engine and Docker Compose; see [SETUP.md – Docker](SETUP.md#docker-deployment-recommended-for-saas--production).
 
 ## Installation
 
-1. Clone the repository and navigate to the project directory
-2. Install dependencies and run migrations (complete build):
+1. **Ensure prerequisites are installed** (Node.js 18+, PostgreSQL 12+, and optionally Java 17+ and Playwright browsers for full functionality). See [Prerequisites and dependencies](#prerequisites-and-dependencies) and [SETUP.md](SETUP.md).
+2. Clone the repository and navigate to the project directory.
+3. Install dependencies and run migrations (complete build):
 
 ```bash
 npm run build
@@ -31,13 +42,13 @@ npm run build
 
 Or separately: `npm install` then `npm run migrate`.
 
-1. Create a `.env` file based on `.env.example`:
+4. Create a `.env` file based on `.env.example`:
 
 ```bash
 cp .env.example .env
 ```
 
-1. Update the `.env` file with your database credentials (use your actual PostgreSQL database name; e.g. `linkuup_db` or `qa_framework`):
+5. Update the `.env` file with your database credentials (use your actual PostgreSQL database name; e.g. `linkuup_db` or `qa_framework`):
 
 ```env
 DB_HOST=localhost
@@ -82,6 +93,9 @@ This migration script will:
   - `007_schedules.sql` - Schedules
   - `008_soap_support.sql` - SOAP operations and run_type on test_runs
   - `009_fuzz_runs.sql` - fuzz_runs and fuzz_results for REST API fuzzing (CATS)
+  - `010_fuzz_run_progress.sql` - Fuzz run progress tracking
+  - `011_fuzz_run_server_url.sql` - Server URL on fuzz runs
+  - `012_playwright_result_screenshot.sql` - Screenshot path on playwright_results
 
 ### Migration Files
 
@@ -97,6 +111,9 @@ The `migrations/` directory contains SQL migration files that are executed in al
 - **007_schedules.sql** - Schedules
 - **008_soap_support.sql** - SOAP operations and run_type
 - **009_fuzz_runs.sql** - `fuzz_runs` and `fuzz_results` for REST API fuzzing (CATS)
+- **010_fuzz_run_progress.sql** - Fuzz run progress
+- **011_fuzz_run_server_url.sql** - Server URL on fuzz runs
+- **012_playwright_result_screenshot.sql** - Screenshot path on playwright_results
 
 ### Manual Database Setup (Alternative)
 
@@ -163,6 +180,17 @@ The application uses the following main tables:
   ```sql
   CREATE DATABASE qa_framework;
   ```
+
+## Dependency checklist (local run)
+
+Before running the app locally, ensure:
+
+- [ ] **Node.js** 18+ and **npm** installed (`node -v`, `npm -v`)
+- [ ] **PostgreSQL** 12+ installed and running; database created or migration will create it
+- [ ] **`.env`** created from `.env.example` with correct `DB_*` values
+- [ ] **`npm install`** and **`npm run migrate`** completed
+- [ ] (Optional) **Playwright browsers** for UI tests: `npx playwright install chromium`
+- [ ] (Optional) **Java 17+** and **CATS** (JAR or binary) if you use **Run Fuzz** — see [SETUP.md](SETUP.md#5-optional-rest-api-fuzzing-cats)
 
 ## Running the Application
 
@@ -261,10 +289,10 @@ UI tests run in a separate **UI Tests** section (nav: "UI Tests"). They target a
 
 **Setup:**
 
-1. Install dependencies (Playwright is included):
-  `npm install`
-2. Install Playwright browser (required once per machine or CI):
-  `npx playwright install chromium`
+1. Install dependencies (Playwright and Newman are included): `npm install`
+2. Install Playwright browser(s) (required once per machine or CI):
+   - Minimum: `npx playwright install chromium`
+   - All browsers (Chromium, Firefox, WebKit): `npx playwright install chromium firefox webkit`
 3. Optional: in `.env` set:
   - `PLAYWRIGHT_BASE_URL` – default URL to test (e.g. `https://5gapisprint.meoempresas.pt/apis`)
   - `PLAYWRIGHT_TIMEOUT_MS` – timeout in ms (default: 30000)
@@ -385,8 +413,8 @@ flowchart TD
 cp .env.example .env
 # Edit .env — set DB_PASSWORD at minimum
 docker compose up --build -d
-# First time: run database migrations
-docker compose exec app npm run migrate
+# Migrations run automatically when the app starts. If you see DB schema errors (e.g. missing column), run:
+#   docker compose exec app npm run migrate
 # Open http://<server-ip>:3000
 ```
 

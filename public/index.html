@@ -463,6 +463,37 @@ test('test', async ({ page }) => {
                             <label for="run-ui-tests-base-url">Base URL</label>
                             <input type="url" id="run-ui-tests-base-url" placeholder="https://5gapisprint.meoempresas.pt/apis" />
                         </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-browser">Browser</label>
+                            <select id="run-ui-tests-browser">
+                                <option value="chromium">Chromium</option>
+                                <option value="firefox">Firefox</option>
+                                <option value="webkit">WebKit</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-video">Record video of the test run</label>
+                            <select id="run-ui-tests-video">
+                                <option value="off">Off</option>
+                                <option value="on">Always</option>
+                                <option value="retain-on-failure">On failure only</option>
+                            </select>
+                            <span class="form-hint">WebM video of the run. Turn on (Always or On failure only) to get a video for each test.</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-trace">Record trace of the test run</label>
+                            <select id="run-ui-tests-trace">
+                                <option value="off">Off</option>
+                                <option value="on">Always</option>
+                                <option value="retain-on-failure">On failure only</option>
+                            </select>
+                            <span class="form-hint">Trace for time-travel debugging. View: open trace.playwright.dev and drag the .zip there, or use View Trace on the run result.</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-slow-mo">Slow motion (ms)</label>
+                            <input type="number" id="run-ui-tests-slow-mo" min="0" max="2000" step="50" placeholder="0 = off" value="0" />
+                            <span class="form-hint">Optional. Delay between actions in ms (e.g. 250 for debugging).</span>
+                        </div>
                         <div class="form-group run-ui-tests-show-browser-wrap">
                             <div class="run-ui-tests-show-browser-options">
                                 <label class="checkbox-label">
@@ -499,9 +530,40 @@ test('test', async ({ page }) => {
                 </div>
                 <div class="test-run-detail-content">
                     <div class="test-run-info" id="ui-test-info"></div>
+                    <div id="ui-test-timeout-hint" class="form-hint" style="display: none; margin-bottom: 8px;"></div>
                     <div class="test-run-actions">
-                        <button class="btn btn-primary" id="view-ui-report-btn">View Report</button>
-                        <button class="btn btn-secondary" id="download-ui-report-btn">Download Report</button>
+                        <button class="btn btn-primary" id="view-ui-report-btn" title="View Report">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            View Report
+                        </button>
+                        <button class="btn btn-secondary" id="download-ui-report-btn" title="Download Report">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Download Report
+                        </button>
+                        <button class="btn btn-secondary" id="view-ui-video-btn" title="View Video" style="display: none;">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            View Video
+                        </button>
+                        <button class="btn btn-secondary" id="view-ui-trace-btn" title="View Trace in browser" style="display: none;">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            View Trace
+                        </button>
+                        <button class="btn btn-secondary" id="download-ui-trace-btn" title="Download Trace" style="display: none;">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Download Trace
+                        </button>
                     </div>
                     <div id="playwright-results-list"></div>
                 </div>

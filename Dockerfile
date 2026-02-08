@@ -1,23 +1,18 @@
 # ============================================================
 # QA Test Hub – Production Dockerfile
-# Includes: Node 20, Playwright Chromium, Xvfb, x11vnc,
+# Includes: Node 20, Playwright (Chromium, Firefox, WebKit), Xvfb, x11vnc,
 #           noVNC/websockify (remote Codegen), Java (CATS)
 # ============================================================
 
 FROM node:20-bookworm
 
 # ---- System dependencies ----
-# Playwright Chromium deps, virtual display, VNC, noVNC, Java for CATS
+# Virtual display, VNC, noVNC, Java for CATS; Playwright browser deps installed via install-deps below
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Virtual display & VNC
     xvfb x11vnc \
     # noVNC (browser-based VNC client) and websockify (WebSocket-to-TCP bridge)
     novnc websockify \
-    # Playwright Chromium system dependencies
-    libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
-    libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 \
-    libpango-1.0-0 libcairo2 libasound2 libxshmfence1 \
-    fonts-liberation fonts-noto-color-emoji \
     # Java for CATS fuzz runner (JAR fallback; native CATS binary used when available)
     default-jre-headless \
     # Download CATS and curl for fetching releases
@@ -49,8 +44,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# Install Playwright Chromium browser
-RUN npx playwright install chromium
+# Install Playwright system deps for Chromium, Firefox, and WebKit, then install all browsers
+RUN npx playwright install-deps
+RUN npx playwright install
 
 # Copy application source
 COPY . .
@@ -67,4 +63,6 @@ ENV NOVNC_PATH=/usr/share/novnc
 EXPOSE 3000
 # Ports 6080-6089 are used dynamically by websockify for codegen sessions
 
-CMD ["node", "server.js"]
+# Ensure LF line endings so exec works in Linux (avoids "not found" when script has Windows CRLF)
+RUN sed -i 's/\r$//' /app/scripts/docker-entry.sh && chmod +x /app/scripts/docker-entry.sh
+CMD ["/app/scripts/docker-entry.sh"]

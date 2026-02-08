@@ -51,6 +51,18 @@ const PlaywrightRun = sequelize.define('PlaywrightRun', {
     type: DataTypes.INTEGER,
     allowNull: true
   },
+  video_path: {
+    type: DataTypes.STRING(512),
+    allowNull: true
+  },
+  trace_path: {
+    type: DataTypes.STRING(512),
+    allowNull: true
+  },
+  browser_name: {
+    type: DataTypes.STRING(50),
+    allowNull: true
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

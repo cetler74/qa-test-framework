@@ -1,15 +1,19 @@
-const { chromium } = require('playwright');
-
+const { chromium, firefox, webkit } = require('playwright');
 
 const path = require('path');
 const fs = require('fs');
-const { spawnSync } = require('child_process');
+const { spawn } = require('child_process');
+const { Op } = require('sequelize');
 const { PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest } = require('../models');
 const playwrightConfig = require('../config/playwright');
 const uiTestsConfig = require('../e2e/ui-tests.config');
 
 const REPORTS_DIR = path.join(__dirname, '..', 'reports');
 const SCREENSHOTS_DIR = path.join(REPORTS_DIR, 'playwright-screenshots');
+const VIDEOS_DIR = path.join(REPORTS_DIR, 'playwright-videos');
+const TRACES_DIR = path.join(REPORTS_DIR, 'playwright-traces');
+
+const BROWSERS = { chromium, firefox, webkit };
 
 /**
  * Take a full-page screenshot on failure. Returns filename (e.g. "runId_order.png") or null.
@@ -196,6 +200,11 @@ async function runPlaywrightTests(options = {}) {
   const headless = options.headless !== undefined ? options.headless : playwrightConfig.headless;
   const timeoutMs = options.timeoutMs || playwrightConfig.timeoutMs;
   const runOnly = options.runOnly && Array.isArray(options.runOnly) ? options.runOnly : null;
+  const videoOpt = options.video || 'off';
+  const traceOpt = options.trace || 'off';
+  const browserName = options.browserName && BROWSERS[options.browserName] ? options.browserName : 'chromium';
+  const slowMo = typeof options.slowMo === 'number' && options.slowMo >= 0 ? options.slowMo : 0;
+
   const recordedIds = runOnly ? runOnly.filter(id => String(id).startsWith('recorded-')).map(id => String(id).replace('recorded-', '')) : [];
   const builtInRunOnly = runOnly ? runOnly.filter(id => !String(id).startsWith('recorded-')) : null;
   const shouldRun = (id) => !builtInRunOnly || builtInRunOnly.includes(id);
@@ -223,6 +232,7 @@ async function runPlaywrightTests(options = {}) {
   };
   let browser;
   let page;
+  let builtInContext = null;
 
   if (hasBuiltInToRun) {
     try {
@@ -230,7 +240,9 @@ async function runPlaywrightTests(options = {}) {
         headless,
         args: playwrightConfig.launchArgs || []
       };
-      browser = await chromium.launch(launchOptions);
+      if (slowMo > 0) launchOptions.slowMo = slowMo;
+      const launch = BROWSERS[browserName] || chromium;
+      browser = await launch.launch(launchOptions);
     } catch (err) {
       await record(++order, 'Browser launch', 'failed', 0, baseUrl, err.message, null);
       await updateRunSummary(runId, 1, 0, 1, Date.now() - startTime, 'failed');
@@ -243,8 +255,17 @@ async function runPlaywrightTests(options = {}) {
     if (playwrightConfig.userAgent) {
       contextOptions.userAgent = playwrightConfig.userAgent;
     }
+    if (videoOpt !== 'off') {
+      const videoDir = path.join(VIDEOS_DIR, 'temp', String(runId));
+      if (!fs.existsSync(videoDir)) fs.mkdirSync(videoDir, { recursive: true });
+      contextOptions.recordVideo = { dir: videoDir };
+    }
     const context = await browser.newContext(contextOptions);
+    builtInContext = context;
     context.setDefaultTimeout(timeoutMs);
+    if (traceOpt !== 'off') {
+      await context.tracing.start();
+    }
     page = await context.newPage();
   }
 
@@ -520,18 +541,130 @@ async function runPlaywrightTests(options = {}) {
 
   }
 
+  // Save built-in run artifacts (video, trace) and close context before closing browser
+  if (hasBuiltInToRun && browser && builtInContext) {
+    const artifactUpdates = { browser_name: browserName };
+    if (traceOpt !== 'off') {
+      const keepTrace = traceOpt === 'on' || (traceOpt === 'retain-on-failure' && failed > 0);
+      if (keepTrace) {
+        if (!fs.existsSync(TRACES_DIR)) fs.mkdirSync(TRACES_DIR, { recursive: true });
+        const tracePath = path.join(TRACES_DIR, `${runId}.zip`);
+        await builtInContext.tracing.stop({ path: tracePath });
+        artifactUpdates.trace_path = `${runId}.zip`;
+      } else {
+        await builtInContext.tracing.stop();
+      }
+    }
+    await builtInContext.close();
+    if (videoOpt !== 'off') {
+      const keepVideo = videoOpt === 'on' || (videoOpt === 'retain-on-failure' && failed > 0);
+      if (keepVideo) {
+        const tempVideoDir = path.join(VIDEOS_DIR, 'temp', String(runId));
+        const src = findFirstFileByExt(tempVideoDir, '.webm');
+        if (src) {
+          if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
+          const dest = path.join(VIDEOS_DIR, `${runId}.webm`);
+          fs.copyFileSync(src, dest);
+          artifactUpdates.video_path = `${runId}.webm`;
+        }
+      }
+    }
+    await updateRunArtifacts(runId, artifactUpdates);
+  }
+
   if (browser) await browser.close();
 
+  // Track each recorded spec's output dir and whether it had a failure (so we prefer failed test's artifacts for run-level video/trace)
+  const recordedRunDirs = [];
   for (const recId of recordedIds) {
     try {
       const startOrder = order + 1;
-      const recResults = await runRecordedSpec(runId, recId, baseUrl, startOrder, { timeoutMs, headless });
+      const runOpts = { timeoutMs, headless, video: videoOpt, trace: traceOpt, browserName, slowMo };
+      const { results: recResults, testResultsDir: recTestResultsDir } = await runRecordedSpec(runId, recId, baseUrl, startOrder, runOpts);
+      const hasFailure = recResults.some(r => r.status === 'failed');
+      recordedRunDirs.push({ testResultsDir: recTestResultsDir, hasFailure });
       for (const r of recResults) {
         await record(++order, r.testName, r.status, r.durationMs, null, r.errorMessage || null, r.assertions || null, r.screenshotPath || null);
+      }
+      // Save this spec's video/trace under stable names and link to the result row(s) we just created.
+      // Only set result paths when we actually find and copy the file (on timeout Playwright may not flush artifacts).
+      // Ensure we only use files inside this run's dir so we never attach another spec's artifact.
+      if ((videoOpt !== 'off' || traceOpt !== 'off') && recTestResultsDir && fs.existsSync(recTestResultsDir)) {
+        const videoFilename = `${runId}_${recId}.webm`;
+        const traceFilename = `${runId}_${recId}.zip`;
+        const keepVideo = videoOpt === 'on' || (videoOpt === 'retain-on-failure' && hasFailure);
+        const keepTrace = traceOpt === 'on' || (traceOpt === 'retain-on-failure' && hasFailure);
+        const dirRoot = path.resolve(recTestResultsDir);
+        const isInsideDir = (filePath) => path.resolve(filePath).startsWith(dirRoot + path.sep) || path.resolve(filePath) === dirRoot;
+        let resultVideoPath = null;
+        let resultTracePath = null;
+        if (keepVideo) {
+          const src = findFirstFileByExt(recTestResultsDir, '.webm');
+          if (src && isInsideDir(src)) {
+            if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
+            const dest = path.join(VIDEOS_DIR, videoFilename);
+            try {
+              fs.copyFileSync(src, dest);
+              resultVideoPath = videoFilename;
+            } catch (_) { /* ignore */ }
+          }
+        }
+        if (keepTrace) {
+          const src = findFirstFileByExt(recTestResultsDir, '.zip');
+          if (src && isInsideDir(src)) {
+            if (!fs.existsSync(TRACES_DIR)) fs.mkdirSync(TRACES_DIR, { recursive: true });
+            const dest = path.join(TRACES_DIR, traceFilename);
+            try {
+              fs.copyFileSync(src, dest);
+              resultTracePath = traceFilename;
+            } catch (_) { /* ignore */ }
+          }
+        }
+        if (resultVideoPath || resultTracePath) {
+          const updatePayload = {};
+          if (resultVideoPath) updatePayload.video_path = resultVideoPath;
+          if (resultTracePath) updatePayload.trace_path = resultTracePath;
+          await PlaywrightResult.update(updatePayload, {
+            where: {
+              playwright_run_id: runId,
+              execution_order: { [Op.between]: [startOrder, startOrder + recResults.length - 1] }
+            }
+          });
+        }
       }
     } catch (err) {
       await record(++order, `Recorded test ${recId}`, 'failed', 0, null, err.message || String(err), null, null);
     }
+  }
+
+  // Recorded-only run: set run-level video/trace only when there is exactly one recorded test. When there are multiple, each result has its own video/trace — do not set run-level so users use the per-result links (one file cannot contain all tests).
+  const artifactSourceDir = (() => {
+    if (!recordedRunDirs.length) return null;
+    if (recordedRunDirs.length > 1) return null;
+    const firstFailed = recordedRunDirs.find(d => d.hasFailure);
+    return (firstFailed && firstFailed.testResultsDir) ? firstFailed.testResultsDir : recordedRunDirs[recordedRunDirs.length - 1].testResultsDir;
+  })();
+  if (!hasBuiltInToRun && artifactSourceDir && (videoOpt !== 'off' || traceOpt !== 'off')) {
+    const keepVideo = videoOpt === 'on' || (videoOpt === 'retain-on-failure' && failed > 0);
+    const keepTrace = traceOpt === 'on' || (traceOpt === 'retain-on-failure' && failed > 0);
+    const artifactUpdates = { browser_name: browserName };
+    if (keepVideo) {
+      const src = findFirstFileByExt(artifactSourceDir, '.webm');
+      if (src) {
+        if (!fs.existsSync(VIDEOS_DIR)) fs.mkdirSync(VIDEOS_DIR, { recursive: true });
+        const dest = path.join(VIDEOS_DIR, `${runId}.webm`);
+        try { fs.copyFileSync(src, dest); artifactUpdates.video_path = `${runId}.webm`; } catch (_) { /* ignore */ }
+      }
+    }
+    if (keepTrace) {
+      const src = findFirstFileByExt(artifactSourceDir, '.zip');
+      if (src) {
+        if (!fs.existsSync(TRACES_DIR)) fs.mkdirSync(TRACES_DIR, { recursive: true });
+        const dest = path.join(TRACES_DIR, `${runId}.zip`);
+        try { fs.copyFileSync(src, dest); artifactUpdates.trace_path = `${runId}.zip`; } catch (_) { /* ignore */ }
+      }
+    }
+    await updateRunArtifacts(runId, artifactUpdates);
   }
 
   const durationMs = Date.now() - startTime;
@@ -567,8 +700,8 @@ function collectScreenshotPaths(dir) {
  * @param {string} recordedId - PlaywrightRecordedTest id (numeric string)
  * @param {string} baseUrl - Base URL for the run
  * @param {number} startOrder - execution_order for the first result (so we can name screenshots runId_startOrder.png, etc.)
- * @param {{ timeoutMs?: number, headless?: boolean }} [runOptions] - Optional timeout and headless from the run (so "show browser" and per-run timeout work)
- * @returns {Promise<Array<{ testName, status, durationMs, errorMessage, assertions, screenshotPath? }>>}
+ * @param {{ timeoutMs?: number, headless?: boolean, video?: string, trace?: string, browserName?: string, slowMo?: number }} [runOptions] - Optional timeout, headless, video/trace/browser/slowMo
+ * @returns {Promise<{ results: Array<{ testName, status, durationMs, errorMessage, assertions, screenshotPath? }>, testResultsDir: string }>}
  */
 async function runRecordedSpec(runId, recordedId, baseUrl, startOrder, runOptions = {}) {
   const test = await PlaywrightRecordedTest.findByPk(recordedId);
@@ -576,6 +709,11 @@ async function runRecordedSpec(runId, recordedId, baseUrl, startOrder, runOption
   const baseUrlToUse = baseUrl || test.base_url || playwrightConfig.baseUrl || 'https://example.com';
   const headless = runOptions.headless !== undefined ? runOptions.headless : (playwrightConfig.headless !== undefined ? playwrightConfig.headless : true);
   const timeoutMs = runOptions.timeoutMs || playwrightConfig.timeoutMs || 60000;
+  const videoOpt = runOptions.video || 'off';
+  const traceOpt = runOptions.trace || 'off';
+  const browserName = runOptions.browserName && ['chromium', 'firefox', 'webkit'].includes(runOptions.browserName) ? runOptions.browserName : 'chromium';
+  const slowMo = typeof runOptions.slowMo === 'number' && runOptions.slowMo >= 0 ? runOptions.slowMo : 0;
+
   if (!fs.existsSync(REPORTS_DIR)) fs.mkdirSync(REPORTS_DIR, { recursive: true });
   const slug = `recorded-${recordedId}-${Date.now()}`;
   const specPath = path.join(REPORTS_DIR, `${slug}.spec.js`);
@@ -587,6 +725,10 @@ async function runRecordedSpec(runId, recordedId, baseUrl, startOrder, runOption
     const specFileName = path.basename(specPath);
     const launchArgs = playwrightConfig.launchArgs || [];
     const userAgent = playwrightConfig.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    const useVideo = videoOpt !== 'off' ? (videoOpt === 'retain-on-failure' ? "'retain-on-failure'" : "'on'") : "'off'";
+    const useTrace = traceOpt !== 'off' ? (traceOpt === 'retain-on-failure' ? "'retain-on-failure'" : "'on'") : "'off'";
+    const launchOpts = { headless, args: launchArgs };
+    if (slowMo > 0) launchOpts.slowMo = slowMo;
     const configContent = `
 module.exports = {
   testDir: ${JSON.stringify(REPORTS_DIR)},
@@ -595,11 +737,12 @@ module.exports = {
   use: {
     baseURL: ${JSON.stringify(baseUrlToUse)},
     userAgent: ${JSON.stringify(userAgent)},
-    trace: 'off',
+    trace: ${useTrace},
+    video: ${useVideo},
     screenshot: 'only-on-failure',
-    launchOptions: { headless: ${headless}, args: ${JSON.stringify(launchArgs)} }
+    launchOptions: ${JSON.stringify(launchOpts)}
   },
-  projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
+  projects: [{ name: ${JSON.stringify(browserName)}, use: { browserName: ${JSON.stringify(browserName)} } }],
   timeout: ${timeoutMs},
   reporter: [['json', { outputFile: ${JSON.stringify(resultPath)} }]]
 };
@@ -750,7 +893,7 @@ module.exports = {
         output: combinedOutput || null
       }, 0);
     }
-    return results;
+    return { results, testResultsDir };
   } finally {
     try { if (fs.existsSync(specPath)) fs.unlinkSync(specPath); } catch (_) {}
     try { if (fs.existsSync(configPath)) fs.unlinkSync(configPath); } catch (_) {}
@@ -819,6 +962,43 @@ async function updateRunSummary(runId, totalTests, passedTests, failedTests, dur
     { total_tests: totalTests, passed_tests: passedTests, failed_tests: failedTests, duration_ms: durationMs, status },
     { where: { id: runId } }
   );
+}
+
+/**
+ * Update artifact paths and browser_name on a run.
+ * @param {number} runId
+ * @param {{ video_path?: string | null, trace_path?: string | null, browser_name?: string | null }} updates
+ */
+async function updateRunArtifacts(runId, updates = {}) {
+  const set = {};
+  if (updates.video_path !== undefined) set.video_path = updates.video_path || null;
+  if (updates.trace_path !== undefined) set.trace_path = updates.trace_path || null;
+  if (updates.browser_name !== undefined) set.browser_name = updates.browser_name || null;
+  if (Object.keys(set).length === 0) return;
+  await PlaywrightRun.update(set, { where: { id: runId } });
+}
+
+/**
+ * Find first file with given extension under dir (recursive). Returns absolute path or null.
+ * @param {string} dir
+ * @param {string} ext - e.g. '.webm'
+ * @returns {string|null}
+ */
+function findFirstFileByExt(dir, ext) {
+  if (!fs.existsSync(dir)) return null;
+  const lower = ext.toLowerCase();
+  const walk = (d) => {
+    const entries = fs.readdirSync(d, { withFileTypes: true });
+    for (const e of entries) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) {
+        const found = walk(full);
+        if (found) return found;
+      } else if (e.name.toLowerCase().endsWith(lower)) return full;
+    }
+    return null;
+  };
+  return walk(dir);
 }
 
 const isCli = process.argv.includes('--cli');

@@ -1427,7 +1427,7 @@ router.get('/playwright-tests/list', async (req, res) => {
 // Execute Playwright UI tests (projectId required so run is project-scoped)
 router.post('/playwright-runs/execute', async (req, res) => {
   try {
-    const { projectId, name, baseUrl, suite, selectedTestIds, headless: bodyHeadless, timeoutMs: bodyTimeoutMs, timeoutSeconds: bodyTimeoutSeconds } = req.body;
+    const { projectId, name, baseUrl, suite, selectedTestIds, headless: bodyHeadless, timeoutMs: bodyTimeoutMs, timeoutSeconds: bodyTimeoutSeconds, video: bodyVideo, trace: bodyTrace, browser: bodyBrowser, slowMo: bodySlowMo } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'name is required' });
     }
@@ -1442,6 +1442,12 @@ router.post('/playwright-runs/execute', async (req, res) => {
       const fullList = await getPlaywrightTestListWithRecorded(projectId);
       runOnly = fullList.length > 0 ? fullList.map(t => t.id) : null;
     }
+    const validBrowsers = ['chromium', 'firefox', 'webkit'];
+    const browserName = validBrowsers.includes(bodyBrowser) ? bodyBrowser : 'chromium';
+    const videoOpt = ['off', 'on', 'retain-on-failure'].includes(bodyVideo) ? bodyVideo : 'off';
+    const traceOpt = ['off', 'on', 'retain-on-failure'].includes(bodyTrace) ? bodyTrace : 'off';
+    const slowMo = typeof bodySlowMo === 'number' && bodySlowMo >= 0 ? bodySlowMo : 0;
+
     const run = await PlaywrightRun.create({
       name,
       status: 'running',
@@ -1450,7 +1456,8 @@ router.post('/playwright-runs/execute', async (req, res) => {
       total_tests: 0,
       passed_tests: 0,
       failed_tests: 0,
-      duration_ms: 0
+      duration_ms: 0,
+      browser_name: browserName
     });
     let headless = typeof bodyHeadless === 'boolean' ? bodyHeadless : playwrightConfig.headless;
     const hasDisplay = process.platform === 'win32' || !!process.env.DISPLAY;
@@ -1463,7 +1470,11 @@ router.post('/playwright-runs/execute', async (req, res) => {
       baseUrl: url,
       headless,
       timeoutMs,
-      runOnly
+      runOnly,
+      video: videoOpt,
+      trace: traceOpt,
+      browserName,
+      slowMo
     })
       .then(() => console.log(`[api] Playwright run ${run.id} completed`))
       .catch((err) => {
@@ -1527,6 +1538,99 @@ router.get('/playwright-runs/:id/report/download', async (req, res) => {
       if (err) console.error('Error downloading report:', err);
     });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+const playwrightReportsDir = process.env.REPORTS_DIR || path.join(__dirname, '..', 'reports');
+const playwrightVideosDir = path.join(playwrightReportsDir, 'playwright-videos');
+const playwrightTracesDir = path.join(playwrightReportsDir, 'playwright-traces');
+
+// Playwright run video (stream for View in browser)
+router.get('/playwright-runs/:id/video', async (req, res) => {
+  try {
+    const run = await PlaywrightRun.findByPk(req.params.id);
+    if (!run) return res.status(404).json({ error: 'Playwright run not found' });
+    const videoPath = run.video_path;
+    if (!videoPath) return res.status(404).json({ error: 'No video for this run' });
+    const filePath = path.join(playwrightVideosDir, videoPath);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Video file not found' });
+    res.setHeader('Content-Type', 'video/webm');
+    res.setHeader('Content-Disposition', 'inline');
+    res.sendFile(path.resolve(filePath));
+  } catch (error) {
+    if (error.code === 'ENOENT' || (error.message && error.message.toLowerCase().includes('not found'))) {
+      return res.status(404).json({ error: error.message || 'Not found' });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Playwright run trace (download zip or load in trace viewer)
+router.get('/playwright-runs/:id/trace', async (req, res) => {
+  try {
+    const run = await PlaywrightRun.findByPk(req.params.id);
+    if (!run) return res.status(404).json({ error: 'Playwright run not found' });
+    const tracePath = run.trace_path;
+    if (!tracePath) return res.status(404).json({ error: 'No trace for this run' });
+    const filePath = path.join(playwrightTracesDir, tracePath);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Trace file not found' });
+    const fileName = `trace-run-${req.params.id}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    // Allow trace.playwright.dev to load this URL when using View Trace with ?trace=...
+    res.setHeader('Access-Control-Allow-Origin', 'https://trace.playwright.dev');
+    res.sendFile(path.resolve(filePath));
+  } catch (error) {
+    if (error.code === 'ENOENT' || (error.message && error.message.toLowerCase().includes('not found'))) {
+      return res.status(404).json({ error: error.message || 'Not found' });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Playwright result-level video (for runs with multiple recorded tests)
+router.get('/playwright-runs/:runId/results/:resultId/video', async (req, res) => {
+  try {
+    const result = await PlaywrightResult.findOne({
+      where: { id: req.params.resultId, playwright_run_id: req.params.runId }
+    });
+    if (!result) return res.status(404).json({ error: 'Result not found' });
+    const videoPath = result.video_path;
+    if (!videoPath) return res.status(404).json({ error: 'No video for this result' });
+    const filePath = path.join(playwrightVideosDir, videoPath);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Video file not found' });
+    res.setHeader('Content-Type', 'video/webm');
+    res.setHeader('Content-Disposition', 'inline');
+    res.sendFile(path.resolve(filePath));
+  } catch (error) {
+    if (error.code === 'ENOENT' || (error.message && error.message.toLowerCase().includes('not found'))) {
+      return res.status(404).json({ error: error.message || 'Not found' });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Playwright result-level trace (for runs with multiple recorded tests)
+router.get('/playwright-runs/:runId/results/:resultId/trace', async (req, res) => {
+  try {
+    const result = await PlaywrightResult.findOne({
+      where: { id: req.params.resultId, playwright_run_id: req.params.runId }
+    });
+    if (!result) return res.status(404).json({ error: 'Result not found' });
+    const tracePath = result.trace_path;
+    if (!tracePath) return res.status(404).json({ error: 'No trace for this result' });
+    const filePath = path.join(playwrightTracesDir, tracePath);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Trace file not found' });
+    const fileName = `trace-run-${req.params.runId}-result-${req.params.resultId}.zip`;
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Access-Control-Allow-Origin', 'https://trace.playwright.dev');
+    res.sendFile(path.resolve(filePath));
+  } catch (error) {
+    if (error.code === 'ENOENT' || (error.message && error.message.toLowerCase().includes('not found'))) {
+      return res.status(404).json({ error: error.message || 'Not found' });
+    }
     res.status(500).json({ error: error.message });
   }
 });

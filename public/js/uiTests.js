@@ -111,19 +111,26 @@
     const projectSelect = document.getElementById('run-ui-tests-project-select');
     const suiteSelect = document.getElementById('run-ui-tests-suite');
     const projectId = window._runUiTestsProjectId ? String(window._runUiTestsProjectId) : null;
+    // Always show project selector so the user can change project (e.g. when a test is running or after coming from a project card).
     if (projectSelectWrap) {
-      projectSelectWrap.style.display = projectId ? 'none' : 'block';
+      projectSelectWrap.style.display = 'block';
     }
     if (projectSelect) {
-      if (projectId) {
-        projectSelect.removeAttribute('required');
-      } else {
-        projectSelect.setAttribute('required', 'required');
-      }
+      projectSelect.setAttribute('required', 'required');
     }
     if (!container) return;
     try {
-      const listUrl = projectId ? `/playwright-tests/list?projectId=${projectId}` : '/playwright-tests/list';
+      // Always load projects into the dropdown so the user can select or change project.
+      const sel = document.getElementById('run-ui-tests-project-select');
+      if (sel) {
+        const projects = await apiRequest('/projects');
+        sel.innerHTML = '<option value="">Select project...</option>' + projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        if (projectId) {
+          sel.value = projectId;
+        }
+      }
+      const listProjectId = projectId || (sel && sel.value) || null;
+      const listUrl = listProjectId ? `/playwright-tests/list?projectId=${listProjectId}` : '/playwright-tests/list';
       const [tests, config] = await Promise.all([
         apiRequest(listUrl),
         apiRequest('/playwright-config').catch(() => ({}))
@@ -151,12 +158,25 @@
         const s = document.getElementById('run-ui-tests-suite')?.value || 'all';
         renderTestList(sel, s);
       }));
-      if (!projectId) {
-        const sel = document.getElementById('run-ui-tests-project-select');
-        if (sel) {
-          const projects = await apiRequest('/projects');
-          sel.innerHTML = '<option value="">Select project...</option>' + projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-        }
+      // When user changes project, reload test list for the new project (one handler via onchange to avoid stacking).
+      if (sel) {
+        sel.onchange = async () => {
+          const pid = sel.value || null;
+          window._runUiTestsProjectId = pid ? Number(pid) : null;
+          if (!pid) {
+            testList = [];
+            renderTestList(document.querySelector('input[name="test-list-type"]:checked')?.value === 'selected', document.getElementById('run-ui-tests-suite')?.value || 'all');
+            return;
+          }
+          try {
+            testList = await apiRequest(`/playwright-tests/list?projectId=${pid}`);
+            const s = document.getElementById('run-ui-tests-suite')?.value || 'all';
+            const showCb = document.querySelector('input[name="test-list-type"]:checked')?.value === 'selected';
+            renderTestList(showCb, s);
+          } catch (err) {
+            console.error('Error loading test list for project:', err);
+          }
+        };
       }
     } catch (err) {
       container.innerHTML = `<p class="error-message">Error loading test list: ${err.message}</p>`;
@@ -292,9 +312,19 @@
     const showBrowser = document.getElementById('run-ui-tests-show-browser')?.checked === true;
     const timeoutInput = document.getElementById('run-ui-tests-timeout');
     const timeoutSeconds = timeoutInput && timeoutInput.value.trim() !== '' ? parseInt(timeoutInput.value.trim(), 10) : null;
+    const videoSelect = document.getElementById('run-ui-tests-video');
+    const traceSelect = document.getElementById('run-ui-tests-trace');
+    const browserSelect = document.getElementById('run-ui-tests-browser');
+    const slowMoInput = document.getElementById('run-ui-tests-slow-mo');
+    const slowMo = slowMoInput && slowMoInput.value.trim() !== '' ? parseInt(slowMoInput.value.trim(), 10) : 0;
+
     const body = { name, projectId: Number(projectId), headless: !showBrowser };
     if (baseUrlInput) body.baseUrl = baseUrlInput;
     if (typeof timeoutSeconds === 'number' && timeoutSeconds >= 10 && timeoutSeconds <= 300) body.timeoutSeconds = timeoutSeconds;
+    body.video = videoSelect ? videoSelect.value : 'off';
+    body.trace = traceSelect ? traceSelect.value : 'off';
+    body.browser = browserSelect ? browserSelect.value : 'chromium';
+    if (typeof slowMo === 'number' && slowMo >= 0) body.slowMo = slowMo;
     if (suiteFilter === 'all' && listType === 'full' && runOnlyIds.length === filtered.length) {
       body.suite = 'full';
     } else {
@@ -311,12 +341,24 @@
           </div>
           <p id="test-current-test" style="font-size: 14px; color: var(--color-text-secondary, #6b7280); margin-top: 10px;"></p>
         </div>
+        <p style="font-size: 13px; color: var(--color-text-secondary, #6b7280); margin-top: 16px;">You can run more than one test at a time. Close this to select another project and start another run.</p>
+        <button type="button" class="btn btn-secondary" id="run-in-background-btn" style="margin-top: 12px;">Run in background</button>
       </div>
     `;
     showModal('Running Tests', loadingContent);
 
     (async () => {
+      let progressCancelled = false;
+      let pollTimeoutId = null;
+      window._cancelPlaywrightProgress = () => {
+        progressCancelled = true;
+        if (pollTimeoutId) clearTimeout(pollTimeoutId);
+        hideModal();
+      };
       try {
+        document.getElementById('run-in-background-btn')?.addEventListener('click', () => {
+          if (typeof window._cancelPlaywrightProgress === 'function') window._cancelPlaywrightProgress();
+        });
         const res = await apiRequest('/playwright-runs/execute', { method: 'POST', body });
         const runId = res.playwrightRun && res.playwrightRun.id;
         if (!runId) {
@@ -324,14 +366,18 @@
           alert('Error: No run id returned.');
           return;
         }
-        hideModal();
+        // Show Test Runs with type "All" so the running UI test appears in the list; keep progress modal on top
+        const typeFilter = document.getElementById('test-run-type-filter');
+        if (typeFilter) typeFilter.value = 'all';
         showView('test-runs');
         if (typeof window.loadTestRuns === 'function') window.loadTestRuns();
         let pollCount = 0;
         const maxPoll = 120;
         const pollProgress = async () => {
+          if (progressCancelled) return;
           try {
             const run = await apiRequest(`/playwright-runs/${runId}`);
+            if (progressCancelled) return;
             const totalTests = run.total_tests || 0;
             const completedTests = (run.passed_tests || 0) + (run.failed_tests || 0);
             const progress = totalTests > 0 ? Math.round((completedTests / totalTests) * 100) : 0;
@@ -363,17 +409,19 @@
               if (run.status !== 'running') viewPlaywrightRun(runId);
               return;
             }
-            setTimeout(pollProgress, 1500);
+            if (progressCancelled) return;
+            pollTimeoutId = setTimeout(pollProgress, 1500);
           } catch (err) {
+            if (progressCancelled) return;
             if (isServerUnavailable(err)) {
               hideModal();
               if (typeof window.loadTestRuns === 'function') window.loadTestRuns();
               return;
             }
-            setTimeout(pollProgress, 1500);
+            pollTimeoutId = setTimeout(pollProgress, 1500);
           }
         };
-        setTimeout(pollProgress, 500);
+        pollTimeoutId = setTimeout(pollProgress, 500);
       } catch (err) {
         hideModal();
         alert('Error starting UI tests: ' + err.message);
@@ -947,6 +995,17 @@ async function viewPlaywrightRun(id) {
               <div><span style="font-size: 13px;">${v.description}</span>${v.detail ? `<div style="font-size: 11px; color: #6b7280; margin-top: 2px;">${v.detail}</div>` : ''}</div>
             </li>`).join('')}</ul></div>`
           : (r.assertions ? `<pre style="font-size: 12px; margin-top: 8px; padding: 8px; background: #f9fafb; border-radius: 6px;">${JSON.stringify(r.assertions, null, 2)}</pre>` : '');
+        const resultId = r.id;
+        const runId = id;
+        const hasResultVideo = !!(r.video_path);
+        const hasResultTrace = !!(r.trace_path);
+        const videoIcon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16" style="vertical-align: middle; margin-right: 6px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>';
+        const traceIcon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16" style="vertical-align: middle; margin-right: 6px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>';
+        const artifactLinks = (hasResultVideo || hasResultTrace) ? `
+          <div style="margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap;">
+            ${hasResultVideo ? `<button type="button" class="btn btn-secondary result-video-link" data-run-id="${runId}" data-result-id="${resultId}">${videoIcon}View video</button>` : ''}
+            ${hasResultTrace ? `<button type="button" class="btn btn-secondary result-trace-link" data-run-id="${runId}" data-result-id="${resultId}">${traceIcon}View trace</button>` : ''}
+          </div>` : '';
         return `
         <div class="test-result-item">
           <div class="test-result-header">
@@ -956,6 +1015,7 @@ async function viewPlaywrightRun(id) {
           <div class="test-result-details">
             ${r.duration_ms != null ? `<p><strong>Duration:</strong> ${r.duration_ms} ms</p>` : ''}
             ${r.error_message ? `<p style="color: #dc2626;"><strong>Error:</strong> ${r.error_message}</p>` : ''}
+            ${artifactLinks}
             ${validationsHtml}
           </div>
         </div>
@@ -966,6 +1026,38 @@ async function viewPlaywrightRun(id) {
     }
     document.getElementById('view-ui-report-btn').setAttribute('data-playwright-run-id', id);
     document.getElementById('download-ui-report-btn').setAttribute('data-playwright-run-id', id);
+    const viewVideoBtn = document.getElementById('view-ui-video-btn');
+    const viewTraceBtn = document.getElementById('view-ui-trace-btn');
+    const downloadTraceBtn = document.getElementById('download-ui-trace-btn');
+    if (viewVideoBtn) {
+      viewVideoBtn.setAttribute('data-playwright-run-id', id);
+      viewVideoBtn.style.display = run.video_path ? '' : 'none';
+    }
+    if (viewTraceBtn) {
+      viewTraceBtn.setAttribute('data-playwright-run-id', id);
+      viewTraceBtn.style.display = run.trace_path ? '' : 'none';
+    }
+    if (downloadTraceBtn) {
+      downloadTraceBtn.setAttribute('data-playwright-run-id', id);
+      downloadTraceBtn.style.display = run.trace_path ? '' : 'none';
+    }
+    const timeoutHint = document.getElementById('ui-test-timeout-hint');
+    if (timeoutHint) {
+      const results = run.results || [];
+      const hasTimeoutFailure = results.some(r => (r.error_message || '').toLowerCase().includes('timeout'));
+      const missingArtifacts = !run.video_path || !run.trace_path;
+      const multiResultNoRunArtifacts = results.length > 1 && !run.video_path && !run.trace_path;
+      if (multiResultNoRunArtifacts) {
+        timeoutHint.textContent = 'This run has multiple tests. Video and trace are recorded per test — use "View video" / "View trace" under each result above.';
+        timeoutHint.style.display = '';
+      } else if (hasTimeoutFailure && missingArtifacts) {
+        timeoutHint.textContent = 'When a test fails due to timeout, trace and video may be missing because Playwright may not save them before the run is stopped. Consider increasing the test timeout or fixing the step that hangs.';
+        timeoutHint.style.display = '';
+      } else {
+        timeoutHint.textContent = '';
+        timeoutHint.style.display = 'none';
+      }
+    }
     showView('ui-test-detail');
   } catch (err) {
     console.error('Error loading Playwright run:', err);
@@ -992,6 +1084,58 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('download-ui-report-btn')?.addEventListener('click', () => {
     const id = document.getElementById('download-ui-report-btn').getAttribute('data-playwright-run-id');
     if (id) window.location.href = `${API_BASE}/playwright-runs/${id}/report/download`;
+  });
+  document.getElementById('view-ui-video-btn')?.addEventListener('click', () => {
+    const id = document.getElementById('view-ui-video-btn').getAttribute('data-playwright-run-id');
+    if (id) window.open(`${API_BASE}/playwright-runs/${id}/video`, '_blank');
+  });
+  document.getElementById('view-ui-trace-btn')?.addEventListener('click', () => {
+    const id = document.getElementById('view-ui-trace-btn').getAttribute('data-playwright-run-id');
+    if (!id) return;
+    const traceViewerBase = 'https://trace.playwright.dev/';
+    const hostname = window.location.hostname;
+    const isLocalOrPrivate = /^localhost$|^127\.0\.0\.1$|\.local$/i.test(hostname) ||
+      /^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^192\.168\.|^169\.254\./i.test(hostname) ||
+      /docker|\.internal$/i.test(hostname);
+    if (isLocalOrPrivate) {
+      window.open(traceViewerBase, '_blank');
+      alert('Trace Viewer opened. Download the trace (Download Trace button), then drag the .zip file into the viewer to view it.');
+    } else {
+      const traceUrl = `${window.location.origin}${API_BASE}/playwright-runs/${id}/trace`;
+      window.open(`${traceViewerBase}?trace=${encodeURIComponent(traceUrl)}`, '_blank');
+    }
+  });
+  document.getElementById('download-ui-trace-btn')?.addEventListener('click', () => {
+    const id = document.getElementById('download-ui-trace-btn').getAttribute('data-playwright-run-id');
+    if (id) window.location.href = `${API_BASE}/playwright-runs/${id}/trace`;
+  });
+  // Per-result video/trace links (event delegation; use closest so click on icon still works)
+  document.getElementById('playwright-results-list')?.addEventListener('click', (e) => {
+    const videoBtn = e.target.closest('.result-video-link');
+    const traceBtn = e.target.closest('.result-trace-link');
+    if (videoBtn) {
+      e.preventDefault();
+      const runId = videoBtn.getAttribute('data-run-id');
+      const resultId = videoBtn.getAttribute('data-result-id');
+      if (runId && resultId) window.open(`${API_BASE}/playwright-runs/${runId}/results/${resultId}/video`, '_blank');
+    } else if (traceBtn) {
+      e.preventDefault();
+      const runId = traceBtn.getAttribute('data-run-id');
+      const resultId = traceBtn.getAttribute('data-result-id');
+      if (!runId || !resultId) return;
+      const traceViewerBase = 'https://trace.playwright.dev/';
+      const hostname = window.location.hostname;
+      const isLocalOrPrivate = /^localhost$|^127\.0\.0\.1$|\.local$/i.test(hostname) ||
+        /^10\.|^172\.(1[6-9]|2[0-9]|3[01])\.|^192\.168\.|^169\.254\./i.test(hostname) ||
+        /docker|\.internal$/i.test(hostname);
+      const traceUrl = `${window.location.origin}${API_BASE}/playwright-runs/${runId}/results/${resultId}/trace`;
+      if (isLocalOrPrivate) {
+        window.open(traceViewerBase, '_blank');
+        alert('Trace Viewer opened. Open the trace URL in the viewer or download the trace and drag the .zip in.');
+      } else {
+        window.open(`${traceViewerBase}?trace=${encodeURIComponent(traceUrl)}`, '_blank');
+      }
+    }
   });
 });
 

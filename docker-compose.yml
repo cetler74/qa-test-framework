@@ -2,7 +2,8 @@
 # Usage:
 #   cp .env.example .env   # then edit DB_PASSWORD
 #   docker compose up --build -d
-#   docker compose exec app npm run migrate   # first time only
+#   Migrations run automatically on app startup (see scripts/docker-entry.sh).
+#   To run migrations only: docker compose exec app npm run migrate
 
 services:
   db:

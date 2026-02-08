@@ -510,7 +510,8 @@ async function loadTestRuns() {
     const hasRunning = Array.isArray(testRuns) && testRuns.some(r => (r.status || '').toLowerCase() === 'running');
     if (hasRunning) {
       clearInterval(window._testRunsRefreshInterval);
-      window._testRunsRefreshInterval = setInterval(loadTestRuns, 3000);
+      // Refresh every 5s (not 3s) so the page doesn't feel blocked or constantly reloading while tests run
+      window._testRunsRefreshInterval = setInterval(loadTestRuns, 5000);
     } else {
       clearInterval(window._testRunsRefreshInterval);
       window._testRunsRefreshInterval = null;

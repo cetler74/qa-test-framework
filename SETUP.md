@@ -1,10 +1,38 @@
 # Setup Instructions
 
+This document describes how to set up and run the QA Test Hub: dependencies, Docker deployment, and local development.
+
+---
+
+## Dependencies and software (overview)
+
+The application depends on the following. When using **Docker**, most are included in the image; when running **locally**, you must install them yourself.
+
+| Software | Minimum version | Purpose | Docker image | Local |
+|----------|------------------|---------|--------------|-------|
+| **Node.js** | 18.x LTS | Runtime for the app and all runners | Yes (Node 20) | Required |
+| **npm** | 8.x | Install packages and run scripts | Yes | Required |
+| **PostgreSQL** | 12 | Database (projects, specs, runs, Playwright, fuzz, flows, schedules) | Separate container | Required |
+| **Playwright** (npm) | 1.49+ | UI tests and recorded tests | Yes | Installed via `npm install` |
+| **Playwright browsers** | — | Chromium (required for UI tests); Firefox & WebKit optional for multi-browser | Chromium only | `npx playwright install chromium` (or `chromium firefox webkit`) |
+| **Newman** (npm) | 6.x | Postman collection execution (API tests) | Yes | Installed via `npm install` |
+| **Java** | 17+ | CATS fuzz runs when using JAR | Yes (JRE headless) | Required only for CATS JAR |
+| **CATS** | — | OpenAPI fuzz testing (Run Fuzz) | Yes (native binary) | Optional; JAR or binary — see [Installing CATS](#installing-cats) |
+| **Xvfb** | — | Virtual display for headless Codegen | Yes | Not needed (use local display or Docker) |
+| **x11vnc** | — | VNC server for remote Codegen | Yes | Not needed |
+| **noVNC / websockify** | — | Browser-based VNC client for remote Codegen | Yes | Not needed |
+| **Docker Engine** | 24+ | Running the app in containers | — | Only for Docker deployment |
+| **Docker Compose** | v2 | Orchestrating app + DB | — | Only for Docker deployment |
+
+**Summary for local development:** Install Node.js 18+, PostgreSQL 12+, run `npm install` and `npm run migrate`, then optionally install Playwright browsers and Java/CATS for UI and fuzz features. See [Local Development Setup](#local-development-setup-without-docker) below.
+
+---
+
 ## Docker Deployment (Recommended for SaaS / Production)
 
-This is the recommended deployment method for production servers and SaaS hosting. The Docker image includes all dependencies: Node.js, PostgreSQL client, Playwright Chromium, Xvfb, x11vnc, noVNC/websockify (for remote test recording), Java, and CATS (Contract API Testing Service for fuzz runs). No need to set `CATS_CMD` when using Docker—the image has the CATS binary installed.
+This is the recommended deployment method for production servers and SaaS hosting. The Docker image includes all application dependencies: Node.js 20, PostgreSQL client libs, Playwright Chromium, Xvfb, x11vnc, noVNC/websockify (for remote test recording), Java (JRE headless), and the CATS native binary for fuzz runs. You do **not** need to set `CATS_CMD` when using Docker—the image has CATS installed.
 
-### Prerequisites
+### Prerequisites (Docker)
 
 - **Docker Engine** 24+ ([Install Docker](https://docs.docker.com/engine/install/))
 - **Docker Compose** v2 (included with Docker Desktop; on Linux: `apt install docker-compose-plugin`)
@@ -20,16 +48,26 @@ cp .env.example .env
 
 # 3. Build and start the containers
 docker compose up --build -d
+# Database migrations run automatically when the app container starts (see scripts/docker-entry.sh).
+# If you see schema errors (e.g. "column X does not exist"), run migrations manually:
+#   docker compose exec app npm run migrate
 
-# 4. Run database migrations (first time only)
-docker compose exec app npm run migrate
-
-# 5. Verify the app is running
+# 4. Verify the app is running
 curl http://localhost:3000/health
 # Should return: {"status":"ok","timestamp":"..."}
 ```
 
 The application is now available at **http://\<server-ip\>:3000**.
+
+### Database migrations (Docker)
+
+Migrations run automatically when the app container starts (`scripts/docker-entry.sh`). You do not need to run them manually for a normal first-time deploy or after `git pull` + rebuild.
+
+If you see database schema errors (e.g. "column X of relation Y does not exist"), run migrations inside the app container:
+
+```bash
+docker compose exec app npm run migrate
+```
 
 ### Ports
 
@@ -64,8 +102,8 @@ docker compose up -d
 # Pull latest code, rebuild, and restart
 git pull
 docker compose up --build -d
-# Run new migrations if any
-docker compose exec app npm run migrate
+# Migrations run automatically on app startup. To run them without restarting:
+#   docker compose exec app npm run migrate
 ```
 
 ### Stopping
@@ -80,6 +118,25 @@ docker compose down -v       # stop and DELETE database volume (destructive!)
 ## Local Development Setup (without Docker)
 
 Use this when developing on your local machine (Windows, macOS, or Linux with a desktop).
+
+### Prerequisites (local)
+
+Install the following before creating `.env` or running the app:
+
+1. **Node.js** 18 or higher (LTS recommended) — [nodejs.org](https://nodejs.org/). Includes npm.
+2. **PostgreSQL** 12 or higher — [postgresql.org](https://www.postgresql.org/download/). Ensure the server is running and you have a user and (optionally) an existing database; the migration script can create the database if it does not exist.
+3. **(Optional) Playwright browsers** — Required only for **UI Tests**. After `npm install`, run:
+   - `npx playwright install chromium` (minimum for UI tests)
+   - Or `npx playwright install chromium firefox webkit` (all browsers)
+4. **(Optional) Java 17+ and CATS** — Required only for **Run Fuzz**. See [Optional: REST API Fuzzing (CATS)](#5-optional-rest-api-fuzzing-cats) below.
+
+All other application dependencies (Express, Newman, Playwright npm package, Sequelize, Handlebars, etc.) are installed with:
+
+```bash
+npm install
+```
+
+Run this in the project root before or after creating `.env`. See `package.json` for the full list.
 
 ### 1. Create .env File
 
@@ -130,7 +187,7 @@ npm run migrate
 
 This will:
 - Create the database if it doesn't exist (name from `DB_NAME` in `.env`)
-- Create all necessary tables (including `playwright_runs`, `playwright_results`, `playwright_recorded_tests` for UI tests, and `fuzz_runs`, `fuzz_results` for REST API fuzzing when migration `009_fuzz_runs.sql` is present)
+- Run all migration files in order, creating tables for projects, API specs, collections, test runs, Playwright runs/results/recorded tests, flows, schedules, SOAP, fuzz runs, and related schema
 
 ### 3. Start the Server
 
