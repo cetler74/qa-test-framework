@@ -756,12 +756,55 @@ module.exports = {
     const command = fs.existsSync(playwrightBin) ? playwrightBin : (isWin ? 'npx.cmd' : 'npx');
     const finalArgs = fs.existsSync(playwrightBin) ? args : ['playwright', 'test', '--config', configPath];
     if (!headless && !fs.existsSync(playwrightBin)) finalArgs.push('--headed');
-    const result = spawnSync(command, finalArgs, {
-      cwd,
-      encoding: 'utf8',
-      timeout: timeoutMs * 2 + 10000,
-      maxBuffer: 4 * 1024 * 1024,
-      shell: isWin
+    // Use spawn (async) instead of spawnSync so the Node event loop is not blocked during the
+    // subprocess run (video/trace recording can take a long time); the server can then accept
+    // new run requests while this run is in progress.
+    const result = await new Promise((resolve, reject) => {
+      const timeout = timeoutMs * 2 + 10000;
+      let timedOut = false;
+      const child = spawn(command, finalArgs, {
+        cwd,
+        shell: isWin,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      const chunks = { stdout: [], stderr: [] };
+      const maxBuffer = 4 * 1024 * 1024;
+      let totalLen = 0;
+      function onData(channel, data) {
+        if (totalLen >= maxBuffer) return;
+        chunks[channel].push(data);
+        totalLen += data.length;
+        if (totalLen > maxBuffer) {
+          try { child.kill('SIGKILL'); } catch (_) {}
+        }
+      }
+      child.stdout.on('data', (d) => onData('stdout', d));
+      child.stderr.on('data', (d) => onData('stderr', d));
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try { child.kill('SIGKILL'); } catch (_) {}
+      }, timeout);
+      child.once('close', (code, signal) => {
+        clearTimeout(timer);
+        const stdout = Buffer.concat(chunks.stdout).toString('utf8').trim();
+        const stderr = Buffer.concat(chunks.stderr).toString('utf8').trim();
+        resolve({
+          status: timedOut ? 1 : (code != null ? code : (signal ? 1 : 0)),
+          stdout,
+          stderr,
+          error: timedOut ? new Error(`Playwright test timed out after ${timeout}ms`) : null
+        });
+      });
+      child.once('error', (err) => {
+        clearTimeout(timer);
+        try { child.kill(); } catch (_) {}
+        resolve({
+          status: 1,
+          stdout: Buffer.concat(chunks.stdout).toString('utf8').trim(),
+          stderr: Buffer.concat(chunks.stderr).toString('utf8').trim(),
+          error: err
+        });
+      });
     });
     const stderr = (result.stderr || '').trim();
     const stdout = (result.stdout || '').trim();
