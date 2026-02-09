@@ -50,6 +50,26 @@ function formatAssertionErrors(failedAssertions) {
 }
 
 /**
+ * Normalize network/connection error messages for clear display in test results and reports.
+ * Maps common Node/Newman error codes to readable "Network error: ..." or "Timeout: ..." text.
+ * @param {string} message - Raw error message (e.g. "connect ECONNREFUSED 127.0.0.1:8080")
+ * @returns {string} Human-readable message for results and reports
+ */
+function normalizeNetworkError(message) {
+  if (!message || typeof message !== 'string') return 'No HTTP response';
+  const m = message.trim();
+  if (m.match(/\bECONNREFUSED\b/i)) return `Network error: Connection refused (no server at host:port)`;
+  if (m.match(/\bETIMEDOUT\b/i)) return `Network error: Request timeout`;
+  if (m.match(/\bECONNRESET\b/i)) return `Network error: Connection reset by peer`;
+  if (m.match(/\bENOTFOUND\b/i)) return `Network error: Host not found (DNS lookup failed)`;
+  if (m.match(/\bENETUNREACH\b/i)) return `Network error: Network unreachable`;
+  if (m.match(/\bEAI_AGAIN\b/i)) return `Network error: DNS temporary failure`;
+  if (m.match(/\bESOCKETTIMEDOUT\b/i)) return `Network error: Socket timeout`;
+  if (m.match(/\btimeout\b/i) && !m.match(/assertion|expected/i)) return `Network error: Request timeout`;
+  return m;
+}
+
+/**
  * Merge multiple Postman collections into one
  * @param {Array<object>} collections - Array of Postman collection objects
  * @param {string} name - Name for merged collection
@@ -198,9 +218,9 @@ function runNewmanTests(collection, options = {}) {
     const originalRejectUnauthorized = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-    // Newman supports both collection variables and environment files
-    // Collection variables are automatically used from the collection JSON
-    // Environment variables can be passed via options.environment or options.envVar
+    // Newman supports collection variables (initial values from collection JSON) and environment variables.
+    // Note: pm.collectionVariables.set() at runtime is NOT reliably supported by Newman (see postmanlabs/newman#2190, #2631).
+    // For dynamic values (e.g. tokens, IDs from responses), use pm.environment.set() and pass an environment (envVars or environment file).
     const newmanOptions = {
       collection: tempFile,
       reporters: ['cli'],
@@ -236,16 +256,17 @@ function runNewmanTests(collection, options = {}) {
       insecure: newmanOptions.insecure
     });
     
-    // If environment file is provided, use it
+    // Always pass an environment so pm.environment.set() in scripts works (Newman does not reliably support pm.collectionVariables.set()).
     if (options.environment) {
       newmanOptions.environment = options.environment;
-    } else if (options.envVars && typeof options.envVars === 'object' && Object.keys(options.envVars).length > 0) {
-      // Create a temporary Postman environment file from envVars
+    } else {
+      // Build environment from envVars or use empty so scripts can still call pm.environment.set()
+      const envVars = (options.envVars && typeof options.envVars === 'object') ? options.envVars : {};
       const envId = generateId();
       const envObject = {
         id: envId,
         name: `Test Environment ${Date.now()}`,
-        values: Object.entries(options.envVars).map(([key, value]) => ({
+        values: Object.entries(envVars).map(([key, value]) => ({
           key: key,
           value: String(value),
           type: 'string',
@@ -255,20 +276,13 @@ function runNewmanTests(collection, options = {}) {
         _postman_exported_at: new Date().toISOString(),
         _postman_exported_using: 'DEO/EPS -- QA Testing Tool'
       };
-      
       const envFile = path.join(tempDir, `environment-${envId}.json`);
       fs.writeFileSync(envFile, JSON.stringify(envObject, null, 2));
       newmanOptions.environment = envFile;
-      
-      // Clean up environment file after execution
       setTimeout(() => {
         try {
-          if (fs.existsSync(envFile)) {
-            fs.unlinkSync(envFile);
-          }
-        } catch (e) {
-          // Ignore cleanup errors
-        }
+          if (fs.existsSync(envFile)) fs.unlinkSync(envFile);
+        } catch (e) { /* ignore */ }
       }, 5000);
     }
 
@@ -356,9 +370,10 @@ function runNewmanTests(collection, options = {}) {
             }
           }
           
-          // If no response but there's an error, capture it
+          // If no response but there's an error, capture it (network/timeout/connection errors)
           if (!response && execution.error) {
-            errorMessage = execution.error.message || execution.error.toString();
+            const rawErr = execution.error.message || execution.error.toString();
+            errorMessage = normalizeNetworkError(rawErr);
           }
           
           // Determine status - consider connection errors AND assertion failures
@@ -386,7 +401,7 @@ function runNewmanTests(collection, options = {}) {
             }
           } else if (execution.error) {
             status = 'failed';
-            errorMessage = execution.error.message || 'Connection failed';
+            if (!errorMessage) errorMessage = normalizeNetworkError(execution.error.message || execution.error.toString()) || 'Connection failed';
           } else if (hasFailedAssertions) {
             // Even if we got a response, failed assertions mean test failed
             status = 'failed';
@@ -703,37 +718,30 @@ async function executeTests(projectId, testRunName, options = {}) {
     // Otherwise, run all tests in parallel for speed
     if (hasPerItemDelay || hasGlobalDelay) {
       // Sequential execution with delays - enables real-time progress tracking
-      // IMPORTANT: Create a shared environment file to persist variables across sequential runs
-      // This allows variables set by test scripts (e.g., auth_req_id) to persist between tests
+      // IMPORTANT: Create a shared environment file so every sequential run has an environment.
+      // This allows pm.environment.set() in scripts to persist between tests (we also sync from response body below).
       const tempDir = path.join(__dirname, '..', 'temp');
       if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
       }
-      
-      let sharedEnvFile = null;
-      let sharedEnvVars = { ...(options.envVars || {}) };
-      
-      // Create initial shared environment file if envVars are provided
-      if (Object.keys(sharedEnvVars).length > 0) {
-        const envId = generateId();
-        const envObject = {
-          id: envId,
-          name: `Shared Test Environment ${testRunName}`,
-          values: Object.entries(sharedEnvVars).map(([key, value]) => ({
-            key: key,
-            value: String(value),
-            type: 'string',
-            enabled: true
-          })),
-          _postman_variable_scope: 'environment',
-          _postman_exported_at: new Date().toISOString(),
-          _postman_exported_using: 'DEO/EPS -- QA Testing Tool'
-        };
-        
-        sharedEnvFile = path.join(tempDir, `shared-env-${testRun.id || envId}.json`);
-        fs.writeFileSync(sharedEnvFile, JSON.stringify(envObject, null, 2));
-        console.log(`[testRunner] Created shared environment file for sequential execution: ${sharedEnvFile}`);
-      }
+      const sharedEnvVars = { ...(options.envVars || {}) };
+      const envId = generateId();
+      const sharedEnvObject = {
+        id: envId,
+        name: `Shared Test Environment ${testRunName}`,
+        values: Object.entries(sharedEnvVars).map(([key, value]) => ({
+          key: key,
+          value: String(value),
+          type: 'string',
+          enabled: true
+        })),
+        _postman_variable_scope: 'environment',
+        _postman_exported_at: new Date().toISOString(),
+        _postman_exported_using: 'DEO/EPS -- QA Testing Tool'
+      };
+      const sharedEnvFile = path.join(tempDir, `shared-env-${testRun.id || envId}.json`);
+      fs.writeFileSync(sharedEnvFile, JSON.stringify(sharedEnvObject, null, 2));
+      console.log(`[testRunner] Created shared environment file for sequential execution: ${sharedEnvFile}`);
       
       const combinedExecutions = [];
       const started = Date.now();
@@ -756,12 +764,9 @@ async function executeTests(projectId, testRunName, options = {}) {
         // Set delayRequest to 0 for individual tests (we'll handle delay between tests manually)
         testOptions.delayRequest = 0;
         
-        // Use shared environment file for all sequential runs to persist variables
-        if (sharedEnvFile && fs.existsSync(sharedEnvFile)) {
-          testOptions.environment = sharedEnvFile;
-          // Clear envVars since we're using the environment file
-          delete testOptions.envVars;
-        }
+        // Use shared environment file for all sequential runs (always set; file created above)
+        testOptions.environment = sharedEnvFile;
+        delete testOptions.envVars;
 
         // Run single item as its own collection
         const currentTestName = item.name || item.request?.method || 'Unnamed';
@@ -785,51 +790,54 @@ async function executeTests(projectId, testRunName, options = {}) {
               const envContent = JSON.parse(fs.readFileSync(sharedEnvFile, 'utf8'));
               let envUpdated = false;
               
-              // Check for common variable names in response
-              const variablePatterns = ['auth_req_id', 'access_token', 'token', 'bearer_token', 'id', 'request_id'];
+              // Check for common variable names in response (include validResourceId for collection scripts that set it from response)
+              const variablePatterns = ['auth_req_id', 'access_token', 'token', 'bearer_token', 'id', 'request_id', 'validResourceId'];
               variablePatterns.forEach(varName => {
-                if (responseJson[varName] && typeof responseJson[varName] === 'string') {
-                  // Find existing variable or add new one
+                const val = responseJson[varName];
+                if (val !== undefined && val !== null) {
+                  const strVal = String(val);
                   const existingVar = envContent.values.find(v => v.key === varName);
                   if (existingVar) {
-                    if (existingVar.value !== responseJson[varName]) {
-                      existingVar.value = String(responseJson[varName]);
+                    if (existingVar.value !== strVal) {
+                      existingVar.value = strVal;
                       envUpdated = true;
-                      console.log(`[testRunner] Updated shared environment variable: ${varName} = ${responseJson[varName]}`);
+                      console.log(`[testRunner] Updated shared environment variable: ${varName} = ${strVal}`);
                     }
                   } else {
                     envContent.values.push({
                       key: varName,
-                      value: String(responseJson[varName]),
+                      value: strVal,
                       type: 'string',
                       enabled: true
                     });
                     envUpdated = true;
-                    console.log(`[testRunner] Added shared environment variable: ${varName} = ${responseJson[varName]}`);
+                    console.log(`[testRunner] Added shared environment variable: ${varName} = ${strVal}`);
                   }
                 }
               });
               
-              // Also check for nested properties (e.g., data.auth_req_id)
+              // Also check for nested properties (e.g., data.auth_req_id, data.validResourceId)
               if (responseJson.data) {
                 variablePatterns.forEach(varName => {
-                  if (responseJson.data[varName] && typeof responseJson.data[varName] === 'string') {
+                  const dataVal = responseJson.data[varName];
+                  if (dataVal !== undefined && dataVal !== null) {
+                    const strVal = String(dataVal);
                     const existingVar = envContent.values.find(v => v.key === varName);
                     if (existingVar) {
-                      if (existingVar.value !== responseJson.data[varName]) {
-                        existingVar.value = String(responseJson.data[varName]);
+                      if (existingVar.value !== strVal) {
+                        existingVar.value = strVal;
                         envUpdated = true;
-                        console.log(`[testRunner] Updated shared environment variable from data: ${varName} = ${responseJson.data[varName]}`);
+                        console.log(`[testRunner] Updated shared environment variable from data: ${varName} = ${strVal}`);
                       }
                     } else {
                       envContent.values.push({
                         key: varName,
-                        value: String(responseJson.data[varName]),
+                        value: strVal,
                         type: 'string',
                         enabled: true
                       });
                       envUpdated = true;
-                      console.log(`[testRunner] Added shared environment variable from data: ${varName} = ${responseJson.data[varName]}`);
+                      console.log(`[testRunner] Added shared environment variable from data: ${varName} = ${strVal}`);
                     }
                   }
                 });
@@ -910,7 +918,7 @@ async function executeTests(projectId, testRunName, options = {}) {
             status = 'failed';
           }
           
-          // Get error message if status is failed
+          // Get error message if status is failed (include network errors when no HTTP response)
           let errorMessage = executionResult.errorMessage || null;
           if (!errorMessage && status === 'failed' && hasFailedAssertions) {
             const failedAssertions = executionResult.assertions.filter(a => a.error);
@@ -918,6 +926,16 @@ async function executeTests(projectId, testRunName, options = {}) {
               errorMessage = formatAssertionErrors(failedAssertions);
             }
           }
+          if (!errorMessage && status === 'failed' && executionResult.item.error) {
+            errorMessage = normalizeNetworkError(executionResult.item.error.message || executionResult.item.error.toString()) || 'No HTTP response';
+          }
+          // When there is no HTTP response (timeout, connection refused, etc.), include error in response_body so reports show it
+          const rawResponseBodySeq = executionResult.item.response?.body != null
+            ? (typeof executionResult.item.response.body === 'string' ? executionResult.item.response.body : JSON.stringify(executionResult.item.response.body, null, 2))
+            : (errorMessage ? `Error: ${errorMessage}` : (executionResult.item.error?.message ? `Error: ${executionResult.item.error.message}` : 'No HTTP response'));
+          const formattedResponseSeq = executionResult.item.response
+            ? `Status: ${executionResult.item.response.code || ''} ${executionResult.item.response.status || ''}\n\nBody:\n${rawResponseBodySeq}`
+            : rawResponseBodySeq;
           
           // Create test result record immediately
           const testResultData = {
@@ -927,8 +945,8 @@ async function executeTests(projectId, testRunName, options = {}) {
             method: executionResult.item.request?.method || '',
             status: status,
             duration_ms: 0,
-            request_body: executionResult.item.request?.body || '',
-            response_body: executionResult.item.response?.body || '',
+            request_body: executionResult.item.request?.body != null ? (typeof executionResult.item.request.body === 'string' ? executionResult.item.request.body : JSON.stringify(executionResult.item.request.body, null, 2)) : '',
+            response_body: formattedResponseSeq,
             response_code: responseCode || null,
             assertions: executionResult.assertions || [],
             error_message: errorMessage,
@@ -1089,7 +1107,7 @@ async function executeTests(projectId, testRunName, options = {}) {
         }
         if (!errorMessage) {
           if (execution.item.error) {
-            errorMessage = execution.item.error.message || 'Request failed';
+            errorMessage = normalizeNetworkError(execution.item.error.message || execution.item.error.toString()) || 'Request failed';
           } else if (responseCode >= 400) {
             errorMessage = `HTTP ${responseCode}: ${execution.item.response?.status || 'Request failed'}`;
           } else if (responseCode === 0) {
