@@ -1,0 +1,2 @@
+# Optional: Chrome launch args (comma-separated). Default disables Local Network Access prompt for private IPs (e.g. 10.131.65.136).
+# PLAYWRIGHT_LAUNCH_ARGS=--disable-features=LocalNetworkAccessCheck
