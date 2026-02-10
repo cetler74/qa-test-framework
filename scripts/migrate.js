@@ -25,7 +25,7 @@ async function runMigrations() {
     console.log('Connected to PostgreSQL');
 
     // Check if database exists, create if not
-    const dbName = process.env.DB_NAME || 'qa_testing';
+    const dbName = process.env.DB_NAME || 'qa_framework';
     const dbCheck = await client.query(
       `SELECT 1 FROM pg_database WHERE datname = $1`,
       [dbName]
@@ -41,7 +41,7 @@ async function runMigrations() {
 
     await client.end();
 
-    // Connect to the qa_testing database
+    // Connect to the qa_framework database
     const dbClient = new Client({
       host: process.env.DB_HOST || 'localhost',
       port: parseInt(process.env.DB_PORT) || 5432,

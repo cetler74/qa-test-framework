@@ -1,5 +1,5 @@
--- Connect to qa_testing database before running this script
--- \c qa_testing
+-- Connect to qa_framework database before running this script
+-- \c qa_framework
 
 -- Projects/Workspaces table
 CREATE TABLE IF NOT EXISTS projects (

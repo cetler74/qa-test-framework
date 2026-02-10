@@ -7,7 +7,7 @@ const dbPassword = process.env.DB_PASSWORD !== undefined && process.env.DB_PASSW
   : '';
 
 const sequelize = new Sequelize(
-  process.env.DB_NAME || 'qa_testing',
+  process.env.DB_NAME || 'qa_framework',
   process.env.DB_USER || 'postgres',
   dbPassword,
   {

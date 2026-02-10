@@ -26,6 +26,11 @@ Thumbs.db
 *.swo
 *~
 
+# Playwright / E2E
+test-results/
+playwright-report/
+.playwright/
+
 # IDE files
 .vscode/
 .idea/

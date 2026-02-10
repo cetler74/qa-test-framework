@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"name": "qa-test-framework",
+			"path": "../../qa-test/qa-test-framework"
+		}
+	],
+	"settings": {}
+}

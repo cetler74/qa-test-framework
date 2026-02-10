@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DEO/EPS -- QA Testing Tool</title>
+    <title>DEO/ECP/EPS - QA Test Hub</title>
     <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
@@ -11,15 +11,56 @@
         <header>
             <div class="brand">
                 <img src="https://conteudos.meo.pt/Style%20Library/quantcast/logo-meo.png?qc-size=98,56" alt="MEO logo" class="brand-logo">
-                <h1>DEO/EPS -- QA Testing Tool</h1>
+                <h1>DEO/ECP/EPS - QA Test Hub</h1>
             </div>
             <nav class="main-nav">
-                <button class="nav-btn active" data-view="dashboard">Dashboard</button>
-                <button class="nav-btn" data-view="projects">Projects</button>
-                <button class="nav-btn" data-view="api-specs">API Specs</button>
-                <button class="nav-btn" data-view="test-runs">Test Runs</button>
+                <button class="nav-btn active" data-view="dashboard">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                    </svg>
+                    Dashboard
+                </button>
+                <button class="nav-btn" data-view="projects">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                    Projects
+                </button>
+                <div class="settings-dropdown">
+                    <button type="button" class="nav-btn" id="settings-nav-btn" title="Settings" aria-haspopup="true" aria-expanded="false">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Settings
+                    </button>
+                    <div class="settings-dropdown-menu" id="settings-dropdown-menu" role="menu">
+                        <button type="button" class="settings-dropdown-item" data-view="api-specs" role="menuitem">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Configure API Specs
+                        </button>
+                        <button type="button" class="settings-dropdown-item" data-view="ui-tests" role="menuitem">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                            Configure UI Tests
+                        </button>
+                    </div>
+                </div>
+                <button class="nav-btn" data-view="test-runs">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                    </svg>
+                    Test Runs
+                </button>
                 <!-- Theme toggle -->
-                <button id="theme-toggle" class="nav-btn" title="Toggle theme">🌙</button>
+                <button id="theme-toggle" class="nav-btn" title="Toggle theme">
+                    <svg id="theme-toggle-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                </button>
             </nav>
         </header>
 
@@ -29,17 +70,50 @@
                 <h2>Dashboard</h2>
                 <div class="dashboard-stats">
                     <div class="stat-card">
+                        <svg class="stat-card-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
                         <div class="stat-value" id="total-projects">0</div>
                         <div class="stat-label">Projects</div>
                     </div>
                     <div class="stat-card">
+                        <svg class="stat-card-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
                         <div class="stat-value" id="total-api-specs">0</div>
                         <div class="stat-label">API Specs</div>
                     </div>
                     <div class="stat-card">
+                        <svg class="stat-card-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                        </svg>
                         <div class="stat-value" id="total-test-runs">0</div>
                         <div class="stat-label">Test Runs</div>
                     </div>
+                </div>
+                <div class="run-hub-card dashboard-card">
+                    <h3>Quick Run</h3>
+                    <p class="run-hub-desc">Run API tests, UI tests, or a flow from any project.</p>
+                    <div class="run-hub-form">
+                        <div class="form-group">
+                            <label for="run-hub-project">Project</label>
+                            <select id="run-hub-project"><option value="">Select project...</option></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Run</label>
+                            <div class="run-hub-type">
+                                <label class="radio-label"><input type="radio" name="run-hub-type" value="api"> API tests</label>
+                                <label class="radio-label"><input type="radio" name="run-hub-type" value="ui"> UI tests</label>
+                                <label class="radio-label"><input type="radio" name="run-hub-type" value="flow"> Flow</label>
+                            </div>
+                            <select id="run-hub-flow" style="display:none; margin-top:8px;"><option value="">Select flow...</option></select>
+                        </div>
+                        <button type="button" class="btn btn-primary" id="run-hub-go">Run</button>
+                    </div>
+                </div>
+                <div class="next-scheduled-runs dashboard-card">
+                    <h3>Next Scheduled Runs</h3>
+                    <div id="next-scheduled-list"></div>
                 </div>
                 <div class="recent-test-runs">
                     <h3>Recent Test Runs</h3>
@@ -51,7 +125,12 @@
             <div id="projects-view" class="view">
                 <div class="view-header">
                     <h2>Projects</h2>
-                    <button class="btn btn-primary" id="create-project-btn">Create Project</button>
+                    <button class="btn btn-primary" id="create-project-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                        </svg>
+                        Create Project
+                    </button>
                 </div>
                 <div id="projects-list"></div>
             </div>
@@ -59,7 +138,12 @@
             <!-- Project Detail View -->
             <div id="project-detail-view" class="view">
                 <div class="view-header">
-                    <button class="btn btn-secondary" id="back-to-projects">← Back to Projects</button>
+                        <button class="btn btn-secondary" id="back-to-projects">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                            </svg>
+                            Back to Projects
+                        </button>
                     <h2 id="project-detail-name"></h2>
                 </div>
                 <div class="project-detail-content">
@@ -67,17 +151,65 @@
                         <p id="project-detail-description"></p>
                     </div>
                     <div class="project-actions">
-                        <button class="btn btn-primary" id="add-api-spec-btn">Add API Spec</button>
-                        <button class="btn btn-primary" id="upload-postman-collection-btn">Upload Postman Collection</button>
-                        <button class="btn btn-primary" id="run-tests-btn">Run Tests</button>
+                        <button class="btn btn-primary" id="add-api-spec-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                            Add API Spec
+                        </button>
+                        <button class="btn btn-primary" id="upload-postman-collection-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            Upload Postman Collection
+                        </button>
+                        <button class="btn btn-run-type-api" id="run-tests-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+                            Run API tests
+                        </button>
+                        <button class="btn btn-run-type-ui" id="run-ui-test-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                            Run UI Test
+                        </button>
+                        <button class="btn btn-run-type-fuzz" id="run-fuzz-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                            Run Fuzz
+                        </button>
+                        <button class="btn btn-secondary" id="manage-project-recorded-tests-btn">Manage recorded tests</button>
                     </div>
                     <div class="project-api-specs">
                         <h3>API Specs in Project</h3>
                         <div id="project-api-specs-list"></div>
                     </div>
                     <div class="project-collections">
-                        <h3>Available Tests</h3>
+                        <h3>Available Collections</h3>
                         <div id="project-collections-list"></div>
+                    </div>
+                    <div class="project-flows">
+                        <h3>Flows</h3>
+                        <p class="project-flows-desc">Ordered sequences of API and UI tests. Create a flow, add tasks, then run it.</p>
+                        <div class="project-flows-actions">
+                            <button class="btn btn-primary" id="create-flow-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                </svg>
+                                Create flow
+                            </button>
+                        </div>
+                        <div id="project-flows-list"></div>
+                    </div>
+                    <div class="project-schedules">
+                        <h3>Schedules</h3>
+                        <p class="project-schedules-desc">Run a flow or the whole project on a schedule (cron or repeat interval).</p>
+                        <div class="project-schedules-actions">
+                            <button class="btn btn-primary" id="create-schedule-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                </svg>
+                                Create schedule
+                            </button>
+                        </div>
+                        <div id="project-schedules-list"></div>
                     </div>
                 </div>
             </div>
@@ -86,7 +218,12 @@
             <div id="api-specs-view" class="view">
                 <div class="view-header">
                     <h2>API Specifications</h2>
-                    <button class="btn btn-primary" id="upload-api-spec-btn">Upload API Spec</button>
+                    <button class="btn btn-primary" id="upload-api-spec-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                        Upload API Spec
+                    </button>
                 </div>
                 <div id="api-specs-list"></div>
             </div>
@@ -102,6 +239,13 @@
                         <select id="project-filter">
                             <option value="">All Projects</option>
                         </select>
+                        <select id="test-run-type-filter" title="Filter by test type">
+                            <option value="all">All</option>
+                            <option value="api">API</option>
+                            <option value="ui">UI</option>
+                            <option value="soap">SOAP</option>
+                            <option value="fuzz">Fuzz</option>
+                        </select>
                         <button class="btn" id="apply-filters-btn">Apply</button>
                         <button class="btn btn-secondary" id="clear-filters-btn">Clear</button>
                     </div>
@@ -109,17 +253,349 @@
                 <div id="test-runs-list"></div>
             </div>
 
+            <!-- UI Tests View -->
+            <div id="ui-tests-view" class="view">
+                <div class="view-header">
+                    <h2>UI Tests (Playwright)</h2>
+                    <div class="view-header-actions">
+                        <button class="btn btn-secondary" id="manage-recorded-tests-btn">Manage recorded tests</button>
+                        <button class="btn btn-secondary" id="add-recorded-test-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                            </svg>
+                            Add recorded test
+                        </button>
+                        <button class="btn btn-primary" id="run-ui-tests-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Run UI Tests
+                        </button>
+                    </div>
+                </div>
+                <div class="ui-tests-record-section">
+                    <h3 class="ui-tests-record-title">Record a test</h3>
+                    <p class="ui-tests-record-desc">Define a test by recording browser actions with Playwright Codegen, then paste the generated code here.</p>
+                    <div class="ui-tests-record-actions">
+                        <button class="btn btn-primary" id="add-recorded-test-btn-main">Add recorded test</button>
+                        <button class="btn btn-secondary" id="manage-recorded-tests-btn-main">Manage recorded tests</button>
+                    </div>
+                </div>
+                <p class="ui-tests-runs-note">View all test runs (API and UI) in <strong>Test Runs</strong> in the navigation.</p>
+            </div>
+
+            <!-- Add / Edit Recorded Test view -->
+            <div id="add-recorded-test-view" class="view">
+                <div class="view-header">
+                    <button class="btn btn-secondary" id="back-from-recorded-test">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Back to UI Tests
+                    </button>
+                    <h2 id="recorded-test-form-title">Add recorded test</h2>
+                </div>
+                <div class="recorded-test-page">
+                    <p class="recorded-test-intro">Use Playwright Codegen to record browser interactions. Click "Launch Codegen" to open the browser and Inspector automatically, or copy the command to run it manually in a terminal.</p>
+                    <p class="recorded-test-docs">For more information, view the documentation at <a href="https://playwright.dev/docs/intro" target="_blank" rel="noopener noreferrer">https://playwright.dev/docs/intro</a>.</p>
+                    <div class="recorded-test-example">
+                        <strong class="recorded-test-example-title">Example — what you can record</strong>
+                        <p class="recorded-test-example-desc">Access page https://www.meo.pt/empresas/ and search for text "connect" and click it. Codegen will generate code like:</p>
+                        <pre class="recorded-test-example-code"><code>import { test, expect } from '@playwright/test';
+
+test('test', async ({ page }) => {
+  await page.goto('https://www.meo.pt/empresas');
+  await page.getByRole('button', { name: 'CONCORDO' }).click();
+  await page.getByLabel('Navegação principal').getByRole('menuitem', { name: 'Connect' }).click();
+});</code></pre>
+                    </div>
+                    <div class="form-group">
+                        <label for="recorded-test-codegen-url">Base URL for recording</label>
+                        <div class="input-with-button">
+                            <input type="url" id="recorded-test-codegen-url" placeholder="https://example.com" />
+                            <button type="button" class="btn btn-primary" id="launch-codegen-btn">Launch Codegen</button>
+                            <button type="button" class="btn btn-secondary" id="copy-codegen-cmd-btn">Copy command</button>
+                        </div>
+                    </div>
+
+                    <!-- Remote Codegen noVNC panel (hidden by default; shown when a remote session is active) -->
+                    <div id="codegen-vnc-panel" class="codegen-vnc-panel" style="display: none;">
+                        <div class="codegen-vnc-header">
+                            <div class="codegen-vnc-status">
+                                <span class="codegen-vnc-indicator"></span>
+                                <span id="codegen-vnc-status-text">Recording session active</span>
+                            </div>
+                            <div class="codegen-vnc-timer">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span id="codegen-vnc-timer-text">00:00</span>
+                                <span id="codegen-vnc-remaining" class="codegen-vnc-remaining"></span>
+                            </div>
+                            <button type="button" class="btn btn-secondary" id="codegen-vnc-fullscreen-btn" title="Expand viewer to full screen">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                                </svg>
+                                Full screen
+                            </button>
+                            <button type="button" class="btn btn-error" id="stop-codegen-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                                </svg>
+                                Stop Recording
+                            </button>
+                        </div>
+                        <div class="codegen-vnc-info-box" id="codegen-vnc-connecting-msg">
+                            <p><strong>Status:</strong> Connecting to remote desktop…</p>
+                            <p class="codegen-vnc-info-detail">The viewer below shows the remote browser. A black screen is normal at first — the browser often takes <strong>20–30 seconds</strong> to start. Check the status bar inside the viewer (above the black area) for connection state and hints.</p>
+                        </div>
+                        <div class="codegen-vnc-frame-wrap" id="codegen-vnc-frame-wrap">
+                            <iframe id="codegen-vnc-iframe" class="codegen-vnc-iframe" src="" allow="clipboard-read; clipboard-write" title="Remote Codegen browser"></iframe>
+                            <button type="button" class="codegen-vnc-exit-fullscreen-btn" id="codegen-vnc-exit-fullscreen-btn" title="Exit full screen (Esc)">Exit full screen</button>
+                        </div>
+                        <p class="codegen-vnc-hint">Interact with the browser above to record your test. When done, click <strong>Stop Recording</strong> to save the generated code. If it never appears, see the status bar in the viewer or the browser console (F12) for errors.</p>
+                    </div>
+
+                    <form id="recorded-test-form">
+                        <input type="hidden" id="recorded-test-id" value="" />
+                        <div class="form-group">
+                            <label for="recorded-test-name">Test name <span class="required">*</span></label>
+                            <input type="text" id="recorded-test-name" required placeholder="e.g. Login flow" />
+                        </div>
+                        <div class="form-group">
+                            <label for="recorded-test-base-url">Base URL (optional)</label>
+                            <input type="url" id="recorded-test-base-url" placeholder="https://example.com" />
+                        </div>
+                        <div class="form-group" id="recorded-test-add-to-project-wrap">
+                            <label for="recorded-test-add-to-project">Also add to project (optional)</label>
+                            <select id="recorded-test-add-to-project">
+                                <option value="">None</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="recorded-test-spec">Generated spec (paste from Codegen) <span class="required">*</span></label>
+                            <div class="input-with-button" style="margin-bottom: 8px;">
+                                <button type="button" class="btn btn-secondary" id="load-codegen-output-btn" style="display: none;">Load generated code</button>
+                                <button type="button" class="btn btn-secondary" id="auto-refresh-codegen-btn" style="display: none;">Auto-refresh: OFF</button>
+                            </div>
+                            <textarea id="recorded-test-spec" rows="14" placeholder="Paste the test code from Playwright Inspector here, or click 'Launch Codegen' and then 'Load generated code' to automatically load it (test(..., async ({ page }) => { ... }))" spellcheck="false"></textarea>
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-secondary" id="recorded-test-cancel">Cancel</button>
+                            <button type="submit" class="btn btn-primary" id="recorded-test-save">Save</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Project recorded tests (manage which recorded tests are in this project) -->
+            <div id="project-recorded-tests-view" class="view">
+                <div class="view-header">
+                    <button class="btn btn-secondary" id="back-from-project-recorded-tests">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Back to Project
+                    </button>
+                    <h2 id="project-recorded-tests-title">Recorded tests in project</h2>
+                    <button class="btn btn-primary" id="add-recorded-test-to-project-btn">Add recorded test to project</button>
+                </div>
+                <div id="project-recorded-tests-list" class="recorded-tests-list"></div>
+            </div>
+
+            <!-- Recorded tests list (manage) -->
+            <div id="recorded-tests-list-view" class="view">
+                <div class="view-header">
+                    <button class="btn btn-secondary" id="back-from-recorded-tests-list">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Back to UI Tests
+                    </button>
+                    <h2>Recorded tests</h2>
+                    <button class="btn btn-primary" id="recorded-tests-list-add-new">Add recorded test</button>
+                </div>
+                <div id="recorded-tests-list-container" class="recorded-tests-list"></div>
+            </div>
+
+            <!-- Run UI Tests page: list of tests + Complete / Select test list -->
+            <div id="run-ui-tests-view" class="view">
+                <div class="view-header">
+                    <button class="btn btn-secondary" id="back-from-run-ui-tests">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Back
+                    </button>
+                    <h2>Run UI Tests</h2>
+                </div>
+                <div class="run-ui-tests-page">
+                    <p class="run-ui-tests-intro">Choose a test suite, select which tests to run, then start the run.</p>
+                    <div class="run-ui-tests-options">
+                        <div class="form-group run-ui-tests-suite-wrap">
+                            <label for="run-ui-tests-suite">Test suite</label>
+                            <select id="run-ui-tests-suite">
+                                <option value="all">All tests (built-in + recorded)</option>
+                                <option value="builtin">Built-in tests only</option>
+                                <option value="recorded">Recorded tests only</option>
+                            </select>
+                        </div>
+                        <div class="run-ui-tests-list-type">
+                            <label class="radio-label"><input type="radio" name="test-list-type" value="full" /> Run entire suite</label>
+                            <label class="radio-label"><input type="radio" name="test-list-type" value="selected" checked /> Select which tests to run</label>
+                        </div>
+                    </div>
+                    <div id="playwright-test-list-container" class="test-list-container"></div>
+                    <form id="run-ui-tests-page-form" class="run-ui-tests-form">
+                        <div class="form-group" id="run-ui-tests-project-wrap" style="display: none;">
+                            <label for="run-ui-tests-project-select">Project *</label>
+                            <select id="run-ui-tests-project-select">
+                                <option value="">Select project...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-name">Run name</label>
+                            <input type="text" id="run-ui-tests-name" required placeholder="e.g. 5G API Sprint check" />
+                        </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-base-url">Base URL</label>
+                            <input type="url" id="run-ui-tests-base-url" placeholder="https://5gapisprint.meoempresas.pt/apis" />
+                        </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-browser">Browser</label>
+                            <select id="run-ui-tests-browser">
+                                <option value="chromium">Chromium</option>
+                                <option value="firefox">Firefox</option>
+                                <option value="webkit">WebKit</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-video">Record video of the test run</label>
+                            <select id="run-ui-tests-video">
+                                <option value="off">Off</option>
+                                <option value="on">Always</option>
+                                <option value="retain-on-failure">On failure only</option>
+                            </select>
+                            <span class="form-hint">WebM video of the run. Turn on (Always or On failure only) to get a video for each test.</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-trace">Record trace of the test run</label>
+                            <select id="run-ui-tests-trace">
+                                <option value="off">Off</option>
+                                <option value="on">Always</option>
+                                <option value="retain-on-failure">On failure only</option>
+                            </select>
+                            <span class="form-hint">Trace for time-travel debugging. View: open trace.playwright.dev and drag the .zip there, or use View Trace on the run result.</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-slow-mo">Slow motion (ms)</label>
+                            <input type="number" id="run-ui-tests-slow-mo" min="0" max="2000" step="50" placeholder="0 = off" value="0" />
+                            <span class="form-hint">Optional. Delay between actions in ms (e.g. 250 for debugging).</span>
+                        </div>
+                        <div class="form-group run-ui-tests-show-browser-wrap">
+                            <div class="run-ui-tests-show-browser-options">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="run-ui-tests-show-browser" />
+                                    Show browser during run
+                                </label>
+                                <span class="form-hint">When checked, the browser window will be visible while tests run; when unchecked, tests run headless.</span>
+                            </div>
+                            <p id="run-ui-tests-no-display-msg" class="form-hint run-ui-tests-no-display-hint" style="display: none;">Show browser is not available on this server (no display). UI tests will run headless.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-timeout">Test timeout (seconds)</label>
+                            <input type="number" id="run-ui-tests-timeout" min="10" max="300" step="10" placeholder="e.g. 60 (default from server)" />
+                            <span class="form-hint">Optional. Max time per test (default 60s). Increase if recorded tests time out (e.g. 90 or 120).</span>
+                        </div>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-secondary" id="run-ui-tests-cancel">Cancel</button>
+                            <button type="submit" class="btn btn-primary">Run</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- UI Test Run Detail View -->
+            <div id="ui-test-detail-view" class="view">
+                <div class="view-header">
+                    <button class="btn btn-secondary" id="back-to-ui-tests">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Back
+                    </button>
+                    <h2 id="ui-test-detail-name"></h2>
+                </div>
+                <div class="test-run-detail-content">
+                    <div class="test-run-info" id="ui-test-info"></div>
+                    <div id="ui-test-timeout-hint" class="form-hint" style="display: none; margin-bottom: 8px;"></div>
+                    <div class="test-run-actions">
+                        <button class="btn btn-primary" id="view-ui-report-btn" title="View Report">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            View Report
+                        </button>
+                        <button class="btn btn-secondary" id="download-ui-report-btn" title="Download Report">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Download Report
+                        </button>
+                        <button class="btn btn-secondary" id="view-ui-video-btn" title="View Video" style="display: none;">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            View Video
+                        </button>
+                        <button class="btn btn-secondary" id="view-ui-trace-btn" title="View Trace in browser" style="display: none;">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            View Trace
+                        </button>
+                        <button class="btn btn-secondary" id="download-ui-trace-btn" title="Download Trace" style="display: none;">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Download Trace
+                        </button>
+                    </div>
+                    <div id="playwright-results-list"></div>
+                </div>
+            </div>
+
             <!-- Test Run Detail View -->
             <div id="test-run-detail-view" class="view">
                 <div class="view-header">
-                    <button class="btn btn-secondary" id="back-to-test-runs">← Back to Test Runs</button>
+                    <button class="btn btn-secondary" id="back-to-test-runs">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Back to Test Runs
+                    </button>
                     <h2 id="test-run-detail-name"></h2>
                 </div>
                 <div class="test-run-detail-content">
                     <div class="test-run-info" id="test-run-info"></div>
                     <div class="test-run-actions">
-                        <button class="btn btn-primary" id="view-report-btn">View Report</button>
-                        <button class="btn btn-secondary" id="download-report-btn">Download Report</button>
+                        <button class="btn btn-primary" id="view-report-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            View Report
+                        </button>
+                        <button class="btn btn-secondary" id="download-report-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Download Report
+                        </button>
                     </div>
                     <div id="test-results-list"></div>
                 </div>
@@ -132,7 +608,11 @@
         <div class="modal">
             <div class="modal-header">
                 <h3 id="modal-title"></h3>
-                <button class="modal-close">&times;</button>
+                <button class="modal-close" aria-label="Close modal">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
             </div>
             <div class="modal-body" id="modal-body"></div>
         </div>
@@ -142,6 +622,7 @@
     <script src="/js/projectManager.js"></script>
     <script src="/js/testRunner.js"></script>
     <script src="/js/reportViewer.js"></script>
+    <script src="/js/uiTests.js"></script>
 </body>
 </html>
 

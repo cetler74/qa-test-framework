@@ -21,13 +21,13 @@ const storage = multer.diskStorage({
   }
 });
 
-// File filter for YAML/JSON files
+// File filter for YAML/JSON/WSDL files
 const fileFilter = (req, file, cb) => {
   const ext = path.extname(file.originalname).toLowerCase();
-  if (['.yaml', '.yml', '.json'].includes(ext)) {
+  if (['.yaml', '.yml', '.json', '.wsdl', '.xml'].includes(ext)) {
     cb(null, true);
   } else {
-    const error = new Error('Only YAML and JSON files are allowed');
+    const error = new Error('Only YAML, JSON, and WSDL files are allowed');
     req.fileValidationError = error.message;
     cb(error, false);
   }
@@ -118,9 +118,41 @@ function validatePostmanCollection(filePath) {
   }
 }
 
+/**
+ * Parse WSDL file and return list of operations { name, operation_name }
+ * @param {string} filePath - Path to WSDL file
+ * @returns {Promise<Array<{ name: string, operation_name: string }>>}
+ */
+function parseWSDLToOperations(filePath) {
+  return new Promise((resolve, reject) => {
+    const soap = require('soap');
+    const url = path.resolve(filePath);
+    soap.createClient(url, (err, client) => {
+      if (err) {
+        return reject(new Error(`Invalid WSDL: ${err.message}`));
+      }
+      const desc = client.describe();
+      const operations = [];
+      for (const serviceName of Object.keys(desc || {})) {
+        const service = desc[serviceName];
+        for (const portName of Object.keys(service || {})) {
+          const port = service[portName];
+          for (const opName of Object.keys(port || {})) {
+            if (opName && typeof port[opName] === 'object') {
+              operations.push({ name: opName, operation_name: opName });
+            }
+          }
+        }
+      }
+      resolve(operations);
+    });
+  });
+}
+
 module.exports = {
   upload,
   validateAndParseApiSpec,
-  validatePostmanCollection
+  validatePostmanCollection,
+  parseWSDLToOperations
 };
 
