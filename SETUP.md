@@ -200,7 +200,7 @@ npm run migrate
 
 This will:
 - Create the database if it doesn't exist (name from `DB_NAME` in `.env`)
-- Run all migration files in order, including: projects, API specs, collections, test runs, Playwright runs/results/recorded tests, flows, schedules, SOAP, fuzz runs, and **users/project access** (migration `015_users_and_project_access.sql`)
+- Run all migration files in order, including: projects, API specs, collections, test runs, Playwright runs/results/recorded tests, flows, schedules, SOAP, fuzz runs, **users/project access** (migration `015_users_and_project_access.sql`), and **users.suspended** (migration `016_users_suspended.sql`)
 
 ### 3. Auth and Initial Admin User
 

@@ -115,6 +115,7 @@ This migration script will:
   - `013_playwright_run_artifacts_browser.sql` - Playwright run artifacts and browser
   - `014_playwright_result_video_trace.sql` - Video and trace on playwright results
   - `015_users_and_project_access.sql` - users, project owner/visibility, project_members (auth and project access)
+  - `016_users_suspended.sql` - adds `suspended` flag to users (suspended users cannot log in)
 
 ### Migration Files
 
@@ -136,6 +137,7 @@ The `migrations/` directory contains SQL migration files that are executed in al
 - **013_playwright_run_artifacts_browser.sql** - Playwright run artifacts and browser
 - **014_playwright_result_video_trace.sql** - Video and trace on playwright results
 - **015_users_and_project_access.sql** - `users`, project `owner_id`/`visibility`, `project_members` (authentication and project access)
+- **016_users_suspended.sql** - `suspended` column on `users` (suspended users cannot log in; used by Manage users)
 
 ### Manual Database Setup (Alternative)
 
@@ -202,6 +204,14 @@ The application uses the following main tables:
   ```sql
   CREATE DATABASE qa_framework;
   ```
+
+**Login returns 500 or "column suspended does not exist"**
+
+- Solution: Run all migrations so the `users` table has the `suspended` column:
+  ```bash
+  npm run migrate
+  ```
+  Then restart the server.
 
 ## Dependency checklist (local run)
 

@@ -25,8 +25,13 @@ async function checkAuth() {
       hideLoginView();
       const userNameEl = document.getElementById('user-name');
       const userMenuEl = document.getElementById('user-menu');
+      const avatarEl = document.getElementById('user-dropdown-avatar');
       if (userNameEl) userNameEl.textContent = currentUser.display_name || currentUser.username;
       if (userMenuEl) userMenuEl.style.display = 'flex';
+      if (avatarEl) {
+        const name = currentUser.display_name || currentUser.username || '?';
+        avatarEl.textContent = name.charAt(0).toUpperCase();
+      }
       const userMgmtItem = document.getElementById('settings-item-user-management');
       if (userMgmtItem) userMgmtItem.style.display = currentUser.is_admin ? 'flex' : 'none';
       return true;
@@ -112,6 +117,7 @@ function showView(viewId) {
     settingsNavBtn.classList.add('active');
   }
   closeSettingsDropdown();
+  closeUserDropdown();
 }
 
 function closeSettingsDropdown() {
@@ -119,6 +125,15 @@ function closeSettingsDropdown() {
   const btn = document.getElementById('settings-nav-btn');
   if (menu) menu.classList.remove('open');
   if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function closeUserDropdown() {
+  const container = document.querySelector('.user-dropdown');
+  const menu = document.getElementById('user-dropdown-menu');
+  const trigger = document.getElementById('user-dropdown-trigger');
+  if (container) container.classList.remove('open');
+  if (menu) menu.classList.remove('open');
+  if (trigger) trigger.setAttribute('aria-expanded', 'false');
 }
 
 // Modal management
@@ -192,6 +207,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (btn.id === 'settings-nav-btn') {
         e.preventDefault();
         e.stopPropagation();
+        closeUserDropdown();
         const menu = document.getElementById('settings-dropdown-menu');
         const isOpen = menu ? menu.classList.toggle('open') : false;
         btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
@@ -216,9 +232,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // Close Settings dropdown when clicking outside
-  document.addEventListener('click', () => closeSettingsDropdown());
+  // User dropdown: toggle on trigger, close Settings when opening
+  const userDropdownTrigger = document.getElementById('user-dropdown-trigger');
+  if (userDropdownTrigger) {
+    userDropdownTrigger.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeSettingsDropdown();
+      const container = document.querySelector('.user-dropdown');
+      const menu = document.getElementById('user-dropdown-menu');
+      if (container && menu) {
+        const isOpen = !menu.classList.contains('open');
+        menu.classList.toggle('open', isOpen);
+        container.classList.toggle('open', isOpen);
+        userDropdownTrigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      }
+    });
+  }
+
+  // Close both dropdowns when clicking outside
+  document.addEventListener('click', () => {
+    closeSettingsDropdown();
+    closeUserDropdown();
+  });
   document.querySelector('.settings-dropdown')?.addEventListener('click', (e) => e.stopPropagation());
+  document.querySelector('.user-dropdown')?.addEventListener('click', (e) => e.stopPropagation());
 
   // User management: Create user button, form, cancel
   const createUserBtn = document.getElementById('user-management-create-btn');
@@ -270,6 +308,120 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
   }
+
+  // User management: Edit, Change password, Suspend, Delete (delegated)
+  document.getElementById('app-container')?.addEventListener('click', async (e) => {
+    const list = document.getElementById('user-management-list');
+    if (!list || !list.contains(e.target)) return;
+    const btn = e.target.closest('[data-action="edit-user"], [data-action="change-password-user"], [data-action="suspend-user"], [data-action="delete-user"]');
+    if (!btn) return;
+    e.preventDefault();
+    const userId = parseInt(btn.getAttribute('data-user-id'), 10);
+    if (!userId) return;
+    if (btn.getAttribute('data-action') === 'edit-user') {
+      const displayName = btn.getAttribute('data-display-name') || '';
+      const isAdmin = btn.getAttribute('data-is-admin') === '1';
+      const body = `
+        <form id="edit-user-form" class="modal-form" data-user-id="${userId}">
+          <div class="form-group">
+            <label for="edit-user-display-name">Display name</label>
+            <input type="text" id="edit-user-display-name" value="${(displayName || '').replace(/"/g, '&quot;')}" />
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="edit-user-is-admin" ${isAdmin ? 'checked' : ''} />
+              Administrator
+            </label>
+          </div>
+          <p id="edit-user-error" class="login-error" style="display: none;"></p>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          </div>
+        </form>
+      `;
+      showModal('Edit user', body);
+    } else if (btn.getAttribute('data-action') === 'change-password-user') {
+      const body = `
+        <form id="change-password-form" class="modal-form" data-user-id="${userId}">
+          <div class="form-group">
+            <label for="edit-user-password">New password</label>
+            <input type="password" id="edit-user-password" minlength="6" autocomplete="new-password" required />
+            <p class="form-hint">At least 6 characters.</p>
+          </div>
+          <div class="form-group">
+            <label for="edit-user-password-confirm">Confirm password</label>
+            <input type="password" id="edit-user-password-confirm" minlength="6" autocomplete="new-password" required />
+          </div>
+          <p id="change-password-error" class="login-error" style="display: none;"></p>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Update password</button>
+            <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          </div>
+        </form>
+      `;
+      showModal('Change password', body);
+    } else if (btn.getAttribute('data-action') === 'suspend-user') {
+      const currentlySuspended = btn.getAttribute('data-suspended') === '1';
+      try {
+        await apiRequest('/users/' + userId, { method: 'PATCH', body: { suspended: !currentlySuspended } });
+        loadUserManagement();
+      } catch (err) {
+        alert(err.message || 'Failed to update user');
+      }
+    } else if (btn.getAttribute('data-action') === 'delete-user') {
+      const username = btn.getAttribute('data-username') || 'this user';
+      if (!confirm('Delete user “‘ + username + ’”? This cannot be undone.')) return;
+      try {
+        await apiRequest('/users/' + userId, { method: 'DELETE' });
+        loadUserManagement();
+      } catch (err) {
+        alert(err.message || 'Failed to delete user');
+      }
+    }
+  });
+
+  // Modal form submit: Edit user and Change password
+  document.getElementById('modal-overlay')?.addEventListener('submit', async (e) => {
+    const form = e.target;
+    if (form.id === 'edit-user-form') {
+      e.preventDefault();
+      const userId = form.getAttribute('data-user-id');
+      const display_name = document.getElementById('edit-user-display-name')?.value?.trim();
+      const is_admin = document.getElementById('edit-user-is-admin')?.checked;
+      const errEl = document.getElementById('edit-user-error');
+      if (errEl) errEl.style.display = 'none';
+      try {
+        await apiRequest('/users/' + userId, { method: 'PATCH', body: { display_name: display_name || undefined, is_admin: !!is_admin } });
+        hideModal();
+        loadUserManagement();
+      } catch (err) {
+        if (errEl) { errEl.textContent = err.message || 'Failed to save.'; errEl.style.display = 'block'; }
+      }
+    } else if (form.id === 'change-password-form') {
+      e.preventDefault();
+      const userId = form.getAttribute('data-user-id');
+      const password = document.getElementById('edit-user-password')?.value;
+      const confirmPassword = document.getElementById('edit-user-password-confirm')?.value;
+      const errEl = document.getElementById('change-password-error');
+      if (errEl) errEl.style.display = 'none';
+      if (!password || password.length < 6) {
+        if (errEl) { errEl.textContent = 'Password must be at least 6 characters.'; errEl.style.display = 'block'; }
+        return;
+      }
+      if (password !== confirmPassword) {
+        if (errEl) { errEl.textContent = 'Passwords do not match.'; errEl.style.display = 'block'; }
+        return;
+      }
+      try {
+        await apiRequest('/users/' + userId, { method: 'PATCH', body: { password } });
+        hideModal();
+        loadUserManagement();
+      } catch (err) {
+        if (errEl) { errEl.textContent = err.message || 'Failed to update password.'; errEl.style.display = 'block'; }
+      }
+    }
+  });
 
   // Modal close
   document.querySelector('.modal-close').addEventListener('click', hideModal);
@@ -382,6 +534,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
   }
+
+  // Dashboard: click or Enter/Space on a next-scheduled item opens edit schedule modal
+  document.getElementById('app-container')?.addEventListener('click', (e) => {
+    const item = e.target.closest('#next-scheduled-list .next-scheduled-item');
+    if (item && typeof editSchedule === 'function') {
+      const scheduleId = parseInt(item.getAttribute('data-schedule-id'), 10);
+      const projectId = parseInt(item.getAttribute('data-project-id'), 10);
+      if (scheduleId && projectId) editSchedule(scheduleId, projectId);
+    }
+  });
+  document.getElementById('app-container')?.addEventListener('keydown', (e) => {
+    const item = e.target.closest('#next-scheduled-list .next-scheduled-item');
+    if (item && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      if (typeof editSchedule === 'function') {
+        const scheduleId = parseInt(item.getAttribute('data-schedule-id'), 10);
+        const projectId = parseInt(item.getAttribute('data-project-id'), 10);
+        if (scheduleId && projectId) editSchedule(scheduleId, projectId);
+      }
+    }
+  });
 });
 
 // Load view data
@@ -512,14 +685,29 @@ async function loadUserManagement() {
     if (!users || users.length === 0) {
       listEl.innerHTML = '<p class="empty-state">No users yet. Create one below.</p>';
     } else {
+      const currentUserId = currentUser ? currentUser.id : null;
       listEl.innerHTML = users.map(u => {
         const adminBadge = u.is_admin ? '<span class="visibility-badge visibility-shared">Admin</span>' : '';
+        const suspendedBadge = u.suspended ? '<span class="status-badge failed">Suspended</span>' : '';
         const source = u.auth_source || 'local';
+        const isSelf = u.id === currentUserId;
+        const displayName = (u.display_name || u.username || '').replace(/</g, '&lt;');
+        const username = (u.username || '').replace(/</g, '&lt;');
+        const editBtn = '<button type="button" class="btn btn-secondary btn-sm" data-action="edit-user" data-user-id="' + u.id + '" data-display-name="' + (u.display_name || '').replace(/"/g, '&quot;') + '" data-is-admin="' + (u.is_admin ? '1' : '0') + '" title="Edit name and role">Edit</button>';
+        const pwdBtn = source === 'local' ? '<button type="button" class="btn btn-secondary btn-sm" data-action="change-password-user" data-user-id="' + u.id + '" title="Change password">Change password</button>' : '';
+        const suspendBtn = !isSelf ? '<button type="button" class="btn btn-secondary btn-sm" data-action="suspend-user" data-user-id="' + u.id + '" data-suspended="' + (u.suspended ? '1' : '0') + '" title="' + (u.suspended ? 'Unsuspend user' : 'Suspend user') + '">' + (u.suspended ? 'Unsuspend' : 'Suspend') + '</button>' : '';
+        const deleteBtn = !isSelf ? '<button type="button" class="btn btn-danger btn-sm" data-action="delete-user" data-user-id="' + u.id + '" data-username="' + username.replace(/"/g, '&quot;') + '" title="Delete user">Delete</button>' : '';
         return `
-          <div class="list-item">
+          <div class="list-item user-management-item" data-user-id="${u.id}">
             <div class="list-item-info">
-              <h3>${(u.display_name || u.username || '').replace(/</g, '&lt;')} ${adminBadge}</h3>
-              <p>${(u.username || '').replace(/</g, '&lt;')} · ${source}</p>
+              <h3>${displayName} ${adminBadge} ${suspendedBadge}</h3>
+              <p>${username} · ${source}</p>
+            </div>
+            <div class="list-item-actions">
+              ${editBtn}
+              ${pwdBtn}
+              ${suspendBtn}
+              ${deleteBtn}
             </div>
           </div>
         `;
@@ -557,7 +745,8 @@ async function loadDashboard() {
         nextScheduledList.innerHTML = schedules.map(s => {
           const target = s.flow ? `Flow: ${s.flow.name}` : 'Whole project';
           const next = s.next_run_at ? formatDateTime(s.next_run_at) : '–';
-          return `<div class="list-item" style="padding: 12px 16px;"><div class="list-item-info"><h3 style="font-size: 14px;">${(s.project?.name || 'Project')} – ${target}</h3><p style="font-size: 12px;">Next: ${next}</p></div></div>`;
+          const projectId = s.project_id || (s.project && s.project.id) || 0;
+          return `<div class="list-item next-scheduled-item" style="padding: 12px 16px; cursor: pointer;" data-schedule-id="${s.id}" data-project-id="${projectId}" role="button" tabindex="0" title="Edit schedule"><div class="list-item-info"><h3 style="font-size: 14px;">${(s.project?.name || 'Project').replace(/</g, '&lt;')} – ${(target || '').replace(/</g, '&lt;')}</h3><p style="font-size: 12px;">Next: ${(next || '').replace(/</g, '&lt;')}</p></div></div>`;
         }).join('');
       }
     }

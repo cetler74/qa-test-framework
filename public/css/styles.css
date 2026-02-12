@@ -138,7 +138,7 @@ select:focus {
    ============================================ */
 
 header {
-    background: var(--color-gray-900);
+    background: #00474F;
     color: var(--color-text-inverse);
     padding: var(--spacing-xl) var(--spacing-2xl);
     display: flex;
@@ -257,19 +257,116 @@ header h1 {
     color: var(--color-primary);
 }
 
-.user-menu {
+/* User profile dropdown in header */
+.user-dropdown {
+    position: relative;
+    margin-left: var(--spacing-sm);
+}
+
+.user-dropdown-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: var(--radius-md);
+    color: var(--color-text-inverse);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-base);
+}
+
+.user-dropdown-trigger:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
+.user-dropdown-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    color: var(--color-text-inverse);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.user-dropdown-name {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.user-dropdown-chevron {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    stroke-width: 2;
+    transition: transform var(--transition-fast);
+}
+
+.user-dropdown.open .user-dropdown-chevron {
+    transform: rotate(180deg);
+}
+
+.user-dropdown-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: var(--spacing-xs);
+    min-width: 200px;
+    padding: var(--spacing-sm);
+    background: var(--color-white);
+    border: 1px solid var(--color-gray-200);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    z-index: 100;
+}
+
+.user-dropdown-menu.open {
+    display: block;
+}
+
+.user-dropdown-item {
     display: flex;
     align-items: center;
     gap: var(--spacing-md);
-    margin-left: var(--spacing-sm);
-}
-.user-menu .user-name {
+    width: 100%;
+    padding: var(--spacing-md) var(--spacing-lg);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-primary);
     font-size: 14px;
-    color: rgba(255, 255, 255, 0.9);
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--transition-fast);
 }
-.user-menu .nav-btn {
-    padding: var(--spacing-xs) var(--spacing-md);
-    font-size: 13px;
+
+.user-dropdown-item:hover:not(:disabled) {
+    background: var(--color-gray-100);
+}
+
+.user-dropdown-item:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.user-dropdown-item svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    stroke-width: 2;
+    color: var(--color-primary);
 }
 
 /* ============================================
@@ -470,7 +567,15 @@ header h1 {
     margin-bottom: var(--spacing-md);
 }
 .user-management-list-wrap .list-item {
-    max-width: 560px;
+    max-width: none;
+}
+
+.user-management-item .list-item-info {
+    cursor: default;
+}
+
+.user-management-list-wrap .list-item-actions {
+    flex-wrap: wrap;
 }
 .checkbox-label {
     display: inline-flex;
@@ -494,6 +599,7 @@ header h1 {
 
 main {
     padding: var(--spacing-2xl);
+    background: #f5f5f5;
 }
 
 .view {
@@ -558,6 +664,11 @@ main {
 .btn:focus {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
+}
+
+.btn-sm {
+    padding: var(--spacing-xs) var(--spacing-md);
+    font-size: 13px;
 }
 
 .btn-primary {
@@ -634,13 +745,41 @@ main {
     margin-bottom: var(--spacing-2xl);
 }
 
+/* Dashboard two-column grid below stats */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-2xl);
+    margin-top: 0;
+}
+
+.dashboard-left {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2xl);
+}
+
+.dashboard-left .dashboard-card {
+    margin-top: 0;
+}
+
+.dashboard-right .dashboard-card {
+    margin-top: 0;
+}
+
+@media (max-width: 900px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 .stat-card {
     background: var(--color-white);
     border: none;
     border-radius: var(--radius-lg);
     padding: var(--spacing-2xl);
     text-align: center;
-    box-shadow: var(--shadow-md);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     transition: all var(--transition-base);
     position: relative;
     overflow: hidden;
@@ -657,7 +796,7 @@ main {
 }
 
 .stat-card:hover {
-    box-shadow: var(--shadow-lg);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
     transform: translateY(-2px);
 }
 
@@ -690,7 +829,7 @@ main {
     padding: var(--spacing-xl);
     background: var(--color-white);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     border: 1px solid var(--color-gray-200);
 }
 
@@ -719,7 +858,7 @@ main {
 }
 
 .recent-test-runs {
-    margin-top: var(--spacing-2xl);
+    margin-top: 0;
 }
 
 .recent-test-runs h3 {
@@ -1330,17 +1469,60 @@ main {
 
 .schedule-type-tabs {
     display: flex;
-    gap: 16px;
-    margin-bottom: 12px;
+    gap: var(--spacing-lg);
+    margin-top: var(--spacing-sm);
+    margin-bottom: var(--spacing-lg);
     flex-wrap: wrap;
 }
 
 .schedule-type-tabs .radio-label {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--spacing-md);
     cursor: pointer;
-    font-weight: 500;
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--color-text-primary);
+    padding: var(--spacing-md) var(--spacing-xl);
+    border: 2px solid var(--color-gray-200);
+    border-radius: var(--radius-md);
+    background: var(--color-gray-50);
+    transition: border-color var(--transition-base), background var(--transition-base), color var(--transition-base);
+}
+
+.schedule-type-tabs .radio-label:hover {
+    border-color: var(--color-gray-300);
+    background: var(--color-white);
+}
+
+.schedule-type-tabs .radio-label:has(input:checked) {
+    border-color: var(--color-primary);
+    background: rgba(20, 184, 166, 0.08);
+    color: var(--color-text-primary);
+}
+
+.schedule-type-tabs .radio-label input[type="radio"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--color-primary);
+}
+
+/* Enabled checkbox row in schedule form */
+.schedule-form .form-group label.radio-label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--color-text-primary);
+    padding: var(--spacing-sm) 0;
+}
+
+.schedule-form .form-group label.radio-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--color-primary);
 }
 
 .schedule-preset-row {
@@ -1404,6 +1586,27 @@ main {
 
 .dark-theme .modal-actions {
     border-top-color: var(--color-border) !important;
+}
+
+.dark-theme .schedule-type-tabs .radio-label {
+    color: var(--color-text-primary) !important;
+    border-color: var(--color-border) !important;
+    background: var(--color-bg-tertiary) !important;
+}
+
+.dark-theme .schedule-type-tabs .radio-label:hover {
+    background: var(--color-bg-secondary) !important;
+    border-color: var(--color-gray-500) !important;
+}
+
+.dark-theme .schedule-type-tabs .radio-label:has(input:checked) {
+    border-color: var(--color-primary) !important;
+    background: rgba(20, 184, 166, 0.15) !important;
+    color: var(--color-text-primary) !important;
+}
+
+.dark-theme .schedule-form .form-group label.radio-label {
+    color: var(--color-text-primary) !important;
 }
 
 /* ============================================
@@ -1694,6 +1897,10 @@ main {
     background: var(--color-bg-primary) !important;
 }
 
+.dark-theme main {
+    background: var(--color-bg-primary) !important;
+}
+
 .dark-theme header {
     background: var(--color-gray-800) !important;
     color: var(--color-text-inverse) !important;
@@ -1727,6 +1934,23 @@ main {
 }
 
 .dark-theme .settings-dropdown-item svg {
+    color: var(--color-primary) !important;
+}
+
+.dark-theme .user-dropdown-menu {
+    background: var(--color-bg-secondary) !important;
+    border-color: var(--color-border) !important;
+}
+
+.dark-theme .user-dropdown-item {
+    color: var(--color-text-primary) !important;
+}
+
+.dark-theme .user-dropdown-item:hover:not(:disabled) {
+    background: var(--color-bg-tertiary) !important;
+}
+
+.dark-theme .user-dropdown-item svg {
     color: var(--color-primary) !important;
 }
 

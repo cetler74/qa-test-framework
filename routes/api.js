@@ -42,7 +42,7 @@ function normalizeRecordedSpecTitle(specContent, recordedName) {
 router.get('/users', async (req, res) => {
   try {
     const attrs = ['id', 'username', 'display_name'];
-    if (req.user.is_admin) attrs.push('is_admin', 'auth_source');
+    if (req.user.is_admin) attrs.push('is_admin', 'auth_source', 'suspended');
     const users = await User.findAll({
       attributes: attrs,
       order: [['username', 'ASC']]
@@ -82,6 +82,63 @@ router.post('/users', async (req, res) => {
   } catch (error) {
     console.error('Create user error:', error);
     res.status(500).json({ error: error.message || 'Failed to create user' });
+  }
+});
+
+// Update user (admin only): display_name, is_admin, suspended; password for local auth only
+router.patch('/users/:id', async (req, res) => {
+  try {
+    if (!req.user.is_admin) return res.status(403).json({ error: 'Admin only' });
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: 'Invalid user ID' });
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const { display_name, is_admin, suspended, password } = req.body || {};
+
+    const updates = {};
+    if (typeof display_name !== 'undefined') updates.display_name = (display_name || '').trim() || user.username;
+    if (typeof is_admin !== 'undefined') {
+      if (user.id === req.user.id && !is_admin) return res.status(400).json({ error: 'You cannot remove your own admin role' });
+      updates.is_admin = !!is_admin;
+    }
+    if (typeof suspended !== 'undefined') {
+      if (user.id === req.user.id && suspended) return res.status(400).json({ error: 'You cannot suspend yourself' });
+      updates.suspended = !!suspended;
+    }
+    if (user.auth_source === 'local' && password !== undefined && password !== '') {
+      const pwd = String(password);
+      if (pwd.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      updates.password_hash = await bcrypt.hash(pwd, 10);
+    }
+    await user.update(updates);
+    res.json({
+      id: user.id,
+      username: user.username,
+      display_name: user.display_name,
+      is_admin: user.is_admin,
+      auth_source: user.auth_source,
+      suspended: user.suspended
+    });
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update user' });
+  }
+});
+
+// Delete user (admin only). Cannot delete self.
+router.delete('/users/:id', async (req, res) => {
+  try {
+    if (!req.user.is_admin) return res.status(403).json({ error: 'Admin only' });
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: 'Invalid user ID' });
+    if (userId === req.user.id) return res.status(400).json({ error: 'You cannot delete your own account' });
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await user.destroy();
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete user' });
   }
 });
 

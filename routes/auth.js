@@ -46,7 +46,7 @@ router.post('/login', async (req, res) => {
 async function loginLocal(username, password) {
   if (!ENABLE_LOCAL) return null;
   const user = await User.findOne({ where: { username, auth_source: 'local' } });
-  if (!user || !user.password_hash) return null;
+  if (!user || !user.password_hash || user.suspended) return null;
   const match = await bcrypt.compare(password, user.password_hash);
   return match ? user : null;
 }
@@ -114,6 +114,7 @@ async function findOrCreateAdUser(username, displayName, adDn) {
   let user = await User.findOne({ where: { username } });
   if (user) {
     if (user.auth_source !== 'ad') return null;
+    if (user.suspended) return null;
     await user.update({
       display_name: displayName || user.display_name,
       ad_dn: adDn || user.ad_dn,
