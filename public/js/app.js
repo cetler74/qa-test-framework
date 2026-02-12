@@ -1,10 +1,48 @@
 // API Base URL
 const API_BASE = '/api';
 
+// Auth state
+let currentUser = null;
+
+function showLoginView() {
+  document.getElementById('login-view').style.display = 'flex';
+  document.getElementById('app-container').style.display = 'none';
+  currentUser = null;
+  window.currentUser = null;
+}
+
+function hideLoginView() {
+  document.getElementById('login-view').style.display = 'none';
+  document.getElementById('app-container').style.display = '';
+}
+
+async function checkAuth() {
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' });
+    if (res.ok) {
+      currentUser = await res.json();
+      window.currentUser = currentUser;
+      hideLoginView();
+      const userNameEl = document.getElementById('user-name');
+      const userMenuEl = document.getElementById('user-menu');
+      if (userNameEl) userNameEl.textContent = currentUser.display_name || currentUser.username;
+      if (userMenuEl) userMenuEl.style.display = 'flex';
+      const userMgmtItem = document.getElementById('settings-item-user-management');
+      if (userMgmtItem) userMgmtItem.style.display = currentUser.is_admin ? 'flex' : 'none';
+      return true;
+    }
+  } catch (e) {}
+  currentUser = null;
+  window.currentUser = null;
+  showLoginView();
+  return false;
+}
+
 // Utility functions
 async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
   const config = {
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...options.headers
@@ -18,8 +56,12 @@ async function apiRequest(endpoint, options = {}) {
 
   try {
     const response = await fetch(url, config);
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
     
+    if (response.status === 401) {
+      showLoginView();
+      throw new Error('Authentication required');
+    }
     if (!response.ok) {
       throw new Error(data.error || 'Request failed');
     }
@@ -66,7 +108,7 @@ function showView(viewId) {
   const navBtn = document.querySelector(`.main-nav .nav-btn[data-view="${viewId}"]`);
   if (navBtn) navBtn.classList.add('active');
   const settingsNavBtn = document.getElementById('settings-nav-btn');
-  if (settingsNavBtn && (viewId === 'api-specs' || viewId === 'ui-tests')) {
+  if (settingsNavBtn && (viewId === 'api-specs' || viewId === 'ui-tests' || viewId === 'project-access' || viewId === 'user-management')) {
     settingsNavBtn.classList.add('active');
   }
   closeSettingsDropdown();
@@ -91,8 +133,60 @@ function hideModal() {
 }
 
 // Event listeners
-document.addEventListener('DOMContentLoaded', () => {
-  // Navigation
+document.addEventListener('DOMContentLoaded', async () => {
+  // Auth: check session first
+  await checkAuth();
+
+  document.querySelectorAll('.login-strategy-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const strategy = tab.getAttribute('data-strategy');
+      document.getElementById('login-strategy').value = strategy;
+      document.querySelectorAll('.login-strategy-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('login-error').style.display = 'none';
+    });
+  });
+
+  document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const strategy = document.getElementById('login-strategy').value;
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    const errEl = document.getElementById('login-error');
+    const submitBtn = document.getElementById('login-submit');
+    errEl.style.display = 'none';
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ strategy, username, password })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        errEl.textContent = data.error || 'Login failed';
+        errEl.style.display = 'block';
+        return;
+      }
+      await checkAuth();
+      if (currentUser) loadViewData('dashboard');
+    } catch (err) {
+      errEl.textContent = err.message || 'Login failed';
+      errEl.style.display = 'block';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  document.getElementById('logout-btn').addEventListener('click', async () => {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
+    } catch (e) {}
+    showLoginView();
+  });
+
+  // Navigation (only relevant when logged in)
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       if (btn.id === 'settings-nav-btn') {
@@ -125,6 +219,57 @@ document.addEventListener('DOMContentLoaded', () => {
   // Close Settings dropdown when clicking outside
   document.addEventListener('click', () => closeSettingsDropdown());
   document.querySelector('.settings-dropdown')?.addEventListener('click', (e) => e.stopPropagation());
+
+  // User management: Create user button, form, cancel
+  const createUserBtn = document.getElementById('user-management-create-btn');
+  const createUserCard = document.getElementById('user-management-create-card');
+  const createUserForm = document.getElementById('user-management-create-form');
+  const createUserCancel = document.getElementById('user-management-create-cancel');
+  if (createUserBtn) {
+    createUserBtn.addEventListener('click', () => {
+      if (createUserCard) createUserCard.style.display = 'block';
+    });
+  }
+  if (createUserCancel) {
+    createUserCancel.addEventListener('click', () => {
+      if (createUserCard) createUserCard.style.display = 'none';
+      const errEl = document.getElementById('user-management-create-error');
+      if (errEl) errEl.style.display = 'none';
+    });
+  }
+  if (createUserForm) {
+    createUserForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('new-user-username')?.value?.trim();
+      const password = document.getElementById('new-user-password')?.value;
+      const display_name = document.getElementById('new-user-display-name')?.value?.trim();
+      const is_admin = document.getElementById('new-user-is-admin')?.checked;
+      const errEl = document.getElementById('user-management-create-error');
+      if (errEl) errEl.style.display = 'none';
+      if (!username) {
+        if (errEl) { errEl.textContent = 'Username is required.'; errEl.style.display = 'block'; }
+        return;
+      }
+      if (!password || password.length < 6) {
+        if (errEl) { errEl.textContent = 'Password must be at least 6 characters.'; errEl.style.display = 'block'; }
+        return;
+      }
+      try {
+        await apiRequest('/users', {
+          method: 'POST',
+          body: { username, password, display_name, is_admin: !!is_admin }
+        });
+        if (createUserCard) createUserCard.style.display = 'none';
+        createUserForm.reset();
+        loadUserManagement();
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = err.message || 'Failed to create user.';
+          errEl.style.display = 'block';
+        }
+      }
+    });
+  }
 
   // Modal close
   document.querySelector('.modal-close').addEventListener('click', hideModal);
@@ -163,8 +308,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Initial load
-  loadDashboard();
+  // Initial load (only when logged in)
+  if (currentUser) loadDashboard();
 
   // Filter event bindings for Test Runs
   const applyFiltersBtn = document.getElementById('apply-filters-btn');
@@ -257,6 +402,131 @@ async function loadViewData(view) {
     case 'ui-tests':
       // UI test runs are shown only in Test Runs; no list to load here
       break;
+    case 'project-access':
+      loadProjectAccess();
+      break;
+    case 'user-management':
+      loadUserManagement();
+      break;
+  }
+}
+
+async function loadProjectAccess() {
+  const listEl = document.getElementById('project-access-list');
+  if (!listEl) return;
+  try {
+    const [projects, users] = await Promise.all([
+      apiRequest('/projects'),
+      apiRequest('/users')
+    ]);
+    const canManage = (p) => currentUser && (currentUser.is_admin || (p.owner && p.owner.id === currentUser.id));
+    const manageable = projects.filter(canManage);
+    if (manageable.length === 0) {
+      listEl.innerHTML = '<p class="empty-state">No projects you can manage. Create a project from the Projects view.</p>';
+      return;
+    }
+    listEl.innerHTML = manageable.map(p => {
+      const sharedIds = (p.members || p.shared_users || []).map(u => u.id);
+      const sharedOpts = (users || []).filter(u => u.id !== (p.owner && p.owner.id)).map(u =>
+        `<option value="${u.id}" ${sharedIds.includes(u.id) ? 'selected' : ''}>${u.display_name || u.username}</option>`
+      ).join('');
+      const vis = (p.visibility || 'private');
+      return `
+        <div class="project-access-card" data-project-id="${p.id}">
+          <div class="project-access-card-header">
+            <h3>${(p.name || '').replace(/</g, '&lt;')}</h3>
+            <span class="visibility-badge visibility-${vis}">${vis === 'private' ? 'Private' : vis === 'shared' ? 'Shared' : 'Public'}</span>
+          </div>
+          <div class="form-group">
+            <label>Visibility</label>
+            <select class="project-access-visibility" data-project-id="${p.id}">
+              <option value="private" ${vis === 'private' ? 'selected' : ''}>Private (only you)</option>
+              <option value="shared" ${vis === 'shared' ? 'selected' : ''}>Shared (selected users)</option>
+              <option value="public" ${vis === 'public' ? 'selected' : ''}>Public (all users)</option>
+            </select>
+          </div>
+          <div class="form-group project-access-shared-wrap" data-project-id="${p.id}" style="display: ${vis === 'shared' ? 'block' : 'none'};">
+            <label>Shared with</label>
+            <select class="project-access-shared-users" multiple size="3" data-project-id="${p.id}">
+              ${sharedOpts}
+            </select>
+          </div>
+          <button type="button" class="btn btn-primary project-access-save-btn" data-project-id="${p.id}">Save</button>
+        </div>
+      `;
+    }).join('');
+
+    listEl.querySelectorAll('.project-access-visibility').forEach(sel => {
+      sel.addEventListener('change', (e) => {
+        const id = e.target.getAttribute('data-project-id');
+        const wrap = listEl.querySelector(`.project-access-shared-wrap[data-project-id="${id}"]`);
+        if (wrap) wrap.style.display = e.target.value === 'shared' ? 'block' : 'none';
+      });
+    });
+    listEl.querySelectorAll('.project-access-save-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const projectId = btn.getAttribute('data-project-id');
+        const visibility = listEl.querySelector(`.project-access-visibility[data-project-id="${projectId}"]`)?.value || 'private';
+        const sharedSel = listEl.querySelector(`.project-access-shared-users[data-project-id="${projectId}"]`);
+        const shared_user_ids = sharedSel ? Array.from(sharedSel.selectedOptions).map(o => Number(o.value)) : [];
+        btn.disabled = true;
+        try {
+          await apiRequest(`/projects/${projectId}`, {
+            method: 'PUT',
+            body: { visibility, shared_user_ids }
+          });
+          loadProjectAccess();
+        } catch (err) {
+          alert('Failed to save: ' + (err.message || 'Unknown error'));
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  } catch (err) {
+    listEl.innerHTML = '<p class="empty-state">Failed to load projects.</p>';
+  }
+}
+
+async function loadUserManagement() {
+  const adminOnlyMsg = document.getElementById('user-management-admin-only-msg');
+  const content = document.getElementById('user-management-content');
+  const createBtn = document.getElementById('user-management-create-btn');
+  const createCard = document.getElementById('user-management-create-card');
+  const listEl = document.getElementById('user-management-list');
+
+  if (!currentUser || !currentUser.is_admin) {
+    if (adminOnlyMsg) adminOnlyMsg.style.display = 'block';
+    if (content) content.style.display = 'none';
+    if (createBtn) createBtn.style.display = 'none';
+    return;
+  }
+
+  if (adminOnlyMsg) adminOnlyMsg.style.display = 'none';
+  if (content) content.style.display = 'block';
+  if (createBtn) createBtn.style.display = 'inline-flex';
+
+  try {
+    const users = await apiRequest('/users');
+    if (!listEl) return;
+    if (!users || users.length === 0) {
+      listEl.innerHTML = '<p class="empty-state">No users yet. Create one below.</p>';
+    } else {
+      listEl.innerHTML = users.map(u => {
+        const adminBadge = u.is_admin ? '<span class="visibility-badge visibility-shared">Admin</span>' : '';
+        const source = u.auth_source || 'local';
+        return `
+          <div class="list-item">
+            <div class="list-item-info">
+              <h3>${(u.display_name || u.username || '').replace(/</g, '&lt;')} ${adminBadge}</h3>
+              <p>${(u.username || '').replace(/</g, '&lt;')} · ${source}</p>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  } catch (err) {
+    listEl.innerHTML = '<p class="empty-state">Failed to load users.</p>';
   }
 }
 

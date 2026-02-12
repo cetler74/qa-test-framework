@@ -43,7 +43,8 @@ This is the recommended deployment method for production servers and SaaS hostin
 # 1. Create your environment file
 cp .env.example .env
 
-# 2. Edit .env — set DB_PASSWORD at minimum
+# 2. Edit .env — set DB_PASSWORD and SESSION_SECRET at minimum.
+#    For first-time login, add ADMIN_USERNAME and ADMIN_PASSWORD, then run seed-admin (step 4).
 #    Optionally adjust DB_NAME, CODEGEN_MAX_SESSIONS, etc.
 
 # 3. Build and start the containers
@@ -52,12 +53,16 @@ docker compose up --build -d
 # If you see schema errors (e.g. "column X does not exist"), run migrations manually:
 #   docker compose exec app npm run migrate
 
-# 4. Verify the app is running
+# 4. Create an initial admin user (required to sign in)
+# Add ADMIN_USERNAME and ADMIN_PASSWORD to .env, then:
+docker compose exec app node scripts/seed-admin.js
+
+# 5. Verify the app is running
 curl http://localhost:3000/health
 # Should return: {"status":"ok","timestamp":"..."}
 ```
 
-The application is now available at **http://\<server-ip\>:3000**.
+The application is now available at **http://\<server-ip\>:3000**. Sign in with the admin user you created (Local account) or with Active Directory if enabled.
 
 ### Database migrations (Docker)
 
@@ -161,6 +166,14 @@ MAX_FILE_SIZE=10485760
 # Report Configuration
 REPORTS_DIR=./reports
 
+# Auth (required for login)
+SESSION_SECRET=your-session-secret-change-in-production
+ENABLE_LOCAL_AUTH=true
+ENABLE_AD_AUTH=false
+# Optional: seed initial admin (uncomment and set, then run: node scripts/seed-admin.js)
+# ADMIN_USERNAME=admin
+# ADMIN_PASSWORD=your_admin_password
+
 # Playwright / UI Tests (optional)
 PLAYWRIGHT_BASE_URL=https://5gapisprint.meoempresas.pt/apis
 PLAYWRIGHT_TIMEOUT_MS=30000
@@ -187,9 +200,30 @@ npm run migrate
 
 This will:
 - Create the database if it doesn't exist (name from `DB_NAME` in `.env`)
-- Run all migration files in order, creating tables for projects, API specs, collections, test runs, Playwright runs/results/recorded tests, flows, schedules, SOAP, fuzz runs, and related schema
+- Run all migration files in order, including: projects, API specs, collections, test runs, Playwright runs/results/recorded tests, flows, schedules, SOAP, fuzz runs, and **users/project access** (migration `015_users_and_project_access.sql`)
 
-### 3. Start the Server
+### 3. Auth and Initial Admin User
+
+The app requires sign-in. You must create at least one admin user before you can use the UI.
+
+1. In `.env`, set (and **save the file**):
+   ```env
+   SESSION_SECRET=your-session-secret-change-in-production
+   ENABLE_LOCAL_AUTH=true
+   ADMIN_USERNAME=admin
+   ADMIN_PASSWORD=your_secure_admin_password
+   ```
+2. From the project root, run:
+   ```bash
+   node scripts/seed-admin.js
+   ```
+   You should see: `Created admin user: admin` or `Updated admin user: admin`.
+
+3. If you see **"Set ADMIN_USERNAME and ADMIN_PASSWORD in .env"**: the script reads `.env` from disk. Ensure `ADMIN_USERNAME` and `ADMIN_PASSWORD` are present in `.env`, save the file in your editor, then run the script again.
+
+4. (Optional) To enable **Active Directory** login as well, set `ENABLE_AD_AUTH=true` and configure `AD_URL`, `AD_BASE_DN`, and optionally `AD_BIND_DN`, `AD_BIND_PASSWORD`, `AD_DOMAIN` in `.env`. See `.env.example` for the full list.
+
+### 4. Start the Server
 
 ```bash
 npm start
@@ -201,7 +235,7 @@ Or for development with auto-reload:
 npm run dev
 ```
 
-### 4. Optional: UI Tests (Playwright)
+### 5. Optional: UI Tests (Playwright)
 
 If you want to run UI tests from the **UI Tests** section:
 
@@ -219,7 +253,7 @@ On local development with a display, "Launch Codegen" opens the Playwright Codeg
 
 See **Playwright / UI Tests** in [README.md](README.md) for running and recording UI tests.
 
-### 5. Optional: REST API Fuzzing (CATS)
+### 6. Optional: REST API Fuzzing (CATS)
 
 If you want to run **Fuzz** runs from a project (Run Fuzz), you must install CATS. Without it, a fuzz run will be created but will fail immediately with no results.
 

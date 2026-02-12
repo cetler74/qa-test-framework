@@ -156,6 +156,54 @@ window.viewProject = async (projectId) => {
     
     document.getElementById('project-detail-name').textContent = project.name;
     document.getElementById('project-detail-description').textContent = project.description || 'No description';
+
+    const accessSection = document.getElementById('project-detail-access-section');
+    const canManage = window.currentUser && (window.currentUser.is_admin || (project.owner && project.owner.id === window.currentUser.id));
+    if (accessSection) {
+      if (!canManage) {
+        accessSection.style.display = 'none';
+      } else {
+        accessSection.style.display = 'block';
+        const visSelect = document.getElementById('project-detail-visibility');
+        const sharedWrap = document.getElementById('project-detail-shared-wrap');
+        const sharedSelect = document.getElementById('project-detail-shared-users');
+        const saveAccessBtn = document.getElementById('project-detail-save-access-btn');
+        const vis = project.visibility || 'private';
+        if (visSelect) visSelect.value = vis;
+        if (sharedWrap) sharedWrap.style.display = vis === 'shared' ? 'block' : 'none';
+        try {
+          const users = await apiRequest('/users');
+          const sharedIds = (project.shared_users || []).map(u => u.id);
+          if (sharedSelect) {
+            sharedSelect.innerHTML = (users || [])
+              .filter(u => u.id !== (project.owner && project.owner.id))
+              .map(u => `<option value="${u.id}" ${sharedIds.includes(u.id) ? 'selected' : ''}>${u.display_name || u.username}</option>`)
+              .join('');
+          }
+        } catch (e) {
+          if (sharedSelect) sharedSelect.innerHTML = '<option value="">Failed to load users</option>';
+        }
+        if (visSelect && !visSelect.dataset.accessListener) {
+          visSelect.addEventListener('change', function onVisChange() {
+            const wrap = document.getElementById('project-detail-shared-wrap');
+            if (wrap) wrap.style.display = this.value === 'shared' ? 'block' : 'none';
+          });
+          visSelect.dataset.accessListener = '1';
+        }
+        saveAccessBtn?.replaceWith(saveAccessBtn.cloneNode(true));
+        document.getElementById('project-detail-save-access-btn')?.addEventListener('click', async () => {
+          const visibility = document.getElementById('project-detail-visibility')?.value || 'private';
+          const sel = document.getElementById('project-detail-shared-users');
+          const shared_user_ids = sel ? Array.from(sel.selectedOptions).map(o => Number(o.value)) : [];
+          try {
+            await apiRequest(`/projects/${projectId}`, { method: 'PUT', body: { visibility, shared_user_ids } });
+            viewProject(projectId);
+          } catch (err) {
+            alert('Failed to save access: ' + (err.message || 'Unknown error'));
+          }
+        });
+      }
+    }
     
     // Store project ID for later use
     document.getElementById('add-api-spec-btn').setAttribute('data-project-id', projectId);

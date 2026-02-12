@@ -1,31 +1,42 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 
-const Project = sequelize.define('Project', {
+const User = sequelize.define('User', {
   id: {
     type: DataTypes.INTEGER,
     primaryKey: true,
     autoIncrement: true
   },
-  name: {
+  username: {
     type: DataTypes.STRING(255),
     allowNull: false,
     unique: true
   },
-  description: {
+  password_hash: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  email: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  display_name: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  auth_source: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    defaultValue: 'local'
+  },
+  ad_dn: {
     type: DataTypes.TEXT,
     allowNull: true
   },
-  owner_id: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: { model: 'users', key: 'id' },
-    onDelete: 'SET NULL'
-  },
-  visibility: {
-    type: DataTypes.STRING(50),
+  is_admin: {
+    type: DataTypes.BOOLEAN,
     allowNull: false,
-    defaultValue: 'private'
+    defaultValue: false
   },
   created_at: {
     type: DataTypes.DATE,
@@ -36,11 +47,10 @@ const Project = sequelize.define('Project', {
     defaultValue: DataTypes.NOW
   }
 }, {
-  tableName: 'projects',
+  tableName: 'users',
   timestamps: true,
   createdAt: 'created_at',
   updatedAt: 'updated_at'
 });
 
-module.exports = Project;
-
+module.exports = User;

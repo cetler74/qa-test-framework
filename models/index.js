@@ -1,5 +1,7 @@
 const sequelize = require('../config/database');
 const Project = require('./Project');
+const User = require('./User');
+const ProjectMember = require('./ProjectMember');
 const ApiSpec = require('./ApiSpec');
 const Collection = require('./Collection');
 const TestRun = require('./TestRun');
@@ -17,6 +19,21 @@ const FuzzRun = require('./FuzzRun');
 const FuzzResult = require('./FuzzResult');
 
 // Define associations
+Project.belongsTo(User, { foreignKey: 'owner_id', as: 'owner' });
+User.hasMany(Project, { foreignKey: 'owner_id', as: 'ownedProjects' });
+Project.belongsToMany(User, {
+  through: ProjectMember,
+  foreignKey: 'project_id',
+  otherKey: 'user_id',
+  as: 'members'
+});
+User.belongsToMany(Project, {
+  through: ProjectMember,
+  foreignKey: 'user_id',
+  otherKey: 'project_id',
+  as: 'memberProjects'
+});
+
 Project.belongsToMany(ApiSpec, {
   through: ProjectApiSpec,
   foreignKey: 'project_id',
@@ -203,6 +220,8 @@ FuzzRun.belongsTo(Flow, {
 module.exports = {
   sequelize,
   Project,
+  User,
+  ProjectMember,
   ApiSpec,
   Collection,
   TestRun,

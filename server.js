@@ -1,16 +1,29 @@
 require('dotenv').config();
 const express = require('express');
+const session = require('express-session');
 const cors = require('cors');
 const path = require('path');
 const http = require('http');
+const { attachUser, requireAuth } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'dev-secret-change-in-production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000
+  }
+}));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Serve noVNC client files (from Debian package path in Docker, or custom path)
@@ -22,9 +35,10 @@ if (fsCheck.existsSync(NOVNC_PATH)) {
   console.log(`noVNC client served from ${NOVNC_PATH} at /novnc`);
 }
 
-// Routes
-const apiRoutes = require('./routes/api');
-app.use('/api', apiRoutes);
+// API: attach user from session, then auth routes (public), then protected API
+app.use('/api', attachUser);
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api', requireAuth, require('./routes/api'));
 
 // Health check
 app.get('/health', (req, res) => {
