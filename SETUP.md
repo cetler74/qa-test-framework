@@ -50,11 +50,13 @@ cp .env.example .env
 # 3. Build and start the containers
 docker compose up --build -d
 # Database migrations run automatically when the app container starts (see scripts/docker-entry.sh).
+# If ADMIN_USERNAME and ADMIN_PASSWORD are set in .env, the admin user is created automatically on first startup.
 # If you see schema errors (e.g. "column X does not exist"), run migrations manually:
 #   docker compose exec app npm run migrate
 
-# 4. Create an initial admin user (required to sign in)
-# Add ADMIN_USERNAME and ADMIN_PASSWORD to .env, then:
+# 4. Create an initial admin user (required to sign in) — either:
+#    Option A: Add ADMIN_USERNAME and ADMIN_PASSWORD to .env before step 3; they are created on first startup.
+#    Option B: Add them to .env now, then run:
 docker compose exec app node scripts/seed-admin.js
 
 # 5. Verify the app is running

@@ -9,6 +9,13 @@ const { attachUser, requireAuth } = require('./middleware/auth');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust first proxy (e.g. Docker, reverse proxy). Needed so cookie.secure respects X-Forwarded-Proto.
+app.set('trust proxy', 1);
+
+// Only set cookie secure when actually using HTTPS (or a proxy that terminates TLS).
+// In Docker with http://localhost:3000, leave COOKIE_SECURE unset so the session cookie is sent over HTTP.
+const cookieSecure = process.env.COOKIE_SECURE === 'true';
+
 // Middleware
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
@@ -19,7 +26,7 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: cookieSecure,
     sameSite: 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000
   }

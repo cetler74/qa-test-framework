@@ -444,10 +444,11 @@ flowchart TD
 
 ```bash
 cp .env.example .env
-# Edit .env — set DB_PASSWORD at minimum
+# Edit .env — set DB_PASSWORD, SESSION_SECRET; for first-time login also set ADMIN_USERNAME and ADMIN_PASSWORD
 docker compose up --build -d
-# Migrations run automatically when the app starts. If you see DB schema errors (e.g. missing column), run:
-#   docker compose exec app npm run migrate
+# Migrations run automatically. If ADMIN_USERNAME and ADMIN_PASSWORD are set in .env, the admin user is created on first startup.
+# Otherwise run: docker compose exec app node scripts/seed-admin.js (after adding ADMIN_USERNAME and ADMIN_PASSWORD to .env and restarting, or pass env when exec’ing)
+# If you see DB schema errors (e.g. missing column), run: docker compose exec app npm run migrate
 # Open http://<server-ip>:3000
 ```
 
@@ -589,6 +590,7 @@ The application uses PostgreSQL with the following main tables:
 - `DB_PASSWORD` - Database password
 - `PORT` - Server port (default: 3000)
 - **`SESSION_SECRET`** - Secret for session cookies (required for auth; change in production)
+- **`COOKIE_SECURE`** - Set to `true` only when the app is served over HTTPS. Leave unset (or false) for Docker or `http://localhost`, otherwise the session cookie is not sent and login appears to fail (401 on `/api/auth/me`).
 - **`ENABLE_LOCAL_AUTH`** - Enable local username/password login (default: true)
 - **`ENABLE_AD_AUTH`** - Enable Active Directory login (default: false). When true, set `AD_URL`, `AD_BASE_DN`, and optionally `AD_BIND_DN`, `AD_BIND_PASSWORD`, `AD_DOMAIN`
 - **`ADMIN_USERNAME`** / **`ADMIN_PASSWORD`** - Used by `node scripts/seed-admin.js` to create or update the first admin user (local auth). Must be set in `.env` and the file saved before running the script.
