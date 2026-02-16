@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcrypt');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-const { Project, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult } = require('../models');
+const { Project, User, ProjectMember, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult } = require('../models');
+const { getAccessibleProjectIds, loadProjectAndCheckAccess, userCanAccessProjectId, userCanManageProjectId } = require('../middleware/projectAccess');
 const SequelizeLib = require('sequelize');
 const { Op, literal } = require('sequelize');
 const { convertToPostmanCollection, parsePostmanCollection } = require('../services/apiSpecConverter');
@@ -35,17 +37,127 @@ function normalizeRecordedSpecTitle(specContent, recordedName) {
   return specContent.replace(re, `test(${quoted},`);
 }
 
+// ==================== USERS ====================
+
+router.get('/users', async (req, res) => {
+  try {
+    const attrs = ['id', 'username', 'display_name'];
+    if (req.user.is_admin) attrs.push('is_admin', 'auth_source', 'suspended');
+    const users = await User.findAll({
+      attributes: attrs,
+      order: [['username', 'ASC']]
+    });
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create user (admin only; local auth must be enabled)
+router.post('/users', async (req, res) => {
+  try {
+    if (!req.user.is_admin) return res.status(403).json({ error: 'Admin only' });
+    if (process.env.ENABLE_LOCAL_AUTH === 'false') return res.status(400).json({ error: 'Local auth is disabled' });
+    const { username, password, display_name, is_admin } = req.body || {};
+    const name = (username || '').trim();
+    if (!name) return res.status(400).json({ error: 'Username is required' });
+    if (!password || String(password).length < 6) return res.status(400).json({ error: 'Password is required and must be at least 6 characters' });
+    const existing = await User.findOne({ where: { username: name } });
+    if (existing) return res.status(409).json({ error: 'Username already exists' });
+    const hash = await bcrypt.hash(String(password), 10);
+    const user = await User.create({
+      username: name,
+      password_hash: hash,
+      display_name: (display_name || '').trim() || name,
+      auth_source: 'local',
+      is_admin: !!is_admin
+    });
+    res.status(201).json({
+      id: user.id,
+      username: user.username,
+      display_name: user.display_name,
+      is_admin: user.is_admin,
+      auth_source: user.auth_source
+    });
+  } catch (error) {
+    console.error('Create user error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create user' });
+  }
+});
+
+// Update user (admin only): display_name, is_admin, suspended; password for local auth only
+router.patch('/users/:id', async (req, res) => {
+  try {
+    if (!req.user.is_admin) return res.status(403).json({ error: 'Admin only' });
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: 'Invalid user ID' });
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const { display_name, is_admin, suspended, password } = req.body || {};
+
+    const updates = {};
+    if (typeof display_name !== 'undefined') updates.display_name = (display_name || '').trim() || user.username;
+    if (typeof is_admin !== 'undefined') {
+      if (user.id === req.user.id && !is_admin) return res.status(400).json({ error: 'You cannot remove your own admin role' });
+      updates.is_admin = !!is_admin;
+    }
+    if (typeof suspended !== 'undefined') {
+      if (user.id === req.user.id && suspended) return res.status(400).json({ error: 'You cannot suspend yourself' });
+      updates.suspended = !!suspended;
+    }
+    if (user.auth_source === 'local' && password !== undefined && password !== '') {
+      const pwd = String(password);
+      if (pwd.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      updates.password_hash = await bcrypt.hash(pwd, 10);
+    }
+    await user.update(updates);
+    res.json({
+      id: user.id,
+      username: user.username,
+      display_name: user.display_name,
+      is_admin: user.is_admin,
+      auth_source: user.auth_source,
+      suspended: user.suspended
+    });
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update user' });
+  }
+});
+
+// Delete user (admin only). Cannot delete self.
+router.delete('/users/:id', async (req, res) => {
+  try {
+    if (!req.user.is_admin) return res.status(403).json({ error: 'Admin only' });
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: 'Invalid user ID' });
+    if (userId === req.user.id) return res.status(400).json({ error: 'You cannot delete your own account' });
+    const user = await User.findByPk(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await user.destroy();
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete user' });
+  }
+});
+
 // ==================== PROJECTS ====================
 
-// Get all projects
+// Get all projects (filtered by access; admin sees all)
 router.get('/projects', async (req, res) => {
   try {
+    const userId = req.user.id;
+    const isAdmin = req.user.is_admin;
+    const accessibleIds = await getAccessibleProjectIds(userId, isAdmin);
+    const where = accessibleIds === null ? {} : { id: { [Op.in]: accessibleIds } };
     const projects = await Project.findAll({
-      include: [{
-        model: ApiSpec,
-        as: 'apiSpecs',
-        through: { attributes: [] }
-      }],
+      where,
+      include: [
+        { model: ApiSpec, as: 'apiSpecs', through: { attributes: [] } },
+        { model: User, as: 'owner', attributes: ['id', 'username', 'display_name'] },
+        { model: User, as: 'members', attributes: ['id', 'username', 'display_name'], through: { attributes: [] } }
+      ],
       order: [['created_at', 'DESC']]
     });
     res.json(projects);
@@ -54,38 +166,47 @@ router.get('/projects', async (req, res) => {
   }
 });
 
-// Get single project
-router.get('/projects/:id', async (req, res) => {
-  try {
-    const project = await Project.findByPk(req.params.id, {
-      include: [{
-        model: ApiSpec,
-        as: 'apiSpecs',
-        through: { attributes: [] },
-        include: [{
-          model: Collection,
-          as: 'collections'
-        }]
-      }]
-    });
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
-    }
-    res.json(project);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+// Get single project (access checked)
+router.get('/projects/:id', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, () => {
+    const project = req.project;
+    Project.findByPk(project.id, {
+      include: [
+        { model: ApiSpec, as: 'apiSpecs', through: { attributes: [] }, include: [{ model: Collection, as: 'collections' }] },
+        { model: User, as: 'owner', attributes: ['id', 'username', 'display_name'] },
+        { model: User, as: 'members', attributes: ['id', 'username', 'display_name'], through: { attributes: [] } }
+      ]
+    }).then(p => {
+      if (!p) return res.status(404).json({ error: 'Project not found' });
+      const out = p.toJSON();
+      out.visibility = p.visibility;
+      out.shared_users = (p.members || []).map(m => ({ id: m.id, username: m.username, display_name: m.display_name }));
+      res.json(out);
+    }).catch(err => res.status(500).json({ error: err.message }));
+  }, req.params.id, false);
 });
 
-// Create project
+// Create project (owner = current user)
 router.post('/projects', async (req, res) => {
   try {
-    const { name, description } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: 'Project name is required' });
+    const { name, description, visibility, shared_user_ids } = req.body;
+    if (!name) return res.status(400).json({ error: 'Project name is required' });
+    const project = await Project.create({
+      name,
+      description: description || null,
+      owner_id: req.user.id,
+      visibility: visibility || 'private'
+    });
+    if (Array.isArray(shared_user_ids) && shared_user_ids.length > 0 && project.visibility === 'shared') {
+      await ProjectMember.bulkCreate(shared_user_ids.map(uid => ({ project_id: project.id, user_id: uid })));
     }
-    const project = await Project.create({ name, description });
-    res.status(201).json(project);
+    const withAssocs = await Project.findByPk(project.id, {
+      include: [
+        { model: User, as: 'owner', attributes: ['id', 'username', 'display_name'] },
+        { model: User, as: 'members', attributes: ['id', 'username', 'display_name'], through: { attributes: [] } }
+      ]
+    });
+    res.status(201).json(withAssocs);
   } catch (error) {
     if (error.name === 'SequelizeUniqueConstraintError') {
       return res.status(400).json({ error: 'Project name already exists' });
@@ -94,284 +215,308 @@ router.post('/projects', async (req, res) => {
   }
 });
 
-// Update project
-router.put('/projects/:id', async (req, res) => {
-  try {
-    const { name, description } = req.body;
-    const project = await Project.findByPk(req.params.id);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
+// Update project (manage required; supports visibility + shared_user_ids)
+router.put('/projects/:id', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const project = req.project;
+      const { name, description, visibility, shared_user_ids } = req.body;
+      const updates = {};
+      if (name !== undefined) updates.name = name;
+      if (description !== undefined) updates.description = description;
+      if (visibility !== undefined) updates.visibility = visibility;
+      await project.update(updates);
+      if (Array.isArray(shared_user_ids)) {
+        await ProjectMember.destroy({ where: { project_id: project.id } });
+        if (shared_user_ids.length > 0) {
+          await ProjectMember.bulkCreate(shared_user_ids.map(uid => ({ project_id: project.id, user_id: uid })));
+        }
+      }
+      const updated = await Project.findByPk(project.id, {
+        include: [
+          { model: User, as: 'owner', attributes: ['id', 'username', 'display_name'] },
+          { model: User, as: 'members', attributes: ['id', 'username', 'display_name'], through: { attributes: [] } }
+        ]
+      });
+      res.json(updated);
+    } catch (error) {
+      if (error.name === 'SequelizeUniqueConstraintError') {
+        return res.status(400).json({ error: 'Project name already exists' });
+      }
+      res.status(500).json({ error: error.message });
     }
-    await project.update({ name, description });
-    res.json(project);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  }, req.params.id, true);
 });
 
-// Delete project
-router.delete('/projects/:id', async (req, res) => {
-  try {
-    const project = await Project.findByPk(req.params.id);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
+// Delete project (manage required)
+router.delete('/projects/:id', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      await req.project.destroy();
+      res.json({ message: 'Project deleted successfully' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
-    await project.destroy();
-    res.json({ message: 'Project deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  }, req.params.id, true);
 });
 
-// Add API spec to project
-router.post('/projects/:projectId/api-specs/:apiSpecId', async (req, res) => {
-  try {
-    const { projectId, apiSpecId } = req.params;
-    const project = await Project.findByPk(projectId);
-    const apiSpec = await ApiSpec.findByPk(apiSpecId);
-    
-    if (!project || !apiSpec) {
-      return res.status(404).json({ error: 'Project or API spec not found' });
+// Add API spec to project (manage required)
+router.post('/projects/:projectId/api-specs/:apiSpecId', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const { projectId, apiSpecId } = req.params;
+      const apiSpec = await ApiSpec.findByPk(apiSpecId);
+      if (!apiSpec) return res.status(404).json({ error: 'API spec not found' });
+      await ProjectApiSpec.findOrCreate({ where: { project_id: projectId, api_spec_id: apiSpecId } });
+      res.json({ message: 'API spec added to project' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
-
-    await ProjectApiSpec.findOrCreate({
-      where: { project_id: projectId, api_spec_id: apiSpecId }
-    });
-
-    res.json({ message: 'API spec added to project' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  }, req.params.projectId, true);
 });
 
-// Remove API spec from project
-router.delete('/projects/:projectId/api-specs/:apiSpecId', async (req, res) => {
-  try {
-    const { projectId, apiSpecId } = req.params;
-    await ProjectApiSpec.destroy({
-      where: { project_id: projectId, api_spec_id: apiSpecId }
-    });
-    res.json({ message: 'API spec removed from project' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+// Remove API spec from project (manage required)
+router.delete('/projects/:projectId/api-specs/:apiSpecId', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      await ProjectApiSpec.destroy({
+        where: { project_id: req.params.projectId, api_spec_id: req.params.apiSpecId }
+      });
+      res.json({ message: 'API spec removed from project' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.projectId, true);
 });
 
-// Get recorded tests linked to a project (Option B: from junction table)
-router.get('/projects/:id/recorded-tests', async (req, res) => {
-  try {
-    const project = await Project.findByPk(req.params.id, {
-      include: [{ model: PlaywrightRecordedTest, as: 'recordedTests', through: { attributes: [] }, attributes: ['id', 'name', 'base_url', 'created_at'] }]
-    });
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    res.json(project.recordedTests || []);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+// Get recorded tests linked to a project (access required)
+router.get('/projects/:id/recorded-tests', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const project = await Project.findByPk(req.project.id, {
+        include: [{ model: PlaywrightRecordedTest, as: 'recordedTests', through: { attributes: [] }, attributes: ['id', 'name', 'base_url', 'created_at'] }]
+      });
+      res.json(project.recordedTests || []);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.id, false);
 });
 
-// Add recorded test to project (link in project_recorded_tests)
-router.post('/projects/:projectId/recorded-tests/:recordedTestId', async (req, res) => {
-  try {
-    const projectId = parseInt(req.params.projectId, 10);
-    const recordedTestId = parseInt(req.params.recordedTestId, 10);
-    const project = await Project.findByPk(projectId);
-    const recorded = await PlaywrightRecordedTest.findByPk(recordedTestId);
-    if (!project || !recorded) return res.status(404).json({ error: 'Project or recorded test not found' });
-    await ProjectRecordedTest.findOrCreate({
-      where: { project_id: projectId, recorded_test_id: recordedTestId }
-    });
-    res.json({ message: 'Recorded test added to project' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+// Add recorded test to project (manage required)
+router.post('/projects/:projectId/recorded-tests/:recordedTestId', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const recordedTestId = parseInt(req.params.recordedTestId, 10);
+      const recorded = await PlaywrightRecordedTest.findByPk(recordedTestId);
+      if (!recorded) return res.status(404).json({ error: 'Recorded test not found' });
+      await ProjectRecordedTest.findOrCreate({
+        where: { project_id: req.params.projectId, recorded_test_id: recordedTestId }
+      });
+      res.json({ message: 'Recorded test added to project' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.projectId, true);
 });
 
-// Remove recorded test from project (unlink only; does not delete the global recorded test)
-router.delete('/projects/:projectId/recorded-tests/:recordedTestId', async (req, res) => {
-  try {
-    const projectId = parseInt(req.params.projectId, 10);
-    const recordedTestId = parseInt(req.params.recordedTestId, 10);
-    await ProjectRecordedTest.destroy({
-      where: { project_id: projectId, recorded_test_id: recordedTestId }
-    });
-    res.json({ message: 'Recorded test removed from project' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+// Remove recorded test from project (manage required)
+router.delete('/projects/:projectId/recorded-tests/:recordedTestId', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      await ProjectRecordedTest.destroy({
+        where: { project_id: req.params.projectId, recorded_test_id: req.params.recordedTestId }
+      });
+      res.json({ message: 'Recorded test removed from project' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.projectId, true);
 });
 
 // ==================== FLOWS ====================
 
-router.get('/projects/:id/flows', async (req, res) => {
-  try {
-    const projectId = parseInt(req.params.id, 10);
-    const flows = await Flow.findAll({
-      where: { project_id: projectId },
-      order: [['name', 'ASC']]
-    });
-    res.json(flows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.post('/projects/:id/flows', async (req, res) => {
-  try {
-    const projectId = parseInt(req.params.id, 10);
-    const { name, description } = req.body;
-    if (!name) return res.status(400).json({ error: 'Flow name is required' });
-    const project = await Project.findByPk(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    const flow = await Flow.create({ project_id: projectId, name, description: description || null });
-    res.status(201).json(flow);
-  } catch (error) {
-    if (error.name === 'SequelizeUniqueConstraintError') {
-      return res.status(400).json({ error: 'A flow with this name already exists in the project' });
+router.get('/projects/:id/flows', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const flows = await Flow.findAll({
+        where: { project_id: req.project.id },
+        order: [['name', 'ASC']]
+      });
+      res.json(flows);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
-    res.status(500).json({ error: error.message });
-  }
+  }, req.params.id, false);
 });
 
-router.get('/flows/:id', async (req, res) => {
-  try {
-    const flow = await Flow.findByPk(req.params.id, {
-      include: [{ model: FlowTask, as: 'flowTasks', order: [['position', 'ASC']] }]
-    });
-    if (!flow) return res.status(404).json({ error: 'Flow not found' });
-    const plain = flow.get ? flow.get({ plain: true }) : flow;
-    const tasks = (plain.flowTasks || []).sort((a, b) => (a.position || 0) - (b.position || 0));
-    res.json({ ...plain, flowTasks: tasks });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.put('/flows/:id', async (req, res) => {
-  try {
-    const flow = await Flow.findByPk(req.params.id);
-    if (!flow) return res.status(404).json({ error: 'Flow not found' });
-    const { name, description, flowTasks } = req.body;
-    if (name !== undefined) flow.name = name;
-    if (description !== undefined) flow.description = description;
-    await flow.save();
-    if (Array.isArray(flowTasks)) {
-      await FlowTask.destroy({ where: { flow_id: flow.id } });
-      for (let i = 0; i < flowTasks.length; i++) {
-        const t = flowTasks[i];
-        await FlowTask.create({
-          flow_id: flow.id,
-          task_type: t.task_type,
-          task_ref: t.task_ref,
-          position: i
-        });
+router.post('/projects/:id/flows', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const { name, description } = req.body;
+      if (!name) return res.status(400).json({ error: 'Flow name is required' });
+      const flow = await Flow.create({ project_id: req.project.id, name, description: description || null });
+      res.status(201).json(flow);
+    } catch (error) {
+      if (error.name === 'SequelizeUniqueConstraintError') {
+        return res.status(400).json({ error: 'A flow with this name already exists in the project' });
       }
+      res.status(500).json({ error: error.message });
     }
-    const updated = await Flow.findByPk(flow.id, {
-      include: [{ model: FlowTask, as: 'flowTasks' }]
-    });
-    const plain = updated.get ? updated.get({ plain: true }) : updated;
-    const tasks = (plain.flowTasks || []).sort((a, b) => (a.position || 0) - (b.position || 0));
-    res.json({ ...plain, flowTasks: tasks });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  }, req.params.id, true);
 });
 
-router.delete('/flows/:id', async (req, res) => {
-  try {
-    const flow = await Flow.findByPk(req.params.id);
+router.get('/flows/:id', (req, res) => {
+  Flow.findByPk(req.params.id, { attributes: ['id', 'project_id'] }).then(flow => {
     if (!flow) return res.status(404).json({ error: 'Flow not found' });
-    await flow.destroy();
-    res.json({ message: 'Flow deleted' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+    loadProjectAndCheckAccess(req, res, () => {
+      Flow.findByPk(req.params.id, { include: [{ model: FlowTask, as: 'flowTasks' }] }).then(flow2 => {
+        const plain = flow2.get ? flow2.get({ plain: true }) : flow2;
+        const tasks = (plain.flowTasks || []).sort((a, b) => (a.position || 0) - (b.position || 0));
+        res.json({ ...plain, flowTasks: tasks });
+      }).catch(err => res.status(500).json({ error: err.message }));
+    }, flow.project_id, false);
+  }).catch(err => res.status(500).json({ error: err.message }));
 });
 
-router.post('/flows/:id/execute', async (req, res) => {
-  try {
-    const flowId = parseInt(req.params.id, 10);
-    const { runNamePrefix, baseUrl, envVars } = req.body;
-    const flow = await Flow.findByPk(flowId);
+router.put('/flows/:id', (req, res) => {
+  Flow.findByPk(req.params.id, { attributes: ['id', 'project_id'] }).then(flow => {
     if (!flow) return res.status(404).json({ error: 'Flow not found' });
-    const result = await executeFlow(flowId, {
-      runNamePrefix: runNamePrefix || flow.name,
-      baseUrl,
-      envVars
-    });
-    res.status(201).json({
-      message: 'Flow execution started',
-      flow_id: flowId,
-      apiRunIds: result.apiRunIds,
-      uiRunIds: result.uiRunIds
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+    loadProjectAndCheckAccess(req, res, async () => {
+      try {
+        const flowInst = await Flow.findByPk(req.params.id);
+        const { name, description, flowTasks } = req.body;
+        if (name !== undefined) flowInst.name = name;
+        if (description !== undefined) flowInst.description = description;
+        await flowInst.save();
+        if (Array.isArray(flowTasks)) {
+          await FlowTask.destroy({ where: { flow_id: flowInst.id } });
+          for (let i = 0; i < flowTasks.length; i++) {
+            const t = flowTasks[i];
+            await FlowTask.create({
+              flow_id: flowInst.id,
+              task_type: t.task_type,
+              task_ref: t.task_ref,
+              position: i
+            });
+          }
+        }
+        const updated = await Flow.findByPk(flowInst.id, {
+          include: [{ model: FlowTask, as: 'flowTasks' }]
+        });
+        const plain = updated.get ? updated.get({ plain: true }) : updated;
+        const tasks = (plain.flowTasks || []).sort((a, b) => (a.position || 0) - (b.position || 0));
+        res.json({ ...plain, flowTasks: tasks });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    }, flow.project_id, true);
+  }).catch(err => res.status(500).json({ error: err.message }));
+});
+
+router.delete('/flows/:id', (req, res) => {
+  Flow.findByPk(req.params.id, { attributes: ['id', 'project_id'] }).then(flow => {
+    if (!flow) return res.status(404).json({ error: 'Flow not found' });
+    loadProjectAndCheckAccess(req, res, async () => {
+      try {
+        await flow.destroy();
+        res.json({ message: 'Flow deleted' });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    }, flow.project_id, true);
+  }).catch(err => res.status(500).json({ error: err.message }));
+});
+
+router.post('/flows/:id/execute', (req, res) => {
+  Flow.findByPk(req.params.id, { attributes: ['id', 'project_id', 'name'] }).then(flow => {
+    if (!flow) return res.status(404).json({ error: 'Flow not found' });
+    loadProjectAndCheckAccess(req, res, async () => {
+      try {
+        const flowId = parseInt(req.params.id, 10);
+        const { runNamePrefix, baseUrl, envVars } = req.body;
+        const result = await executeFlow(flowId, {
+          runNamePrefix: runNamePrefix || flow.name,
+          baseUrl,
+          envVars
+        });
+        res.status(201).json({
+          message: 'Flow execution started',
+          flow_id: flowId,
+          apiRunIds: result.apiRunIds,
+          uiRunIds: result.uiRunIds
+        });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    }, flow.project_id, false);
+  }).catch(err => res.status(500).json({ error: err.message }));
 });
 
 // ==================== SCHEDULES ====================
 
-router.get('/projects/:id/schedules', async (req, res) => {
-  try {
-    const projectId = parseInt(req.params.id, 10);
-    const schedules = await Schedule.findAll({
-      where: { project_id: projectId },
-      order: [['created_at', 'DESC']]
-    });
-    const flowIds = [...new Set(schedules.map(s => s.flow_id).filter(Boolean))];
-    const flows = flowIds.length ? await Flow.findAll({ where: { id: flowIds }, attributes: ['id', 'name'] }) : [];
-    const flowMap = Object.fromEntries(flows.map(f => [f.id, f]));
-    const result = schedules.map(s => {
-      const plain = s.toJSON();
-      if (s.flow_id && flowMap[s.flow_id]) plain.flow = flowMap[s.flow_id].toJSON();
-      return plain;
-    });
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+router.get('/projects/:id/schedules', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const schedules = await Schedule.findAll({
+        where: { project_id: req.project.id },
+        order: [['created_at', 'DESC']]
+      });
+      const flowIds = [...new Set(schedules.map(s => s.flow_id).filter(Boolean))];
+      const flows = flowIds.length ? await Flow.findAll({ where: { id: flowIds }, attributes: ['id', 'name'] }) : [];
+      const flowMap = Object.fromEntries(flows.map(f => [f.id, f]));
+      const result = schedules.map(s => {
+        const plain = s.toJSON();
+        if (s.flow_id && flowMap[s.flow_id]) plain.flow = flowMap[s.flow_id].toJSON();
+        return plain;
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.id, false);
 });
 
-router.post('/projects/:id/schedules', async (req, res) => {
-  try {
-    const projectId = parseInt(req.params.id, 10);
-    const { flow_id, cron_expression, repeat_interval_minutes, enabled } = req.body;
-    const project = await Project.findByPk(projectId);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    if (!cron_expression && (!repeat_interval_minutes || repeat_interval_minutes < 1)) {
-      return res.status(400).json({ error: 'Either cron_expression or repeat_interval_minutes (>= 1) is required' });
+router.post('/projects/:id/schedules', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const projectId = req.project.id;
+      const { flow_id, cron_expression, repeat_interval_minutes, enabled } = req.body;
+      if (!cron_expression && (!repeat_interval_minutes || repeat_interval_minutes < 1)) {
+        return res.status(400).json({ error: 'Either cron_expression or repeat_interval_minutes (>= 1) is required' });
+      }
+      if (flow_id) {
+        const flow = await Flow.findByPk(flow_id);
+        if (!flow || flow.project_id !== projectId) return res.status(400).json({ error: 'Flow not found or not in this project' });
+      }
+      const schedule = await Schedule.create({
+        project_id: projectId,
+        flow_id: flow_id || null,
+        cron_expression: cron_expression || null,
+        repeat_interval_minutes: repeat_interval_minutes || null,
+        enabled: enabled !== false
+      });
+      const nextRun = computeNextRunAt(schedule);
+      if (nextRun) await schedule.update({ next_run_at: nextRun });
+      const updated = await Schedule.findByPk(schedule.id);
+      const plain = updated.toJSON();
+      if (updated.flow_id) {
+        const flow = await Flow.findByPk(updated.flow_id, { attributes: ['id', 'name'] });
+        if (flow) plain.flow = flow.toJSON();
+      }
+      res.status(201).json(plain);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
-    if (flow_id) {
-      const flow = await Flow.findByPk(flow_id);
-      if (!flow || flow.project_id !== projectId) return res.status(400).json({ error: 'Flow not found or not in this project' });
-    }
-    const schedule = await Schedule.create({
-      project_id: projectId,
-      flow_id: flow_id || null,
-      cron_expression: cron_expression || null,
-      repeat_interval_minutes: repeat_interval_minutes || null,
-      enabled: enabled !== false
-    });
-    const next = computeNextRunAt(schedule);
-    if (next) await schedule.update({ next_run_at: next });
-    const updated = await Schedule.findByPk(schedule.id);
-    const plain = updated.toJSON();
-    if (updated.flow_id) {
-      const flow = await Flow.findByPk(updated.flow_id, { attributes: ['id', 'name'] });
-      if (flow) plain.flow = flow.toJSON();
-    }
-    res.status(201).json(plain);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  }, req.params.id, true);
 });
 
 router.get('/schedules/:id', async (req, res) => {
   try {
     const schedule = await Schedule.findByPk(req.params.id);
     if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+    const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, schedule.project_id);
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     const plain = schedule.toJSON();
     if (schedule.project_id) {
       const project = await Project.findByPk(schedule.project_id, { attributes: ['id', 'name'] });
@@ -391,6 +536,8 @@ router.put('/schedules/:id', async (req, res) => {
   try {
     const schedule = await Schedule.findByPk(req.params.id);
     if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+    const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, schedule.project_id);
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
     const { flow_id, cron_expression, repeat_interval_minutes, enabled } = req.body;
     if (flow_id !== undefined) schedule.flow_id = flow_id;
     if (cron_expression !== undefined) schedule.cron_expression = cron_expression;
@@ -415,6 +562,8 @@ router.delete('/schedules/:id', async (req, res) => {
   try {
     const schedule = await Schedule.findByPk(req.params.id);
     if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+    const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, schedule.project_id);
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
     await schedule.destroy();
     res.json({ message: 'Schedule deleted' });
   } catch (error) {
@@ -426,6 +575,8 @@ router.post('/schedules/:id/trigger', async (req, res) => {
   try {
     const schedule = await Schedule.findByPk(req.params.id);
     if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
+    const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, schedule.project_id);
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     await runScheduledJob(schedule);
     const updated = await Schedule.findByPk(schedule.id);
     const plain = updated.toJSON();
@@ -439,13 +590,17 @@ router.post('/schedules/:id/trigger', async (req, res) => {
   }
 });
 
-// List schedules (optional: nextWithin hours for dashboard)
-// Uses raw query to avoid Sequelize "Project/Flow is not associated to Schedule" when associations are not loaded
+// List schedules (filtered by project access; optional: nextWithin hours for dashboard)
 router.get('/schedules', async (req, res) => {
   try {
+    const accessibleIds = await getAccessibleProjectIds(req.user.id, req.user.is_admin);
+    if (accessibleIds !== null && accessibleIds.length === 0) return res.json([]);
     const nextWithin = req.query.nextWithin ? parseInt(req.query.nextWithin, 10) : null;
     const replacements = { enabled: true };
     let whereClause = 'WHERE enabled = :enabled';
+    if (accessibleIds !== null) {
+      whereClause += ` AND project_id IN (${accessibleIds.join(',')})`;
+    }
     if (nextWithin && nextWithin > 0) {
       const now = new Date();
       const end = new Date(now.getTime() + nextWithin * 60 * 60 * 1000);
@@ -480,14 +635,23 @@ router.get('/schedules', async (req, res) => {
 
 // ==================== API SPECS ====================
 
-// Get all API specs
+// Get all API specs (only those in projects the user can access)
 router.get('/api-specs', async (req, res) => {
   try {
+    const accessibleIds = await getAccessibleProjectIds(req.user.id, req.user.is_admin);
+    let specIds = null;
+    if (accessibleIds !== null) {
+      const links = await ProjectApiSpec.findAll({
+        where: { project_id: { [Op.in]: accessibleIds } },
+        attributes: ['api_spec_id']
+      });
+      specIds = [...new Set(links.map(l => l.api_spec_id))];
+      if (specIds.length === 0) return res.json([]);
+    }
+    const where = specIds === null ? {} : { id: { [Op.in]: specIds } };
     const apiSpecs = await ApiSpec.findAll({
-      include: [{
-        model: Collection,
-        as: 'collections'
-      }],
+      where,
+      include: [{ model: Collection, as: 'collections' }],
       order: [['created_at', 'DESC']]
     });
     res.json(apiSpecs);
@@ -496,11 +660,19 @@ router.get('/api-specs', async (req, res) => {
   }
 });
 
-// Get SOAP operations for a WSDL API spec
+// Get SOAP operations for a WSDL API spec (project access required)
 router.get('/api-specs/:id/soap-operations', async (req, res) => {
   try {
     const apiSpec = await ApiSpec.findByPk(req.params.id);
     if (!apiSpec) return res.status(404).json({ error: 'API spec not found' });
+    const links = await ProjectApiSpec.findAll({ where: { api_spec_id: apiSpec.id }, attributes: ['project_id'] });
+    const projectIds = links.map(l => l.project_id);
+    if (projectIds.length === 0) return res.status(403).json({ error: 'Forbidden' });
+    let allowed = req.user.is_admin;
+    if (!allowed) for (const pid of projectIds) {
+      if (await userCanAccessProjectId(req.user.id, false, pid)) { allowed = true; break; }
+    }
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
     if (apiSpec.format !== 'wsdl') return res.status(400).json({ error: 'API spec is not WSDL' });
     const operations = await SoapOperation.findAll({
       where: { api_spec_id: req.params.id },
@@ -512,22 +684,24 @@ router.get('/api-specs/:id/soap-operations', async (req, res) => {
   }
 });
 
-// Get single API spec
+// Get single API spec (project access required)
 router.get('/api-specs/:id', async (req, res) => {
   try {
     const apiSpec = await ApiSpec.findByPk(req.params.id, {
-      include: [{
-        model: Collection,
-        as: 'collections'
-      }, {
-        model: SoapOperation,
-        as: 'soapOperations',
-        required: false
-      }]
+      include: [
+        { model: Collection, as: 'collections' },
+        { model: SoapOperation, as: 'soapOperations', required: false }
+      ]
     });
-    if (!apiSpec) {
-      return res.status(404).json({ error: 'API spec not found' });
+    if (!apiSpec) return res.status(404).json({ error: 'API spec not found' });
+    const links = await ProjectApiSpec.findAll({ where: { api_spec_id: apiSpec.id }, attributes: ['project_id'] });
+    const projectIds = links.map(l => l.project_id);
+    if (projectIds.length === 0) return res.status(403).json({ error: 'Forbidden' });
+    let allowed = req.user.is_admin;
+    if (!allowed) for (const pid of projectIds) {
+      if (await userCanAccessProjectId(req.user.id, false, pid)) { allowed = true; break; }
     }
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
     res.json(apiSpec);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -618,19 +792,20 @@ router.post('/api-specs/upload', upload.single('file'), async (req, res) => {
   }
 });
 
-// Delete API spec
+// Delete API spec (must manage at least one project containing this spec)
 router.delete('/api-specs/:id', async (req, res) => {
   try {
     const apiSpec = await ApiSpec.findByPk(req.params.id);
-    if (!apiSpec) {
-      return res.status(404).json({ error: 'API spec not found' });
+    if (!apiSpec) return res.status(404).json({ error: 'API spec not found' });
+    const links = await ProjectApiSpec.findAll({ where: { api_spec_id: apiSpec.id }, attributes: ['project_id'] });
+    const projectIds = links.map(l => l.project_id);
+    if (projectIds.length === 0) return res.status(403).json({ error: 'Forbidden' });
+    let canManage = req.user.is_admin;
+    if (!canManage) for (const pid of projectIds) {
+      if (await userCanManageProjectId(req.user.id, false, pid)) { canManage = true; break; }
     }
-
-    // Delete file
-    if (fs.existsSync(apiSpec.file_path)) {
-      fs.unlinkSync(apiSpec.file_path);
-    }
-
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+    if (fs.existsSync(apiSpec.file_path)) fs.unlinkSync(apiSpec.file_path);
     await apiSpec.destroy();
     res.json({ message: 'API spec deleted successfully' });
   } catch (error) {
@@ -657,25 +832,18 @@ router.get('/collections', async (req, res) => {
   }
 });
 
-// Get collections for a project
-router.get('/projects/:projectId/collections', async (req, res) => {
-  try {
-    const project = await Project.findByPk(req.params.projectId, {
-      include: [{
-        model: ApiSpec,
-        as: 'apiSpecs',
+// Get collections for a project (access required)
+router.get('/projects/:projectId/collections', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const project = await Project.findByPk(req.project.id, {
         include: [{
-          model: Collection,
-          as: 'collections'
+          model: ApiSpec,
+          as: 'apiSpecs',
+          include: [{ model: Collection, as: 'collections' }]
         }]
-      }]
-    });
-
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
-    }
-
-    const collections = [];
+      });
+      const collections = [];
     // Get collections from API specs in the project
     project.apiSpecs.forEach(apiSpec => {
       if (apiSpec.collections) {
@@ -690,12 +858,12 @@ router.get('/projects/:projectId/collections', async (req, res) => {
         api_spec_id: null
       }
     });
-    collections.push(...standaloneCollections);
-
-    res.json(collections);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+      collections.push(...standaloneCollections);
+      res.json(collections);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.projectId, false);
 });
 
 // Upload Postman collection directly
@@ -791,13 +959,15 @@ function toUnifiedRun(row, runType) {
   };
 }
 
-// Get all test runs (optionally unified: type=api|ui|soap|fuzz|all)
+// Get all test runs (optionally unified: type=api|ui|soap|fuzz|all) - filtered by project access
 router.get('/test-runs', async (req, res) => {
   try {
+    const accessibleIds = await getAccessibleProjectIds(req.user.id, req.user.is_admin);
     const { projectId, name, startDate, endDate, type = 'api' } = req.query;
     const runType = type === 'all' || type === 'ui' || type === 'soap' || type === 'fuzz' ? type : 'api';
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
     const offset = parseInt(req.query.offset, 10) || 0;
+    const projectFilter = accessibleIds === null ? {} : { project_id: { [Op.in]: accessibleIds } };
 
     // Build shared date filter (for merging when type=all)
     const dateFilter = (colPrefix) => {
@@ -817,7 +987,7 @@ router.get('/test-runs', async (req, res) => {
     };
 
     if (runType === 'soap') {
-      const where = { run_type: 'soap' };
+      const where = { run_type: 'soap', ...projectFilter };
       if (projectId) where.project_id = projectId;
       if (name) {
         where[Op.and] = where[Op.and] || [];
@@ -842,7 +1012,7 @@ router.get('/test-runs', async (req, res) => {
     }
 
     if (runType === 'fuzz') {
-      const where = {};
+      const where = { ...projectFilter };
       if (projectId) where.project_id = projectId;
       if (name) {
         where[Op.and] = where[Op.and] || [];
@@ -867,7 +1037,7 @@ router.get('/test-runs', async (req, res) => {
     }
 
     if (runType === 'api' || runType === 'all') {
-      const where = {};
+      const where = { ...projectFilter };
       if (projectId) where.project_id = projectId;
       if (runType === 'api') {
         where[Op.or] = [{ run_type: null }, { run_type: 'api' }];
@@ -902,7 +1072,7 @@ router.get('/test-runs', async (req, res) => {
         const plain = r.get ? r.get({ plain: true }) : r;
         return toUnifiedRun(plain, plain.run_type || 'api');
       });
-      const uiWhere = {};
+      const uiWhere = { ...projectFilter };
       if (projectId) uiWhere.project_id = projectId;
       if (name) {
         uiWhere[Op.and] = uiWhere[Op.and] || [];
@@ -922,7 +1092,7 @@ router.get('/test-runs', async (req, res) => {
         offset: 0
       });
       const uiRows = playwrightRuns.map(r => toUnifiedRun(r.get ? r.get({ plain: true }) : r, 'ui'));
-      const fuzzWhere = {};
+      const fuzzWhere = { ...projectFilter };
       if (projectId) fuzzWhere.project_id = projectId;
       if (name) {
         fuzzWhere[Op.and] = fuzzWhere[Op.and] || [];
@@ -946,7 +1116,7 @@ router.get('/test-runs', async (req, res) => {
     }
 
     // runType === 'ui'
-    const where = {};
+    const where = { ...projectFilter };
     if (projectId) where.project_id = projectId;
     if (name) {
       const lower = name.toLowerCase();
@@ -972,9 +1142,13 @@ router.get('/test-runs', async (req, res) => {
   }
 });
 
-// Get single test run
+// Get single test run (project access required)
 router.get('/test-runs/:id', async (req, res) => {
   try {
+    const testRunMeta = await TestRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    if (!testRunMeta) return res.status(404).json({ error: 'Test run not found' });
+    const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, testRunMeta.project_id);
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     // Check if execution_order column exists before using it
     let hasExecutionOrder = false;
     try {
@@ -1041,6 +1215,8 @@ router.post('/test-runs/execute', async (req, res) => {
     if (!projectId || (!collectionIds && !selectedTests)) {
       return res.status(400).json({ error: 'projectId and either collectionIds or selectedTests are required' });
     }
+    const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, projectId);
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
 
     if (!name) {
       return res.status(400).json({ error: 'Test run name is required' });
@@ -1189,13 +1365,15 @@ router.post('/soap-runs/execute', async (req, res) => {
 
 // ==================== FUZZ RUNS ====================
 
-// Execute fuzz run (CATS)
+// Execute fuzz run (CATS) - project access required
 router.post('/fuzz-runs/execute', async (req, res) => {
   try {
     const { projectId, apiSpecId, name, serverUrl, flowId, paths, skipPaths } = req.body;
     if (!projectId || !apiSpecId || !name || !serverUrl) {
       return res.status(400).json({ error: 'projectId, apiSpecId, name, and serverUrl are required' });
     }
+    const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, projectId);
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     const baseUrl = serverUrl.trim().replace(/\/$/, '');
     const fuzzRun = await FuzzRun.create({
       name,
@@ -1230,11 +1408,13 @@ router.post('/fuzz-runs/execute', async (req, res) => {
   }
 });
 
-// List fuzz runs (optional projectId filter)
+// List fuzz runs (filtered by project access)
 router.get('/fuzz-runs', async (req, res) => {
   try {
+    const accessibleIds = await getAccessibleProjectIds(req.user.id, req.user.is_admin);
+    const projectFilter = accessibleIds === null ? {} : { project_id: { [Op.in]: accessibleIds } };
     const { projectId, limit = 50, offset = 0 } = req.query;
-    const where = {};
+    const where = { ...projectFilter };
     if (projectId) where.project_id = parseInt(projectId, 10);
     const runs = await FuzzRun.findAll({
       where,
@@ -1249,12 +1429,15 @@ router.get('/fuzz-runs', async (req, res) => {
   }
 });
 
-// Get single fuzz run with results (excludes request_body/response_body by default for fast loading)
-// Optional: ?includeBodies=1 to include request/response bodies in each result
+// Get single fuzz run (project access required)
 router.get('/fuzz-runs/:id', async (req, res) => {
   try {
+    const run = await FuzzRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    if (!run) return res.status(404).json({ error: 'Fuzz run not found' });
+    const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, run.project_id);
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     const includeBodies = req.query.includeBodies === '1' || req.query.includeBodies === 'true';
-    const run = await FuzzRun.findByPk(req.params.id, {
+    const runFull = await FuzzRun.findByPk(req.params.id, {
       include: [
         {
           model: FuzzResult,
@@ -1266,10 +1449,7 @@ router.get('/fuzz-runs/:id', async (req, res) => {
         { model: Project, as: 'project', attributes: ['id', 'name'] }
       ]
     });
-    if (!run) {
-      return res.status(404).json({ error: 'Fuzz run not found' });
-    }
-    res.json(run);
+    res.json(runFull);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1294,9 +1474,13 @@ router.get('/fuzz-runs/:runId/results/:resultId', async (req, res) => {
   }
 });
 
-// Fuzz run report (HTML) – serve pre-generated file when present so View Report does not block the app
+// Fuzz run report (project access required)
 router.get('/fuzz-runs/:id/report', async (req, res) => {
   try {
+    const run = await FuzzRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    if (!run) return res.status(404).json({ error: 'Fuzz run not found' });
+    const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, run.project_id);
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     const stablePath = getStableReportPath(req.params.id);
     if (fs.existsSync(stablePath)) {
       res.setHeader('Content-Type', 'text/html');
@@ -1314,9 +1498,13 @@ router.get('/fuzz-runs/:id/report', async (req, res) => {
   }
 });
 
-// Fuzz run report download (always regenerate so file exists on disk)
+// Fuzz run report download (project access required)
 router.get('/fuzz-runs/:id/report/download', async (req, res) => {
   try {
+    const run = await FuzzRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    if (!run) return res.status(404).json({ error: 'Fuzz run not found' });
+    const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, run.project_id);
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     const { filePath, fileName } = await generateFuzzReport(req.params.id, { skipCache: true });
     res.download(filePath, fileName, (err) => {
       if (err) console.error('Error downloading fuzz report:', err);
@@ -1326,13 +1514,13 @@ router.get('/fuzz-runs/:id/report/download', async (req, res) => {
   }
 });
 
-// Delete fuzz run
+// Delete fuzz run (manage project required)
 router.delete('/fuzz-runs/:id', async (req, res) => {
   try {
-    const run = await FuzzRun.findByPk(req.params.id);
-    if (!run) {
-      return res.status(404).json({ error: 'Fuzz run not found' });
-    }
+    const run = await FuzzRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    if (!run) return res.status(404).json({ error: 'Fuzz run not found' });
+    const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, run.project_id);
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
     await run.destroy();
     res.json({ message: 'Fuzz run deleted successfully' });
   } catch (error) {
@@ -1340,13 +1528,13 @@ router.delete('/fuzz-runs/:id', async (req, res) => {
   }
 });
 
-// Delete test run
+// Delete test run (manage project required)
 router.delete('/test-runs/:id', async (req, res) => {
   try {
-    const testRun = await TestRun.findByPk(req.params.id);
-    if (!testRun) {
-      return res.status(404).json({ error: 'Test run not found' });
-    }
+    const testRun = await TestRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    if (!testRun) return res.status(404).json({ error: 'Test run not found' });
+    const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, testRun.project_id);
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
     await testRun.destroy();
     res.json({ message: 'Test run deleted successfully' });
   } catch (error) {
@@ -1356,12 +1544,14 @@ router.delete('/test-runs/:id', async (req, res) => {
 
 // ==================== REPORTS ====================
 
-// Generate report (POST) - maintains existing behavior
+// Generate report (POST) - project access required
 router.post('/test-runs/:id/report', async (req, res) => {
   try {
+    const run = await TestRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    if (!run) return res.status(404).json({ error: 'Test run not found' });
+    const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, run.project_id);
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     const { html, filePath, fileName } = await generateReport(req.params.id);
-    
-    // Return HTML content
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   } catch (error) {
@@ -1369,9 +1559,13 @@ router.post('/test-runs/:id/report', async (req, res) => {
   }
 });
 
-// View report (GET) – serve pre-generated file when present so View Report does not block the app
+// View report (GET) – project access required
 router.get('/test-runs/:id/report', async (req, res) => {
   try {
+    const run = await TestRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    if (!run) return res.status(404).json({ error: 'Test run not found' });
+    const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, run.project_id);
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     const stablePath = getTestRunStableReportPath(req.params.id);
     if (fs.existsSync(stablePath)) {
       res.setHeader('Content-Type', 'text/html');
@@ -1389,9 +1583,13 @@ router.get('/test-runs/:id/report', async (req, res) => {
   }
 });
 
-// Download report (always regenerate for freshness)
+// Download report (project access required)
 router.get('/test-runs/:id/report/download', async (req, res) => {
   try {
+    const run = await TestRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    if (!run) return res.status(404).json({ error: 'Test run not found' });
+    const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, run.project_id);
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     const { filePath, fileName } = await generateReport(req.params.id, { skipCache: true });
     res.download(filePath, fileName, (err) => {
       if (err) console.error('Error downloading report:', err);
@@ -1424,12 +1622,14 @@ router.get('/playwright-tests/list', async (req, res) => {
   }
 });
 
-// Execute Playwright UI tests (projectId required so run is project-scoped)
+// Execute Playwright UI tests (project access required)
 router.post('/playwright-runs/execute', async (req, res) => {
   try {
     const { projectId, name, baseUrl, suite, selectedTestIds, headless: bodyHeadless, timeoutMs: bodyTimeoutMs, timeoutSeconds: bodyTimeoutSeconds, video: bodyVideo, trace: bodyTrace, browser: bodyBrowser, slowMo: bodySlowMo } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: 'name is required' });
+    if (!name) return res.status(400).json({ error: 'name is required' });
+    if (projectId) {
+      const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, projectId);
+      if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     }
     if (!projectId) {
       return res.status(400).json({ error: 'projectId is required for UI test runs' });
@@ -1487,12 +1687,15 @@ router.post('/playwright-runs/execute', async (req, res) => {
   }
 });
 
-// List Playwright runs
+// List Playwright runs (filtered by project access)
 router.get('/playwright-runs', async (req, res) => {
   try {
+    const accessibleIds = await getAccessibleProjectIds(req.user.id, req.user.is_admin);
+    const where = accessibleIds === null ? {} : { project_id: { [Op.in]: accessibleIds } };
     const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
     const offset = req.query.offset ? parseInt(req.query.offset, 10) : 0;
     const runs = await PlaywrightRun.findAll({
+      where,
       order: [['created_at', 'DESC']],
       limit: Math.min(limit, 100),
       offset
@@ -1503,22 +1706,29 @@ router.get('/playwright-runs', async (req, res) => {
   }
 });
 
-// Get single Playwright run with results
+// Get single Playwright run (project access required)
 router.get('/playwright-runs/:id', async (req, res) => {
   try {
-    const run = await PlaywrightRun.findByPk(req.params.id, {
+    const run = await PlaywrightRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    if (!run) return res.status(404).json({ error: 'Playwright run not found' });
+    const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, run.project_id);
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
+    const runFull = await PlaywrightRun.findByPk(req.params.id, {
       include: [{ model: PlaywrightResult, as: 'results', order: [['execution_order', 'ASC']] }]
     });
-    if (!run) return res.status(404).json({ error: 'Playwright run not found' });
-    res.json(run);
+    res.json(runFull);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Playwright report (HTML)
+// Playwright report (project access required)
 router.get('/playwright-runs/:id/report', async (req, res) => {
   try {
+    const run = await PlaywrightRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    if (!run) return res.status(404).json({ error: 'Playwright run not found' });
+    const canAccess = run.project_id ? await userCanAccessProjectId(req.user.id, req.user.is_admin, run.project_id) : req.user.is_admin;
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     const { html } = await generatePlaywrightReport(req.params.id);
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
@@ -1530,9 +1740,13 @@ router.get('/playwright-runs/:id/report', async (req, res) => {
   }
 });
 
-// Playwright report download
+// Playwright report download (project access required)
 router.get('/playwright-runs/:id/report/download', async (req, res) => {
   try {
+    const run = await PlaywrightRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    if (!run) return res.status(404).json({ error: 'Playwright run not found' });
+    const canAccess = run.project_id ? await userCanAccessProjectId(req.user.id, req.user.is_admin, run.project_id) : req.user.is_admin;
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     const { filePath, fileName } = await generatePlaywrightReport(req.params.id);
     res.download(filePath, fileName, (err) => {
       if (err) console.error('Error downloading report:', err);
@@ -1546,12 +1760,14 @@ const playwrightReportsDir = process.env.REPORTS_DIR || path.join(__dirname, '..
 const playwrightVideosDir = path.join(playwrightReportsDir, 'playwright-videos');
 const playwrightTracesDir = path.join(playwrightReportsDir, 'playwright-traces');
 
-// Playwright run video (stream for View in browser)
+// Playwright run video (project access required)
 router.get('/playwright-runs/:id/video', async (req, res) => {
   try {
-    const run = await PlaywrightRun.findByPk(req.params.id);
+    const run = await PlaywrightRun.findByPk(req.params.id, { attributes: ['id', 'project_id', 'video_path'] });
     if (!run) return res.status(404).json({ error: 'Playwright run not found' });
-    const videoPath = run.video_path;
+    const canAccess = run.project_id ? await userCanAccessProjectId(req.user.id, req.user.is_admin, run.project_id) : req.user.is_admin;
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
+    const videoPath = run.get ? run.get('video_path') : run.video_path;
     if (!videoPath) return res.status(404).json({ error: 'No video for this run' });
     const filePath = path.join(playwrightVideosDir, videoPath);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Video file not found' });
@@ -1566,11 +1782,13 @@ router.get('/playwright-runs/:id/video', async (req, res) => {
   }
 });
 
-// Playwright run trace (download zip or load in trace viewer)
+// Playwright run trace (project access required)
 router.get('/playwright-runs/:id/trace', async (req, res) => {
   try {
-    const run = await PlaywrightRun.findByPk(req.params.id);
+    const run = await PlaywrightRun.findByPk(req.params.id, { attributes: ['id', 'project_id', 'trace_path'] });
     if (!run) return res.status(404).json({ error: 'Playwright run not found' });
+    const canAccess = run.project_id ? await userCanAccessProjectId(req.user.id, req.user.is_admin, run.project_id) : req.user.is_admin;
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     const tracePath = run.trace_path;
     if (!tracePath) return res.status(404).json({ error: 'No trace for this run' });
     const filePath = path.join(playwrightTracesDir, tracePath);
@@ -1589,9 +1807,13 @@ router.get('/playwright-runs/:id/trace', async (req, res) => {
   }
 });
 
-// Playwright result-level video (for runs with multiple recorded tests)
+// Playwright result-level video (project access required)
 router.get('/playwright-runs/:runId/results/:resultId/video', async (req, res) => {
   try {
+    const run = await PlaywrightRun.findByPk(req.params.runId, { attributes: ['id', 'project_id'] });
+    if (!run) return res.status(404).json({ error: 'Playwright run not found' });
+    const canAccess = run.project_id ? await userCanAccessProjectId(req.user.id, req.user.is_admin, run.project_id) : req.user.is_admin;
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     const result = await PlaywrightResult.findOne({
       where: { id: req.params.resultId, playwright_run_id: req.params.runId }
     });
@@ -1611,9 +1833,13 @@ router.get('/playwright-runs/:runId/results/:resultId/video', async (req, res) =
   }
 });
 
-// Playwright result-level trace (for runs with multiple recorded tests)
+// Playwright result-level trace (project access required)
 router.get('/playwright-runs/:runId/results/:resultId/trace', async (req, res) => {
   try {
+    const run = await PlaywrightRun.findByPk(req.params.runId, { attributes: ['id', 'project_id'] });
+    if (!run) return res.status(404).json({ error: 'Playwright run not found' });
+    const canAccess = run.project_id ? await userCanAccessProjectId(req.user.id, req.user.is_admin, run.project_id) : req.user.is_admin;
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     const result = await PlaywrightResult.findOne({
       where: { id: req.params.resultId, playwright_run_id: req.params.runId }
     });
@@ -1638,8 +1864,10 @@ router.get('/playwright-runs/:runId/results/:resultId/trace', async (req, res) =
 // Delete Playwright run
 router.delete('/playwright-runs/:id', async (req, res) => {
   try {
-    const run = await PlaywrightRun.findByPk(req.params.id);
+    const run = await PlaywrightRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
     if (!run) return res.status(404).json({ error: 'Playwright run not found' });
+    const canManage = run.project_id ? await userCanManageProjectId(req.user.id, req.user.is_admin, run.project_id) : req.user.is_admin;
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
     await run.destroy();
     res.json({ message: 'Playwright run deleted successfully' });
   } catch (error) {
@@ -1649,10 +1877,22 @@ router.delete('/playwright-runs/:id', async (req, res) => {
 
 // ==================== PLAYWRIGHT RECORDED TESTS (Codegen paste-and-save) ====================
 
-// List recorded tests
+// List recorded tests (only those in projects the user can access)
 router.get('/playwright-recorded-tests', async (req, res) => {
   try {
+    const accessibleIds = await getAccessibleProjectIds(req.user.id, req.user.is_admin);
+    let testIds = null;
+    if (accessibleIds !== null) {
+      const links = await ProjectRecordedTest.findAll({
+        where: { project_id: { [Op.in]: accessibleIds } },
+        attributes: ['recorded_test_id']
+      });
+      testIds = [...new Set(links.map(l => l.recorded_test_id))];
+      if (testIds.length === 0) return res.json([]);
+    }
+    const where = testIds === null ? {} : { id: { [Op.in]: testIds } };
     const tests = await PlaywrightRecordedTest.findAll({
+      where,
       order: [['created_at', 'DESC']],
       attributes: ['id', 'name', 'base_url', 'created_at']
     });
@@ -1662,7 +1902,7 @@ router.get('/playwright-recorded-tests', async (req, res) => {
   }
 });
 
-// Create recorded test (optional addToProjectIds: array of project ids to link to)
+// Create recorded test (addToProjectIds: user must manage those projects)
 router.post('/playwright-recorded-tests', async (req, res) => {
   try {
     const { name, spec_content, base_url, addToProjectIds } = req.body;
@@ -1673,6 +1913,11 @@ router.post('/playwright-recorded-tests', async (req, res) => {
     if (!validation.valid) {
       return res.status(400).json({ error: validation.error });
     }
+    const projectIds = Array.isArray(addToProjectIds) ? addToProjectIds.filter(id => Number.isInteger(Number(id))) : [];
+    for (const projectId of projectIds) {
+      const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, projectId);
+      if (!canManage) return res.status(403).json({ error: 'Forbidden: cannot add to one or more projects' });
+    }
     const normalizedSpec = normalizeRecordedSpecTitle(
       typeof spec_content === 'string' ? spec_content.trim() : '',
       name
@@ -1682,7 +1927,6 @@ router.post('/playwright-recorded-tests', async (req, res) => {
       spec_content: normalizedSpec,
       base_url: base_url && typeof base_url === 'string' ? base_url.trim() || null : null
     });
-    const projectIds = Array.isArray(addToProjectIds) ? addToProjectIds.filter(id => Number.isInteger(Number(id))) : [];
     for (const projectId of projectIds) {
       await ProjectRecordedTest.findOrCreate({
         where: { project_id: projectId, recorded_test_id: test.id }
@@ -1804,22 +2048,38 @@ router.get('/playwright-recorded-tests/codegen-output/:slug', async (req, res) =
   }
 });
 
-// Get single recorded test
+// Get single recorded test (must have access to a project containing it)
 router.get('/playwright-recorded-tests/:id', async (req, res) => {
   try {
     const test = await PlaywrightRecordedTest.findByPk(req.params.id);
     if (!test) return res.status(404).json({ error: 'Recorded test not found' });
+    const links = await ProjectRecordedTest.findAll({ where: { recorded_test_id: test.id }, attributes: ['project_id'] });
+    const projectIds = links.map(l => l.project_id);
+    if (projectIds.length === 0) return res.status(403).json({ error: 'Forbidden' });
+    let allowed = req.user.is_admin;
+    if (!allowed) for (const pid of projectIds) {
+      if (await userCanAccessProjectId(req.user.id, false, pid)) { allowed = true; break; }
+    }
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
     res.json(test);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Update recorded test
+// Update recorded test (access to a project containing it required)
 router.put('/playwright-recorded-tests/:id', async (req, res) => {
   try {
     const test = await PlaywrightRecordedTest.findByPk(req.params.id);
     if (!test) return res.status(404).json({ error: 'Recorded test not found' });
+    const links = await ProjectRecordedTest.findAll({ where: { recorded_test_id: test.id }, attributes: ['project_id'] });
+    const projectIds = links.map(l => l.project_id);
+    if (projectIds.length === 0) return res.status(403).json({ error: 'Forbidden' });
+    let allowed = req.user.is_admin;
+    if (!allowed) for (const pid of projectIds) {
+      if (await userCanAccessProjectId(req.user.id, false, pid)) { allowed = true; break; }
+    }
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
     const { name, spec_content, base_url } = req.body;
     if (name !== undefined) {
       if (typeof name !== 'string' || !name.trim()) {
@@ -1848,11 +2108,19 @@ router.put('/playwright-recorded-tests/:id', async (req, res) => {
   }
 });
 
-// Delete recorded test
+// Delete recorded test (must manage at least one project containing it)
 router.delete('/playwright-recorded-tests/:id', async (req, res) => {
   try {
     const test = await PlaywrightRecordedTest.findByPk(req.params.id);
     if (!test) return res.status(404).json({ error: 'Recorded test not found' });
+    const links = await ProjectRecordedTest.findAll({ where: { recorded_test_id: test.id }, attributes: ['project_id'] });
+    const projectIds = links.map(l => l.project_id);
+    if (projectIds.length === 0) return res.status(403).json({ error: 'Forbidden' });
+    let canManage = req.user.is_admin;
+    if (!canManage) for (const pid of projectIds) {
+      if (await userCanManageProjectId(req.user.id, false, pid)) { canManage = true; break; }
+    }
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
     await test.destroy();
     res.json({ message: 'Recorded test deleted successfully' });
   } catch (error) {

@@ -39,6 +39,11 @@ services:
       PORT: 3000
       NODE_ENV: production
       PLAYWRIGHT_HEADLESS: "true"
+      # Auth (set in .env; required for login and admin seed)
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
+      ENABLE_LOCAL_AUTH: ${ENABLE_LOCAL_AUTH:-true}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       # Remote Codegen session limits
       CODEGEN_MAX_SESSIONS: ${CODEGEN_MAX_SESSIONS:-3}
       CODEGEN_SESSION_TIMEOUT_MS: ${CODEGEN_SESSION_TIMEOUT_MS:-600000}

@@ -16,6 +16,17 @@ const Project = sequelize.define('Project', {
     type: DataTypes.TEXT,
     allowNull: true
   },
+  owner_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'users', key: 'id' },
+    onDelete: 'SET NULL'
+  },
+  visibility: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    defaultValue: 'private'
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

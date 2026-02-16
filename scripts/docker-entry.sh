@@ -31,5 +31,18 @@ if ! node scripts/migrate.js; then
   echo "Migration failed. See error above."
   exit 1
 fi
+
+# Create or update admin user if ADMIN_USERNAME and ADMIN_PASSWORD are set (e.g. from .env via docker-compose)
+if [ -n "$ADMIN_USERNAME" ] && [ -n "$ADMIN_PASSWORD" ]; then
+  echo "Seeding admin user..."
+  if node scripts/seed-admin.js; then
+    echo "Admin user ready."
+  else
+    echo "Warning: seed-admin failed (check ADMIN_USERNAME/ADMIN_PASSWORD in .env). You can run: docker compose exec app node scripts/seed-admin.js"
+  fi
+else
+  echo "ADMIN_USERNAME/ADMIN_PASSWORD not set. To create an admin user, add them to .env and run: docker compose exec app node scripts/seed-admin.js"
+fi
+
 echo "Starting server..."
 exec node server.js

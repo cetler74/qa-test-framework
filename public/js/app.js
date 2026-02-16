@@ -1,10 +1,53 @@
 // API Base URL
 const API_BASE = '/api';
 
+// Auth state
+let currentUser = null;
+
+function showLoginView() {
+  document.getElementById('login-view').style.display = 'flex';
+  document.getElementById('app-container').style.display = 'none';
+  currentUser = null;
+  window.currentUser = null;
+}
+
+function hideLoginView() {
+  document.getElementById('login-view').style.display = 'none';
+  document.getElementById('app-container').style.display = '';
+}
+
+async function checkAuth() {
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' });
+    if (res.ok) {
+      currentUser = await res.json();
+      window.currentUser = currentUser;
+      hideLoginView();
+      const userNameEl = document.getElementById('user-name');
+      const userMenuEl = document.getElementById('user-menu');
+      const avatarEl = document.getElementById('user-dropdown-avatar');
+      if (userNameEl) userNameEl.textContent = currentUser.display_name || currentUser.username;
+      if (userMenuEl) userMenuEl.style.display = 'flex';
+      if (avatarEl) {
+        const name = currentUser.display_name || currentUser.username || '?';
+        avatarEl.textContent = name.charAt(0).toUpperCase();
+      }
+      const userMgmtItem = document.getElementById('settings-item-user-management');
+      if (userMgmtItem) userMgmtItem.style.display = currentUser.is_admin ? 'flex' : 'none';
+      return true;
+    }
+  } catch (e) {}
+  currentUser = null;
+  window.currentUser = null;
+  showLoginView();
+  return false;
+}
+
 // Utility functions
 async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
   const config = {
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...options.headers
@@ -18,8 +61,12 @@ async function apiRequest(endpoint, options = {}) {
 
   try {
     const response = await fetch(url, config);
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
     
+    if (response.status === 401) {
+      showLoginView();
+      throw new Error('Authentication required');
+    }
     if (!response.ok) {
       throw new Error(data.error || 'Request failed');
     }
@@ -66,10 +113,11 @@ function showView(viewId) {
   const navBtn = document.querySelector(`.main-nav .nav-btn[data-view="${viewId}"]`);
   if (navBtn) navBtn.classList.add('active');
   const settingsNavBtn = document.getElementById('settings-nav-btn');
-  if (settingsNavBtn && (viewId === 'api-specs' || viewId === 'ui-tests')) {
+  if (settingsNavBtn && (viewId === 'api-specs' || viewId === 'ui-tests' || viewId === 'project-access' || viewId === 'user-management')) {
     settingsNavBtn.classList.add('active');
   }
   closeSettingsDropdown();
+  closeUserDropdown();
 }
 
 function closeSettingsDropdown() {
@@ -77,6 +125,15 @@ function closeSettingsDropdown() {
   const btn = document.getElementById('settings-nav-btn');
   if (menu) menu.classList.remove('open');
   if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function closeUserDropdown() {
+  const container = document.querySelector('.user-dropdown');
+  const menu = document.getElementById('user-dropdown-menu');
+  const trigger = document.getElementById('user-dropdown-trigger');
+  if (container) container.classList.remove('open');
+  if (menu) menu.classList.remove('open');
+  if (trigger) trigger.setAttribute('aria-expanded', 'false');
 }
 
 // Modal management
@@ -91,13 +148,66 @@ function hideModal() {
 }
 
 // Event listeners
-document.addEventListener('DOMContentLoaded', () => {
-  // Navigation
+document.addEventListener('DOMContentLoaded', async () => {
+  // Auth: check session first
+  await checkAuth();
+
+  document.querySelectorAll('.login-strategy-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const strategy = tab.getAttribute('data-strategy');
+      document.getElementById('login-strategy').value = strategy;
+      document.querySelectorAll('.login-strategy-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('login-error').style.display = 'none';
+    });
+  });
+
+  document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const strategy = document.getElementById('login-strategy').value;
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    const errEl = document.getElementById('login-error');
+    const submitBtn = document.getElementById('login-submit');
+    errEl.style.display = 'none';
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ strategy, username, password })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        errEl.textContent = data.error || 'Login failed';
+        errEl.style.display = 'block';
+        return;
+      }
+      await checkAuth();
+      if (currentUser) loadViewData('dashboard');
+    } catch (err) {
+      errEl.textContent = err.message || 'Login failed';
+      errEl.style.display = 'block';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  document.getElementById('logout-btn').addEventListener('click', async () => {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
+    } catch (e) {}
+    showLoginView();
+  });
+
+  // Navigation (only relevant when logged in)
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       if (btn.id === 'settings-nav-btn') {
         e.preventDefault();
         e.stopPropagation();
+        closeUserDropdown();
         const menu = document.getElementById('settings-dropdown-menu');
         const isOpen = menu ? menu.classList.toggle('open') : false;
         btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
@@ -122,9 +232,196 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Close Settings dropdown when clicking outside
-  document.addEventListener('click', () => closeSettingsDropdown());
+  // User dropdown: toggle on trigger, close Settings when opening
+  const userDropdownTrigger = document.getElementById('user-dropdown-trigger');
+  if (userDropdownTrigger) {
+    userDropdownTrigger.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeSettingsDropdown();
+      const container = document.querySelector('.user-dropdown');
+      const menu = document.getElementById('user-dropdown-menu');
+      if (container && menu) {
+        const isOpen = !menu.classList.contains('open');
+        menu.classList.toggle('open', isOpen);
+        container.classList.toggle('open', isOpen);
+        userDropdownTrigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      }
+    });
+  }
+
+  // Close both dropdowns when clicking outside
+  document.addEventListener('click', () => {
+    closeSettingsDropdown();
+    closeUserDropdown();
+  });
   document.querySelector('.settings-dropdown')?.addEventListener('click', (e) => e.stopPropagation());
+  document.querySelector('.user-dropdown')?.addEventListener('click', (e) => e.stopPropagation());
+
+  // User management: Create user button, form, cancel
+  const createUserBtn = document.getElementById('user-management-create-btn');
+  const createUserCard = document.getElementById('user-management-create-card');
+  const createUserForm = document.getElementById('user-management-create-form');
+  const createUserCancel = document.getElementById('user-management-create-cancel');
+  if (createUserBtn) {
+    createUserBtn.addEventListener('click', () => {
+      if (createUserCard) createUserCard.style.display = 'block';
+    });
+  }
+  if (createUserCancel) {
+    createUserCancel.addEventListener('click', () => {
+      if (createUserCard) createUserCard.style.display = 'none';
+      const errEl = document.getElementById('user-management-create-error');
+      if (errEl) errEl.style.display = 'none';
+    });
+  }
+  if (createUserForm) {
+    createUserForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('new-user-username')?.value?.trim();
+      const password = document.getElementById('new-user-password')?.value;
+      const display_name = document.getElementById('new-user-display-name')?.value?.trim();
+      const is_admin = document.getElementById('new-user-is-admin')?.checked;
+      const errEl = document.getElementById('user-management-create-error');
+      if (errEl) errEl.style.display = 'none';
+      if (!username) {
+        if (errEl) { errEl.textContent = 'Username is required.'; errEl.style.display = 'block'; }
+        return;
+      }
+      if (!password || password.length < 6) {
+        if (errEl) { errEl.textContent = 'Password must be at least 6 characters.'; errEl.style.display = 'block'; }
+        return;
+      }
+      try {
+        await apiRequest('/users', {
+          method: 'POST',
+          body: { username, password, display_name, is_admin: !!is_admin }
+        });
+        if (createUserCard) createUserCard.style.display = 'none';
+        createUserForm.reset();
+        loadUserManagement();
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = err.message || 'Failed to create user.';
+          errEl.style.display = 'block';
+        }
+      }
+    });
+  }
+
+  // User management: Edit, Change password, Suspend, Delete (delegated)
+  document.getElementById('app-container')?.addEventListener('click', async (e) => {
+    const list = document.getElementById('user-management-list');
+    if (!list || !list.contains(e.target)) return;
+    const btn = e.target.closest('[data-action="edit-user"], [data-action="change-password-user"], [data-action="suspend-user"], [data-action="delete-user"]');
+    if (!btn) return;
+    e.preventDefault();
+    const userId = parseInt(btn.getAttribute('data-user-id'), 10);
+    if (!userId) return;
+    if (btn.getAttribute('data-action') === 'edit-user') {
+      const displayName = btn.getAttribute('data-display-name') || '';
+      const isAdmin = btn.getAttribute('data-is-admin') === '1';
+      const body = `
+        <form id="edit-user-form" class="modal-form" data-user-id="${userId}">
+          <div class="form-group">
+            <label for="edit-user-display-name">Display name</label>
+            <input type="text" id="edit-user-display-name" value="${(displayName || '').replace(/"/g, '&quot;')}" />
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="edit-user-is-admin" ${isAdmin ? 'checked' : ''} />
+              Administrator
+            </label>
+          </div>
+          <p id="edit-user-error" class="login-error" style="display: none;"></p>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          </div>
+        </form>
+      `;
+      showModal('Edit user', body);
+    } else if (btn.getAttribute('data-action') === 'change-password-user') {
+      const body = `
+        <form id="change-password-form" class="modal-form" data-user-id="${userId}">
+          <div class="form-group">
+            <label for="edit-user-password">New password</label>
+            <input type="password" id="edit-user-password" minlength="6" autocomplete="new-password" required />
+            <p class="form-hint">At least 6 characters.</p>
+          </div>
+          <div class="form-group">
+            <label for="edit-user-password-confirm">Confirm password</label>
+            <input type="password" id="edit-user-password-confirm" minlength="6" autocomplete="new-password" required />
+          </div>
+          <p id="change-password-error" class="login-error" style="display: none;"></p>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Update password</button>
+            <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          </div>
+        </form>
+      `;
+      showModal('Change password', body);
+    } else if (btn.getAttribute('data-action') === 'suspend-user') {
+      const currentlySuspended = btn.getAttribute('data-suspended') === '1';
+      try {
+        await apiRequest('/users/' + userId, { method: 'PATCH', body: { suspended: !currentlySuspended } });
+        loadUserManagement();
+      } catch (err) {
+        alert(err.message || 'Failed to update user');
+      }
+    } else if (btn.getAttribute('data-action') === 'delete-user') {
+      const username = btn.getAttribute('data-username') || 'this user';
+      if (!confirm('Delete user “‘ + username + ’”? This cannot be undone.')) return;
+      try {
+        await apiRequest('/users/' + userId, { method: 'DELETE' });
+        loadUserManagement();
+      } catch (err) {
+        alert(err.message || 'Failed to delete user');
+      }
+    }
+  });
+
+  // Modal form submit: Edit user and Change password
+  document.getElementById('modal-overlay')?.addEventListener('submit', async (e) => {
+    const form = e.target;
+    if (form.id === 'edit-user-form') {
+      e.preventDefault();
+      const userId = form.getAttribute('data-user-id');
+      const display_name = document.getElementById('edit-user-display-name')?.value?.trim();
+      const is_admin = document.getElementById('edit-user-is-admin')?.checked;
+      const errEl = document.getElementById('edit-user-error');
+      if (errEl) errEl.style.display = 'none';
+      try {
+        await apiRequest('/users/' + userId, { method: 'PATCH', body: { display_name: display_name || undefined, is_admin: !!is_admin } });
+        hideModal();
+        loadUserManagement();
+      } catch (err) {
+        if (errEl) { errEl.textContent = err.message || 'Failed to save.'; errEl.style.display = 'block'; }
+      }
+    } else if (form.id === 'change-password-form') {
+      e.preventDefault();
+      const userId = form.getAttribute('data-user-id');
+      const password = document.getElementById('edit-user-password')?.value;
+      const confirmPassword = document.getElementById('edit-user-password-confirm')?.value;
+      const errEl = document.getElementById('change-password-error');
+      if (errEl) errEl.style.display = 'none';
+      if (!password || password.length < 6) {
+        if (errEl) { errEl.textContent = 'Password must be at least 6 characters.'; errEl.style.display = 'block'; }
+        return;
+      }
+      if (password !== confirmPassword) {
+        if (errEl) { errEl.textContent = 'Passwords do not match.'; errEl.style.display = 'block'; }
+        return;
+      }
+      try {
+        await apiRequest('/users/' + userId, { method: 'PATCH', body: { password } });
+        hideModal();
+        loadUserManagement();
+      } catch (err) {
+        if (errEl) { errEl.textContent = err.message || 'Failed to update password.'; errEl.style.display = 'block'; }
+      }
+    }
+  });
 
   // Modal close
   document.querySelector('.modal-close').addEventListener('click', hideModal);
@@ -163,8 +460,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Initial load
-  loadDashboard();
+  // Initial load (only when logged in)
+  if (currentUser) loadDashboard();
 
   // Filter event bindings for Test Runs
   const applyFiltersBtn = document.getElementById('apply-filters-btn');
@@ -237,6 +534,27 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  // Dashboard: click or Enter/Space on a next-scheduled item opens edit schedule modal
+  document.getElementById('app-container')?.addEventListener('click', (e) => {
+    const item = e.target.closest('#next-scheduled-list .next-scheduled-item');
+    if (item && typeof editSchedule === 'function') {
+      const scheduleId = parseInt(item.getAttribute('data-schedule-id'), 10);
+      const projectId = parseInt(item.getAttribute('data-project-id'), 10);
+      if (scheduleId && projectId) editSchedule(scheduleId, projectId);
+    }
+  });
+  document.getElementById('app-container')?.addEventListener('keydown', (e) => {
+    const item = e.target.closest('#next-scheduled-list .next-scheduled-item');
+    if (item && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      if (typeof editSchedule === 'function') {
+        const scheduleId = parseInt(item.getAttribute('data-schedule-id'), 10);
+        const projectId = parseInt(item.getAttribute('data-project-id'), 10);
+        if (scheduleId && projectId) editSchedule(scheduleId, projectId);
+      }
+    }
+  });
 });
 
 // Load view data
@@ -257,6 +575,146 @@ async function loadViewData(view) {
     case 'ui-tests':
       // UI test runs are shown only in Test Runs; no list to load here
       break;
+    case 'project-access':
+      loadProjectAccess();
+      break;
+    case 'user-management':
+      loadUserManagement();
+      break;
+  }
+}
+
+async function loadProjectAccess() {
+  const listEl = document.getElementById('project-access-list');
+  if (!listEl) return;
+  try {
+    const [projects, users] = await Promise.all([
+      apiRequest('/projects'),
+      apiRequest('/users')
+    ]);
+    const canManage = (p) => currentUser && (currentUser.is_admin || (p.owner && p.owner.id === currentUser.id));
+    const manageable = projects.filter(canManage);
+    if (manageable.length === 0) {
+      listEl.innerHTML = '<p class="empty-state">No projects you can manage. Create a project from the Projects view.</p>';
+      return;
+    }
+    listEl.innerHTML = manageable.map(p => {
+      const sharedIds = (p.members || p.shared_users || []).map(u => u.id);
+      const sharedOpts = (users || []).filter(u => u.id !== (p.owner && p.owner.id)).map(u =>
+        `<option value="${u.id}" ${sharedIds.includes(u.id) ? 'selected' : ''}>${u.display_name || u.username}</option>`
+      ).join('');
+      const vis = (p.visibility || 'private');
+      return `
+        <div class="project-access-card" data-project-id="${p.id}">
+          <div class="project-access-card-header">
+            <h3>${(p.name || '').replace(/</g, '&lt;')}</h3>
+            <span class="visibility-badge visibility-${vis}">${vis === 'private' ? 'Private' : vis === 'shared' ? 'Shared' : 'Public'}</span>
+          </div>
+          <div class="form-group">
+            <label>Visibility</label>
+            <select class="project-access-visibility" data-project-id="${p.id}">
+              <option value="private" ${vis === 'private' ? 'selected' : ''}>Private (only you)</option>
+              <option value="shared" ${vis === 'shared' ? 'selected' : ''}>Shared (selected users)</option>
+              <option value="public" ${vis === 'public' ? 'selected' : ''}>Public (all users)</option>
+            </select>
+          </div>
+          <div class="form-group project-access-shared-wrap" data-project-id="${p.id}" style="display: ${vis === 'shared' ? 'block' : 'none'};">
+            <label>Shared with</label>
+            <select class="project-access-shared-users" multiple size="3" data-project-id="${p.id}">
+              ${sharedOpts}
+            </select>
+          </div>
+          <button type="button" class="btn btn-primary project-access-save-btn" data-project-id="${p.id}">Save</button>
+        </div>
+      `;
+    }).join('');
+
+    listEl.querySelectorAll('.project-access-visibility').forEach(sel => {
+      sel.addEventListener('change', (e) => {
+        const id = e.target.getAttribute('data-project-id');
+        const wrap = listEl.querySelector(`.project-access-shared-wrap[data-project-id="${id}"]`);
+        if (wrap) wrap.style.display = e.target.value === 'shared' ? 'block' : 'none';
+      });
+    });
+    listEl.querySelectorAll('.project-access-save-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const projectId = btn.getAttribute('data-project-id');
+        const visibility = listEl.querySelector(`.project-access-visibility[data-project-id="${projectId}"]`)?.value || 'private';
+        const sharedSel = listEl.querySelector(`.project-access-shared-users[data-project-id="${projectId}"]`);
+        const shared_user_ids = sharedSel ? Array.from(sharedSel.selectedOptions).map(o => Number(o.value)) : [];
+        btn.disabled = true;
+        try {
+          await apiRequest(`/projects/${projectId}`, {
+            method: 'PUT',
+            body: { visibility, shared_user_ids }
+          });
+          loadProjectAccess();
+        } catch (err) {
+          alert('Failed to save: ' + (err.message || 'Unknown error'));
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  } catch (err) {
+    listEl.innerHTML = '<p class="empty-state">Failed to load projects.</p>';
+  }
+}
+
+async function loadUserManagement() {
+  const adminOnlyMsg = document.getElementById('user-management-admin-only-msg');
+  const content = document.getElementById('user-management-content');
+  const createBtn = document.getElementById('user-management-create-btn');
+  const createCard = document.getElementById('user-management-create-card');
+  const listEl = document.getElementById('user-management-list');
+
+  if (!currentUser || !currentUser.is_admin) {
+    if (adminOnlyMsg) adminOnlyMsg.style.display = 'block';
+    if (content) content.style.display = 'none';
+    if (createBtn) createBtn.style.display = 'none';
+    return;
+  }
+
+  if (adminOnlyMsg) adminOnlyMsg.style.display = 'none';
+  if (content) content.style.display = 'block';
+  if (createBtn) createBtn.style.display = 'inline-flex';
+
+  try {
+    const users = await apiRequest('/users');
+    if (!listEl) return;
+    if (!users || users.length === 0) {
+      listEl.innerHTML = '<p class="empty-state">No users yet. Create one below.</p>';
+    } else {
+      const currentUserId = currentUser ? currentUser.id : null;
+      listEl.innerHTML = users.map(u => {
+        const adminBadge = u.is_admin ? '<span class="visibility-badge visibility-shared">Admin</span>' : '';
+        const suspendedBadge = u.suspended ? '<span class="status-badge failed">Suspended</span>' : '';
+        const source = u.auth_source || 'local';
+        const isSelf = u.id === currentUserId;
+        const displayName = (u.display_name || u.username || '').replace(/</g, '&lt;');
+        const username = (u.username || '').replace(/</g, '&lt;');
+        const editBtn = '<button type="button" class="btn btn-secondary btn-sm" data-action="edit-user" data-user-id="' + u.id + '" data-display-name="' + (u.display_name || '').replace(/"/g, '&quot;') + '" data-is-admin="' + (u.is_admin ? '1' : '0') + '" title="Edit name and role">Edit</button>';
+        const pwdBtn = source === 'local' ? '<button type="button" class="btn btn-secondary btn-sm" data-action="change-password-user" data-user-id="' + u.id + '" title="Change password">Change password</button>' : '';
+        const suspendBtn = !isSelf ? '<button type="button" class="btn btn-secondary btn-sm" data-action="suspend-user" data-user-id="' + u.id + '" data-suspended="' + (u.suspended ? '1' : '0') + '" title="' + (u.suspended ? 'Unsuspend user' : 'Suspend user') + '">' + (u.suspended ? 'Unsuspend' : 'Suspend') + '</button>' : '';
+        const deleteBtn = !isSelf ? '<button type="button" class="btn btn-danger btn-sm" data-action="delete-user" data-user-id="' + u.id + '" data-username="' + username.replace(/"/g, '&quot;') + '" title="Delete user">Delete</button>' : '';
+        return `
+          <div class="list-item user-management-item" data-user-id="${u.id}">
+            <div class="list-item-info">
+              <h3>${displayName} ${adminBadge} ${suspendedBadge}</h3>
+              <p>${username} · ${source}</p>
+            </div>
+            <div class="list-item-actions">
+              ${editBtn}
+              ${pwdBtn}
+              ${suspendBtn}
+              ${deleteBtn}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  } catch (err) {
+    listEl.innerHTML = '<p class="empty-state">Failed to load users.</p>';
   }
 }
 
@@ -287,7 +745,8 @@ async function loadDashboard() {
         nextScheduledList.innerHTML = schedules.map(s => {
           const target = s.flow ? `Flow: ${s.flow.name}` : 'Whole project';
           const next = s.next_run_at ? formatDateTime(s.next_run_at) : '–';
-          return `<div class="list-item" style="padding: 12px 16px;"><div class="list-item-info"><h3 style="font-size: 14px;">${(s.project?.name || 'Project')} – ${target}</h3><p style="font-size: 12px;">Next: ${next}</p></div></div>`;
+          const projectId = s.project_id || (s.project && s.project.id) || 0;
+          return `<div class="list-item next-scheduled-item" style="padding: 12px 16px; cursor: pointer;" data-schedule-id="${s.id}" data-project-id="${projectId}" role="button" tabindex="0" title="Edit schedule"><div class="list-item-info"><h3 style="font-size: 14px;">${(s.project?.name || 'Project').replace(/</g, '&lt;')} – ${(target || '').replace(/</g, '&lt;')}</h3><p style="font-size: 12px;">Next: ${(next || '').replace(/</g, '&lt;')}</p></div></div>`;
         }).join('');
       }
     }

@@ -26,7 +26,7 @@ The following software is required or optional depending on which features you u
 | **Playwright browsers** | Chromium (required); Firefox & WebKit optional | Run UI tests; install with `npx playwright install chromium` (or `chromium firefox webkit` for all) |
 | **Newman** | Installed via `npm install` | Postman collection test execution (API tests) |
 | **Java** | 17+ | REST API fuzzing (CATS) when using the JAR; not needed if using CATS native binary or Docker |
-| **CATS** | JAR or native binary | Optional; required only for **Run Fuzz** (OpenAPI fuzzing). See [SETUP.md – CATS](SETUP.md#5-optional-rest-api-fuzzing-cats) |
+| **CATS** | JAR or native binary | Optional; required only for **Run Fuzz** (OpenAPI fuzzing). See [SETUP.md – CATS](SETUP.md#6-optional-rest-api-fuzzing-cats) |
 
 **When using Docker:** The Docker image includes Node.js, Playwright Chromium, Xvfb, x11vnc, noVNC/websockify (remote Codegen), Java, and the CATS binary. Database migrations run automatically on app startup. You only need Docker Engine and Docker Compose; see [SETUP.md – Docker](SETUP.md#docker-deployment-recommended-for-saas--production).
 
@@ -48,7 +48,7 @@ Or separately: `npm install` then `npm run migrate`.
 cp .env.example .env
 ```
 
-5. Update the `.env` file with your database credentials (use your actual PostgreSQL database name; e.g. `linkuup_db` or `qa_framework`):
+5. Update the `.env` file with your database credentials and auth settings (use your actual PostgreSQL database name; e.g. `linkuup_db` or `qa_testing`):
 
 ```env
 DB_HOST=localhost
@@ -56,7 +56,23 @@ DB_PORT=5432
 DB_NAME=qa_framework
 DB_USER=postgres
 DB_PASSWORD=your_password
+
+# Required for login/session (change in production)
+SESSION_SECRET=your-session-secret-change-in-production
+ENABLE_LOCAL_AUTH=true
+
+# Optional: create first admin user (see step 6)
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your_admin_password
 ```
+
+6. **Create an initial admin user** (required to sign in). Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`, **save the file**, then run:
+
+```bash
+node scripts/seed-admin.js
+```
+
+This creates or updates a local user with admin rights. If the script says "Set ADMIN_USERNAME and ADMIN_PASSWORD in .env", ensure those variables are in `.env` and the file is saved to disk. See [SETUP.md – Auth and admin](SETUP.md#auth-and-initial-admin-user) for details.
 
 ## Database Setup
 
@@ -81,7 +97,7 @@ node scripts/migrate.js
 This migration script will:
 
 - Connect to PostgreSQL using your `.env` credentials
-- Create the `qa_framework` database if it doesn't exist
+- Create the database (name from `DB_NAME`) if it doesn't exist
 - Run all migration files in order:
   - `000_create_database.sql` - Database creation (handled automatically)
   - `001_create_tables.sql` - Creates all base tables (projects, api_specs, collections, test_runs, test_results, etc.)
@@ -96,6 +112,10 @@ This migration script will:
   - `010_fuzz_run_progress.sql` - Fuzz run progress tracking
   - `011_fuzz_run_server_url.sql` - Server URL on fuzz runs
   - `012_playwright_result_screenshot.sql` - Screenshot path on playwright_results
+  - `013_playwright_run_artifacts_browser.sql` - Playwright run artifacts and browser
+  - `014_playwright_result_video_trace.sql` - Video and trace on playwright results
+  - `015_users_and_project_access.sql` - users, project owner/visibility, project_members (auth and project access)
+  - `016_users_suspended.sql` - adds `suspended` flag to users (suspended users cannot log in)
 
 ### Migration Files
 
@@ -114,6 +134,10 @@ The `migrations/` directory contains SQL migration files that are executed in al
 - **010_fuzz_run_progress.sql** - Fuzz run progress
 - **011_fuzz_run_server_url.sql** - Server URL on fuzz runs
 - **012_playwright_result_screenshot.sql** - Screenshot path on playwright_results
+- **013_playwright_run_artifacts_browser.sql** - Playwright run artifacts and browser
+- **014_playwright_result_video_trace.sql** - Video and trace on playwright results
+- **015_users_and_project_access.sql** - `users`, project `owner_id`/`visibility`, `project_members` (authentication and project access)
+- **016_users_suspended.sql** - `suspended` column on `users` (suspended users cannot log in; used by Manage users)
 
 ### Manual Database Setup (Alternative)
 
@@ -181,16 +205,25 @@ The application uses the following main tables:
   CREATE DATABASE qa_framework;
   ```
 
+**Login returns 500 or "column suspended does not exist"**
+
+- Solution: Run all migrations so the `users` table has the `suspended` column:
+  ```bash
+  npm run migrate
+  ```
+  Then restart the server.
+
 ## Dependency checklist (local run)
 
 Before running the app locally, ensure:
 
 - [ ] **Node.js** 18+ and **npm** installed (`node -v`, `npm -v`)
 - [ ] **PostgreSQL** 12+ installed and running; database created or migration will create it
-- [ ] **`.env`** created from `.env.example` with correct `DB_*` values
+- [ ] **`.env`** created from `.env.example` with correct `DB_*` values and **`SESSION_SECRET`** (required for login)
 - [ ] **`npm install`** and **`npm run migrate`** completed
+- [ ] **Initial admin user** created: set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`, save the file, then run `node scripts/seed-admin.js` (see [SETUP.md – Auth and admin](SETUP.md#auth-and-initial-admin-user))
 - [ ] (Optional) **Playwright browsers** for UI tests: `npx playwright install chromium`
-- [ ] (Optional) **Java 17+** and **CATS** (JAR or binary) if you use **Run Fuzz** — see [SETUP.md](SETUP.md#5-optional-rest-api-fuzzing-cats)
+- [ ] (Optional) **Java 17+** and **CATS** (JAR or binary) if you use **Run Fuzz** — see [SETUP.md](SETUP.md#6-optional-rest-api-fuzzing-cats)
 
 ## Running the Application
 
@@ -206,7 +239,7 @@ For development with auto-reload:
 npm run dev
 ```
 
-The application will be available at `http://localhost:3000`
+The application will be available at `http://localhost:3000` (or the port set in `PORT`). You must sign in with a user account; use the admin user created by `node scripts/seed-admin.js` (Local account) or an Active Directory account if AD auth is enabled.
 
 ## Usage
 
@@ -243,7 +276,7 @@ The application will be available at `http://localhost:3000`
 
 Fuzz runs use [CATS](https://github.com/Endava/cats) (Contract API Testing Service) to test your OpenAPI endpoints with generated and boundary inputs. From a project, click **Run Fuzz**, select an **API Spec** (OpenAPI YAML/JSON only), enter the **Base URL** (server URL for CATS), and a **Run name**. Fuzz runs appear in **Test Runs** with the **Fuzz** badge; open a run for details and use **View Report** / **Download Report** for the HTML report.
 
-**Installing CATS:** You need Java 17+ and the CATS JAR (or native binary on macOS/Linux). See [SETUP.md – Installing CATS](SETUP.md#5-optional-rest-api-fuzzing-cats) for step-by-step instructions (download JAR, set `CATS_CMD` in `.env`, verify). Without CATS installed, "Run Fuzz" will create a run that immediately fails with no results.
+**Installing CATS:** You need Java 17+ and the CATS JAR (or native binary on macOS/Linux). See [SETUP.md – Installing CATS](SETUP.md#6-optional-rest-api-fuzzing-cats) for step-by-step instructions (download JAR, set `CATS_CMD` in `.env`, verify). Without CATS installed, "Run Fuzz" will create a run that immediately fails with no results.
 
 **Verification scripts:**
 
@@ -411,10 +444,11 @@ flowchart TD
 
 ```bash
 cp .env.example .env
-# Edit .env — set DB_PASSWORD at minimum
+# Edit .env — set DB_PASSWORD, SESSION_SECRET; for first-time login also set ADMIN_USERNAME and ADMIN_PASSWORD
 docker compose up --build -d
-# Migrations run automatically when the app starts. If you see DB schema errors (e.g. missing column), run:
-#   docker compose exec app npm run migrate
+# Migrations run automatically. If ADMIN_USERNAME and ADMIN_PASSWORD are set in .env, the admin user is created on first startup.
+# Otherwise run: docker compose exec app node scripts/seed-admin.js (after adding ADMIN_USERNAME and ADMIN_PASSWORD to .env and restarting, or pass env when exec’ing)
+# If you see DB schema errors (e.g. missing column), run: docker compose exec app npm run migrate
 # Open http://<server-ip>:3000
 ```
 
@@ -555,6 +589,11 @@ The application uses PostgreSQL with the following main tables:
 - `DB_USER` - Database user (default: postgres)
 - `DB_PASSWORD` - Database password
 - `PORT` - Server port (default: 3000)
+- **`SESSION_SECRET`** - Secret for session cookies (required for auth; change in production)
+- **`COOKIE_SECURE`** - Set to `true` only when the app is served over HTTPS. Leave unset (or false) for Docker or `http://localhost`, otherwise the session cookie is not sent and login appears to fail (401 on `/api/auth/me`).
+- **`ENABLE_LOCAL_AUTH`** - Enable local username/password login (default: true)
+- **`ENABLE_AD_AUTH`** - Enable Active Directory login (default: false). When true, set `AD_URL`, `AD_BASE_DN`, and optionally `AD_BIND_DN`, `AD_BIND_PASSWORD`, `AD_DOMAIN`
+- **`ADMIN_USERNAME`** / **`ADMIN_PASSWORD`** - Used by `node scripts/seed-admin.js` to create or update the first admin user (local auth). Must be set in `.env` and the file saved before running the script.
 - `UPLOAD_DIR` - Directory for uploaded files (default: ./uploads)
 - `REPORTS_DIR` - Directory for generated reports (default: ./reports)
 - `MAX_FILE_SIZE` - Maximum upload file size in bytes (default: 10485760)
