@@ -23,6 +23,15 @@ const { generatePlaywrightReport } = require('../services/playwrightReportGenera
 const playwrightConfig = require('../config/playwright');
 const { validateSpecContent } = require('../services/recordedTestValidation');
 const codegenSessionManager = require('../services/codegenSessionManager');
+const { loadProxyConfig, getProxyByName } = require('../lib/proxyConfig');
+
+/** Remove duplicate leading protocol in URL-like env var values (e.g. "https://https://api.example.com" -> "https://api.example.com"). */
+function normalizeBaseUrl(value) {
+  if (value == null || typeof value !== 'string') return value === undefined ? '' : String(value);
+  const s = value.trim();
+  if (/^(https?:\/\/)\s*(https?:\/\/)/i.test(s)) return s.replace(/^(https?:\/\/)\s*(https?:\/\/)/i, '$2');
+  return s;
+}
 
 function normalizeRecordedSpecTitle(specContent, recordedName) {
   if (typeof specContent !== 'string') return specContent;
@@ -142,6 +151,24 @@ router.delete('/users/:id', async (req, res) => {
   }
 });
 
+// ==================== PROXIES ====================
+
+// Get proxy list from config (for dropdowns and settings)
+router.get('/proxies', async (req, res) => {
+  try {
+    const config = loadProxyConfig();
+    const list = Object.entries(config.proxies || {}).map(([name, entry]) => ({
+      name,
+      http: typeof entry.http === 'string' ? entry.http : '',
+      https: typeof entry.https === 'string' ? entry.https : '',
+      bypass: typeof entry.bypass === 'string' ? entry.bypass : ''
+    }));
+    res.json({ activeProxy: config.activeProxy || 'no-proxy', proxies: list });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== PROJECTS ====================
 
 // Get all projects (filtered by access; admin sees all)
@@ -181,6 +208,9 @@ router.get('/projects/:id', (req, res, next) => {
       const out = p.toJSON();
       out.visibility = p.visibility;
       out.shared_users = (p.members || []).map(m => ({ id: m.id, username: m.username, display_name: m.display_name }));
+      out.proxy_name = p.proxy_name || null;
+      const resolved = getProxyByName(p.proxy_name);
+      out.proxy = resolved ? { name: p.proxy_name, ...resolved } : null;
       res.json(out);
     }).catch(err => res.status(500).json({ error: err.message }));
   }, req.params.id, false);
@@ -220,11 +250,21 @@ router.put('/projects/:id', (req, res, next) => {
   loadProjectAndCheckAccess(req, res, async () => {
     try {
       const project = req.project;
-      const { name, description, visibility, shared_user_ids } = req.body;
+      const { name, description, visibility, shared_user_ids, proxy_name } = req.body;
       const updates = {};
       if (name !== undefined) updates.name = name;
       if (description !== undefined) updates.description = description;
       if (visibility !== undefined) updates.visibility = visibility;
+      if (proxy_name !== undefined) {
+        const pn = proxy_name === '' || proxy_name === null ? null : String(proxy_name).trim();
+        if (pn === null) {
+          updates.proxy_name = null;
+        } else {
+          const proxyEntry = getProxyByName(pn);
+          if (!proxyEntry) return res.status(400).json({ error: `Unknown proxy: ${pn}. Add it to config/proxies.json or use an existing key.` });
+          updates.proxy_name = pn;
+        }
+      }
       await project.update(updates);
       if (Array.isArray(shared_user_ids)) {
         await ProjectMember.destroy({ where: { project_id: project.id } });
@@ -1227,8 +1267,12 @@ router.post('/test-runs/execute', async (req, res) => {
     if (environment) {
       testOptions.environment = environment; // Path to environment file
     }
-    if (envVars) {
-      testOptions.envVars = envVars; // Object with key-value pairs
+    if (envVars && typeof envVars === 'object') {
+      const normalized = {};
+      for (const [k, v] of Object.entries(envVars)) {
+        normalized[k] = normalizeBaseUrl(String(v));
+      }
+      testOptions.envVars = normalized;
     }
 
     // Optional: global delay between tests (seconds)
@@ -1284,6 +1328,10 @@ router.post('/test-runs/execute', async (req, res) => {
       }
     }
 
+    // Resolve project proxy for this run
+    const project = await Project.findByPk(projectId, { attributes: ['id', 'proxy_name'] });
+    const proxy = project ? getProxyByName(project.proxy_name) : null;
+
     // Create test run immediately with 'running' status so frontend can track progress
     const testRun = await TestRun.create({
       name: name,
@@ -1296,7 +1344,7 @@ router.post('/test-runs/execute', async (req, res) => {
     });
 
     // Execute tests asynchronously (don't await - let it run in background)
-    executeTests(projectId, name, { ...testOptions, testRunId: testRun.id })
+    executeTests(projectId, name, { ...testOptions, testRunId: testRun.id, proxy })
       .then(results => {
         console.log(`[api] Test run ${testRun.id} completed: ${results.summary.passed} passed, ${results.summary.failed} failed`);
         // Pre-generate report in background so View Report serves from file and does not block the app
@@ -1387,12 +1435,15 @@ router.post('/fuzz-runs/execute', async (req, res) => {
       failed_tests: 0,
       duration_ms: 0
     });
+    const project = await Project.findByPk(projectId, { attributes: ['proxy_name'] });
+    const proxy = project ? getProxyByName(project.proxy_name) : null;
     executeFuzz(projectId, apiSpecId, name, {
       fuzzRunId: fuzzRun.id,
       serverUrl: baseUrl,
       flowId: flowId || null,
       paths: paths || null,
-      skipPaths: skipPaths || null
+      skipPaths: skipPaths || null,
+      proxy
     }).catch((err) => {
       console.error(`[api] Fuzz run ${fuzzRun.id} failed:`, err);
       const msg = (err && err.message) ? String(err.message).slice(0, 2000) : 'Fuzz run failed';
@@ -1659,6 +1710,8 @@ router.post('/playwright-runs/execute', async (req, res) => {
       duration_ms: 0,
       browser_name: browserName
     });
+    const project = await Project.findByPk(projectId, { attributes: ['proxy_name'] });
+    const proxy = project ? getProxyByName(project.proxy_name) : null;
     let headless = typeof bodyHeadless === 'boolean' ? bodyHeadless : playwrightConfig.headless;
     const hasDisplay = process.platform === 'win32' || !!process.env.DISPLAY;
     if (!hasDisplay && !headless) headless = true;
@@ -1674,7 +1727,8 @@ router.post('/playwright-runs/execute', async (req, res) => {
       video: videoOpt,
       trace: traceOpt,
       browserName,
-      slowMo
+      slowMo,
+      proxy
     })
       .then(() => console.log(`[api] Playwright run ${run.id} completed`))
       .catch((err) => {
@@ -1943,13 +1997,19 @@ router.post('/playwright-recorded-tests', async (req, res) => {
 // On Windows/desktop (with DISPLAY): spawns codegen locally as before.
 router.post('/playwright-recorded-tests/launch-codegen', async (req, res) => {
   try {
-    const { baseUrl } = req.body;
+    const { baseUrl, projectId } = req.body;
     const url = (baseUrl && typeof baseUrl === 'string' ? baseUrl.trim() : playwrightConfig.baseUrl) || 'https://example.com';
     const slug = `recorded-${Date.now()}`;
 
+    let proxy = null;
+    if (projectId) {
+      const project = await Project.findByPk(projectId, { attributes: ['proxy_name'] });
+      proxy = project ? getProxyByName(project.proxy_name) : null;
+    }
+
     // --- Remote Codegen path (headless Linux with Xvfb + noVNC) ---
     if (codegenSessionManager.isRemoteCodegenAvailable()) {
-      const session = await codegenSessionManager.createSession(slug, url);
+      const session = await codegenSessionManager.createSession(slug, url, { proxy });
       return res.status(202).json({
         mode: 'remote',
         message: 'Remote Codegen session started. Use the embedded browser panel to record your interactions, then click "Stop Recording" to save.',
@@ -1976,11 +2036,22 @@ router.post('/playwright-recorded-tests/launch-codegen', async (req, res) => {
     const isWin = process.platform === 'win32';
     const command = isWin ? 'npx.cmd' : 'npx';
     const args = ['playwright', 'codegen', '--output', outputPath, url];
+    const localEnv = { ...process.env };
+    if (proxy && (proxy.http || proxy.https)) {
+      const u = proxy.http || proxy.https || '';
+      localEnv.HTTP_PROXY = u;
+      localEnv.HTTPS_PROXY = u;
+      localEnv.NO_PROXY = proxy.bypass || '';
+      localEnv.http_proxy = u;
+      localEnv.https_proxy = u;
+      localEnv.no_proxy = proxy.bypass || '';
+    }
     const child = spawn(command, args, {
       stdio: 'ignore',
       detached: true,
       shell: isWin,
-      cwd: path.join(__dirname, '..')
+      cwd: path.join(__dirname, '..'),
+      env: localEnv
     });
     child.unref();
     const relativePath = path.relative(path.join(__dirname, '..'), outputPath);

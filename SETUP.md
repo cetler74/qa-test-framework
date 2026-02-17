@@ -202,7 +202,7 @@ npm run migrate
 
 This will:
 - Create the database if it doesn't exist (name from `DB_NAME` in `.env`)
-- Run all migration files in order, including: projects, API specs, collections, test runs, Playwright runs/results/recorded tests, flows, schedules, SOAP, fuzz runs, **users/project access** (migration `015_users_and_project_access.sql`), and **users.suspended** (migration `016_users_suspended.sql`)
+- Run all migration files in order, including: projects, API specs, collections, test runs, Playwright runs/results/recorded tests, flows, schedules, SOAP, fuzz runs, **users/project access** (migration `015_users_and_project_access.sql`), **users.suspended** (migration `016_users_suspended.sql`), and **project.proxy_name** (migration `017_project_proxy.sql`). Migrations run automatically on Docker app startup; for local runs use `npm run migrate`.
 
 ### 3. Auth and Initial Admin User
 
@@ -236,6 +236,22 @@ Or for development with auto-reload:
 ```bash
 npm run dev
 ```
+
+### 4a. Optional: Proxy configuration
+
+When running in restricted networks (e.g. VM with corporate proxy), API, UI, Codegen, and fuzz runs can use a proxy. Each project can select one proxy from a shared list.
+
+**Purpose:** Tests (API, UI, Codegen, fuzz) use the project's selected proxy so they can reach external URLs through your network's proxy.
+
+**Setup:**
+
+1. Copy the example config: `cp config/proxies.example.json config/proxies.json`
+2. Edit `config/proxies.json`: add or change proxy entries. Each entry has `http`, `https`, and `bypass` (comma-separated hosts to bypass, e.g. `localhost,127.0.0.1`). The example includes `proxy_DIT_Gestao`, `proxy_DIT_FE`, `proxy_DEO`, and `no-proxy`.
+3. If the file may contain credentials (e.g. `user:pass@host`), add `config/proxies.json` to `.gitignore` so it is not committed.
+
+**Usage:** In the app, edit a project (Edit) and choose **Test proxy** from the dropdown. The list is read from `config/proxies.json`. Restart the app after editing `config/proxies.json` if the list does not update (the app caches the config in memory).
+
+**Docker:** Mount `config/proxies.json` into the container or bake the default into the image. Projects can still select their proxy in the UI. Optionally set `QA_PROXY` in the container environment to override the active proxy for CLI-style test runs.
 
 ### 5. Optional: UI Tests (Playwright)
 

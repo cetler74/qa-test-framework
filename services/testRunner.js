@@ -4,6 +4,21 @@ const path = require('path');
 const { Collection, TestRun, TestResult, ApiSpec } = require('../models');
 
 /**
+ * Remove duplicate leading protocol from a URL string (e.g. "https://https://api.example.com" -> "https://api.example.com").
+ * Used for base URL and similar env vars so requests are not sent to malformed URLs.
+ * @param {string} value - Raw string (env var value)
+ * @returns {string} Normalized string
+ */
+function normalizeBaseUrl(value) {
+  if (value == null || typeof value !== 'string') return value === undefined ? '' : String(value);
+  const s = value.trim();
+  // Fix double protocol: https://https://... or http://https://... etc.
+  const doubleProtocol = /^(https?:\/\/)\s*(https?:\/\/)/i;
+  if (doubleProtocol.test(s)) return s.replace(doubleProtocol, '$2');
+  return s;
+}
+
+/**
  * Generate a random ID
  */
 function generateId() {
@@ -50,14 +65,36 @@ function formatAssertionErrors(failedAssertions) {
 }
 
 /**
+ * Build full error string from an error object (message + cause when present).
+ * Ensures proxy/tunneling errors like "tunneling socket could not be established, cause=connect ETIMEDOUT ..." are captured fully.
+ * @param {Error|object} err - Error object (may have .message, .cause)
+ * @returns {string} Full error message for storage in test results and reports
+ */
+function getFullErrorMessage(err) {
+  if (!err) return '';
+  const msg = err.message || (err.toString && err.toString()) || String(err);
+  const cause = err.cause;
+  if (cause) {
+    const causeStr = typeof cause === 'string' ? cause : (cause.message || (cause.toString && cause.toString()) || '');
+    if (causeStr) return `${msg.trim()}${msg.includes('cause=') ? '' : `, cause=${causeStr}`}`;
+  }
+  return msg.trim();
+}
+
+/**
  * Normalize network/connection error messages for clear display in test results and reports.
  * Maps common Node/Newman error codes to readable "Network error: ..." or "Timeout: ..." text.
- * @param {string} message - Raw error message (e.g. "connect ECONNREFUSED 127.0.0.1:8080")
+ * Preserves full message for proxy/tunneling errors so they appear verbatim in test results and reports.
+ * @param {string} message - Raw error message (e.g. "connect ECONNREFUSED 127.0.0.1:8080" or "tunneling socket could not be established, cause=connect ETIMEDOUT 10.162.2.24:3128")
  * @returns {string} Human-readable message for results and reports
  */
 function normalizeNetworkError(message) {
   if (!message || typeof message !== 'string') return 'No HTTP response';
   const m = message.trim();
+  // Preserve full proxy/tunneling errors so they appear in test results and reports
+  if (m.match(/\btunneling\s+socket\b/i) || (m.match(/\bcause\s*=\s*connect\s+/i) && m.match(/\b(ETIMEDOUT|ECONNREFUSED|ECONNRESET)\b/i))) {
+    return m;
+  }
   if (m.match(/\bECONNREFUSED\b/i)) return `Network error: Connection refused (no server at host:port)`;
   if (m.match(/\bETIMEDOUT\b/i)) return `Network error: Request timeout`;
   if (m.match(/\bECONNRESET\b/i)) return `Network error: Connection reset by peer`;
@@ -268,7 +305,7 @@ function runNewmanTests(collection, options = {}) {
         name: `Test Environment ${Date.now()}`,
         values: Object.entries(envVars).map(([key, value]) => ({
           key: key,
-          value: String(value),
+          value: normalizeBaseUrl(String(value)),
           type: 'string',
           enabled: true
         })),
@@ -286,7 +323,31 @@ function runNewmanTests(collection, options = {}) {
       }, 5000);
     }
 
+    // Apply project proxy for this run (Newman/postman-request respect HTTP_PROXY/HTTPS_PROXY)
+    const proxy = options.proxy && (options.proxy.http || options.proxy.https) ? options.proxy : null;
+    const savedEnv = {};
+    if (proxy) {
+      const httpUrl = proxy.http || proxy.https || '';
+      const httpsUrl = proxy.https || proxy.http || '';
+      for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy']) {
+        savedEnv[key] = process.env[key];
+      }
+      process.env.HTTP_PROXY = httpUrl;
+      process.env.HTTPS_PROXY = httpsUrl;
+      process.env.NO_PROXY = proxy.bypass || '';
+      process.env.http_proxy = httpUrl;
+      process.env.https_proxy = httpsUrl;
+      process.env.no_proxy = proxy.bypass || '';
+    }
+
     newman.run(newmanOptions, (err, summary) => {
+      // Restore proxy env
+      if (proxy) {
+        for (const [key, val] of Object.entries(savedEnv)) {
+          if (val !== undefined) process.env[key] = val;
+          else delete process.env[key];
+        }
+      }
       // Restore original SSL verification setting
       if (originalRejectUnauthorized !== undefined) {
         process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalRejectUnauthorized;
@@ -324,11 +385,38 @@ function runNewmanTests(collection, options = {}) {
         executions: []
       };
 
+      // Some transport/proxy failures (e.g. tunneling socket ETIMEDOUT) are reported at run-level (summary.run.failures)
+      // and may not be attached to each individual execution. Capture the first such failure so we can surface it per test.
+      const runLevelFailure = (summary.run.failures || []).find(f => {
+        const e = f && (f.error || f);
+        const msg = getFullErrorMessage(e) || (e && e.message) || (typeof e === 'string' ? e : '');
+        return !!msg && (
+          /tunneling\s+socket/i.test(msg) ||
+          /\b(ETIMEDOUT|ESOCKETTIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ENETUNREACH)\b/i.test(msg)
+        );
+      }) || null;
+
+      const runLevelErrorObj = (() => {
+        if (!runLevelFailure) return null;
+        const e = runLevelFailure.error || runLevelFailure;
+        const full = getFullErrorMessage(e) || (e && e.message) || (typeof e === 'string' ? e : '');
+        const codeFromObj = (e && (e.code || e.errno)) || null;
+        const codeFromMsg = !codeFromObj && full
+          ? (full.match(/\b(ETIMEDOUT|ESOCKETTIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ENETUNREACH)\b/i)?.[1] || null)
+          : null;
+        return {
+          message: full,
+          name: (e && e.name) || 'Error',
+          code: codeFromObj || codeFromMsg
+        };
+      })();
+
       // Extract execution details
       if (summary.run && summary.run.executions) {
         summary.run.executions.forEach(execution => {
           const request = execution.request || {};
-          const response = execution.response || {};
+          // IMPORTANT: keep null when there's no HTTP response (Newman may provide undefined)
+          const response = execution.response || null;
           
           // Handle URL extraction more robustly
           let url = '';
@@ -370,10 +458,14 @@ function runNewmanTests(collection, options = {}) {
             }
           }
           
-          // If no response but there's an error, capture it (network/timeout/connection errors)
+          // If no response but there's an error, capture it (network/timeout/connection errors, including proxy/tunneling)
           if (!response && execution.error) {
-            const rawErr = execution.error.message || execution.error.toString();
-            errorMessage = normalizeNetworkError(rawErr);
+            const rawErr = getFullErrorMessage(execution.error);
+            errorMessage = normalizeNetworkError(rawErr || (execution.error.message || execution.error.toString()));
+          }
+          // If Newman reported a run-level transport error (proxy/timeout/etc) but execution has none, attach it
+          if (!response && !execution.error && runLevelErrorObj) {
+            errorMessage = normalizeNetworkError(runLevelErrorObj.message || '') || runLevelErrorObj.message || errorMessage;
           }
           
           // Determine status - consider connection errors AND assertion failures
@@ -401,7 +493,7 @@ function runNewmanTests(collection, options = {}) {
             }
           } else if (execution.error) {
             status = 'failed';
-            if (!errorMessage) errorMessage = normalizeNetworkError(execution.error.message || execution.error.toString()) || 'Connection failed';
+            if (!errorMessage) errorMessage = normalizeNetworkError(getFullErrorMessage(execution.error) || execution.error.message || execution.error.toString()) || 'Connection failed';
           } else if (hasFailedAssertions) {
             // Even if we got a response, failed assertions mean test failed
             status = 'failed';
@@ -423,9 +515,15 @@ function runNewmanTests(collection, options = {}) {
               } : null,
               assertions: execution.assertions || [],
               error: execution.error ? {
-                message: execution.error.message || execution.error.toString(),
-                name: execution.error.name
-              } : null
+                message: getFullErrorMessage(execution.error) || execution.error.message || execution.error.toString(),
+                name: execution.error.name,
+                // Preserve low-level error code for proxy/timeouts/etc (e.g. ETIMEDOUT, ECONNRESET, ESOCKETTIMEDOUT)
+                code: execution.error.code || execution.error.errno || null
+              } : ((!response && runLevelErrorObj) ? {
+                message: runLevelErrorObj.message,
+                name: runLevelErrorObj.name,
+                code: runLevelErrorObj.code || null
+              } : null)
             },
             assertions: execution.assertions || [],
             status: status,
@@ -731,7 +829,7 @@ async function executeTests(projectId, testRunName, options = {}) {
         name: `Shared Test Environment ${testRunName}`,
         values: Object.entries(sharedEnvVars).map(([key, value]) => ({
           key: key,
-          value: String(value),
+          value: normalizeBaseUrl(String(value)),
           type: 'string',
           enabled: true
         })),
@@ -927,12 +1025,38 @@ async function executeTests(projectId, testRunName, options = {}) {
             }
           }
           if (!errorMessage && status === 'failed' && executionResult.item.error) {
-            errorMessage = normalizeNetworkError(executionResult.item.error.message || executionResult.item.error.toString()) || 'No HTTP response';
+            const rawErr = getFullErrorMessage(executionResult.item.error);
+            errorMessage = normalizeNetworkError(rawErr || executionResult.item.error.message || executionResult.item.error.toString()) || 'No HTTP response';
           }
-          // When there is no HTTP response (timeout, connection refused, etc.), include error in response_body so reports show it
+          // If assertions failed because there was no response (common when proxy/timeouts happen),
+          // append the underlying transport error so the UI/report makes the root cause obvious.
+          if (!executionResult.item.response && executionResult.item.error) {
+            const fullErr = getFullErrorMessage(executionResult.item.error) || executionResult.item.error.message || executionResult.item.error.toString();
+            const normalizedErr = normalizeNetworkError(fullErr);
+            const errCode = executionResult.item.error.code || executionResult.item.error.errno || null;
+            const transportLine = `Request error${errCode ? ` (${errCode})` : ''}: ${normalizedErr || fullErr || 'No HTTP response'}`;
+            if (errorMessage) {
+              if (!errorMessage.includes('Request error')) errorMessage = `${errorMessage}\n\n${transportLine}`;
+            } else {
+              errorMessage = transportLine;
+            }
+          }
+          // When there is no HTTP response (timeout, connection refused, proxy/tunneling, etc.), include error in response_body so reports show it
+          const rawErrForBody = executionResult.item.error ? (getFullErrorMessage(executionResult.item.error) || executionResult.item.error?.message) : null;
           const rawResponseBodySeq = executionResult.item.response?.body != null
             ? (typeof executionResult.item.response.body === 'string' ? executionResult.item.response.body : JSON.stringify(executionResult.item.response.body, null, 2))
-            : (errorMessage ? `Error: ${errorMessage}` : (executionResult.item.error?.message ? `Error: ${executionResult.item.error.message}` : 'No HTTP response'));
+            : (() => {
+              if (executionResult.item.error) {
+                const fullErr = rawErrForBody || '';
+                const normalizedErr = normalizeNetworkError(fullErr);
+                const errCode = executionResult.item.error.code || executionResult.item.error.errno || null;
+                const lines = ['No HTTP response received.'];
+                if (errCode) lines.push(`Error code: ${errCode}`);
+                lines.push(`Error: ${normalizedErr || fullErr || 'Unknown network error'}`);
+                return lines.join('\n');
+              }
+              return 'No HTTP response';
+            })();
           const formattedResponseSeq = executionResult.item.response
             ? `Status: ${executionResult.item.response.code || ''} ${executionResult.item.response.status || ''}\n\nBody:\n${rawResponseBodySeq}`
             : rawResponseBodySeq;
@@ -1107,7 +1231,8 @@ async function executeTests(projectId, testRunName, options = {}) {
         }
         if (!errorMessage) {
           if (execution.item.error) {
-            errorMessage = normalizeNetworkError(execution.item.error.message || execution.item.error.toString()) || 'Request failed';
+            const rawErr = getFullErrorMessage(execution.item.error);
+            errorMessage = normalizeNetworkError(rawErr || execution.item.error.message || execution.item.error.toString()) || 'Request failed';
           } else if (responseCode >= 400) {
             errorMessage = `HTTP ${responseCode}: ${execution.item.response?.status || 'Request failed'}`;
           } else if (responseCode === 0) {
@@ -1117,9 +1242,34 @@ async function executeTests(projectId, testRunName, options = {}) {
           }
         }
       }
+      
+      // If assertions failed due to missing response, also show the underlying transport error/code.
+      if (!execution.item.response && execution.item.error) {
+        const fullErr = getFullErrorMessage(execution.item.error) || execution.item.error.message || execution.item.error.toString();
+        const normalizedErr = normalizeNetworkError(fullErr);
+        const errCode = execution.item.error.code || execution.item.error.errno || null;
+        const transportLine = `Request error${errCode ? ` (${errCode})` : ''}: ${normalizedErr || fullErr || 'No HTTP response'}`;
+        if (errorMessage) {
+          if (!errorMessage.includes('Request error')) errorMessage = `${errorMessage}\n\n${transportLine}`;
+        } else {
+          errorMessage = transportLine;
+        }
+      }
 
-      // Ensure response body is set even when only an error message is available
-      const rawResponseBody = execution.item.response?.body || (errorMessage ? `Error: ${errorMessage}` : (execution.item.error?.message ? `Error: ${execution.item.error.message}` : ''));
+      // Ensure response body is set even when only an error message is available (include full proxy/tunneling errors)
+      const rawErrForResponse = execution.item.error ? (getFullErrorMessage(execution.item.error) || execution.item.error?.message) : null;
+      const rawResponseBody = execution.item.response?.body || (() => {
+        if (execution.item.error) {
+          const fullErr = rawErrForResponse || '';
+          const normalizedErr = normalizeNetworkError(fullErr);
+          const errCode = execution.item.error.code || execution.item.error.errno || null;
+          const lines = ['No HTTP response received.'];
+          if (errCode) lines.push(`Error code: ${errCode}`);
+          lines.push(`Error: ${normalizedErr || fullErr || 'Unknown network error'}`);
+          return lines.join('\n');
+        }
+        return (errorMessage ? `Error: ${errorMessage}` : '');
+      })();
 
       // Build readable request details (method, url, headers, body)
       const rawReqHeaders = execution.item.request?.headers || [];
@@ -1147,7 +1297,9 @@ async function executeTests(projectId, testRunName, options = {}) {
         responseTextParts.push('Body:');
         responseTextParts.push(rawResponseBody || '');
       } else if (execution.item.error) {
-        responseTextParts.push(`Error: ${execution.item.error.message || ''}`);
+        responseTextParts.push('No HTTP response received.');
+        if (execution.item.error.code || execution.item.error.errno) responseTextParts.push(`Error code: ${execution.item.error.code || execution.item.error.errno}`);
+        responseTextParts.push(`Error: ${normalizeNetworkError(getFullErrorMessage(execution.item.error) || execution.item.error.message || '')}`);
       } else {
         responseTextParts.push(rawResponseBody || 'No response');
       }

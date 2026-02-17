@@ -116,6 +116,118 @@ function buildNestedTestHTML(items, collectionId, parentPath = [], level = 0) {
   return html;
 }
 
+/**
+ * Extract variable names (and script-set) from a Postman-style collection.
+ * Used by Run Tests modal and Create Environment modal to know which variables a collection needs.
+ * Works for any collection with collection_json (Postman format), including OpenAPI-converted collections.
+ * @param {{ collection_json?: object }} collection - Collection object with collection_json
+ * @returns {{ userProvided: string[], scriptSet: string[], allVars: string[] }}
+ */
+function extractCollectionVariables(collection) {
+  const allVariables = new Set();
+  const scriptSetVariables = new Set();
+  const collectionJson = collection?.collection_json || {};
+
+  if (collectionJson.variable && Array.isArray(collectionJson.variable)) {
+    collectionJson.variable.forEach(v => {
+      if (v.key) allVariables.add(v.key);
+    });
+  }
+
+  function extractVariablesFromString(str) {
+    if (!str || typeof str !== 'string') return;
+    const matches = str.match(/\{\{([^}]+)\}\}/g);
+    if (matches) {
+      matches.forEach(match => {
+        const varName = match.replace(/\{\{|\}\}/g, '');
+        allVariables.add(varName);
+      });
+    }
+  }
+
+  function extractScriptSetVariables(items) {
+    if (!items || !Array.isArray(items)) return;
+    items.forEach(item => {
+      if (item.event && Array.isArray(item.event)) {
+        item.event.forEach(event => {
+          if (event.script && event.script.exec) {
+            const scriptLines = Array.isArray(event.script.exec) ? event.script.exec : [event.script.exec];
+            scriptLines.forEach(line => {
+              if (typeof line === 'string') {
+                const genericMatches = line.match(/pm\.(?:collectionVariables|environment|variables|globals)\.set\(["']([^"']+)["']/g);
+                if (genericMatches) {
+                  genericMatches.forEach(match => {
+                    const varName = match.match(/["']([^"']+)["']/)[1];
+                    scriptSetVariables.add(varName);
+                  });
+                }
+                const altMatches = line.match(/pm\.collectionVariables\.set\([^,\n\r]+/g);
+                if (altMatches) {
+                  altMatches.forEach(m => {
+                    const mm = m.match(/["']([^"']+)["']/);
+                    if (mm && mm[1]) scriptSetVariables.add(mm[1]);
+                  });
+                }
+              }
+            });
+          }
+        });
+      }
+      if (item.item && Array.isArray(item.item)) extractScriptSetVariables(item.item);
+    });
+  }
+
+  function searchItems(items) {
+    if (!items || !Array.isArray(items)) return;
+    items.forEach(item => {
+      if (item.request) {
+        if (item.request.url) {
+          if (typeof item.request.url === 'string') extractVariablesFromString(item.request.url);
+          else if (item.request.url.raw) extractVariablesFromString(item.request.url.raw);
+          else if (item.request.url.host) {
+            if (Array.isArray(item.request.url.host)) item.request.url.host.forEach(h => extractVariablesFromString(h));
+            else extractVariablesFromString(item.request.url.host);
+          }
+          if (item.request.url.path && Array.isArray(item.request.url.path)) {
+            item.request.url.path.forEach(p => extractVariablesFromString(p));
+          }
+        }
+        if (item.request.header && Array.isArray(item.request.header)) {
+          item.request.header.forEach(h => { if (h.value) extractVariablesFromString(h.value); });
+        }
+        if (item.request.body) {
+          if (typeof item.request.body === 'string') extractVariablesFromString(item.request.body);
+          else if (item.request.body.raw) extractVariablesFromString(item.request.body.raw);
+        }
+        if (item.request.auth && item.request.auth.bearer && Array.isArray(item.request.auth.bearer)) {
+          item.request.auth.bearer.forEach(b => { if (b.value) extractVariablesFromString(b.value); });
+        }
+      }
+      if (item.item && Array.isArray(item.item)) searchItems(item.item);
+    });
+  }
+
+  searchItems(collectionJson.item);
+  extractScriptSetVariables(collectionJson.item);
+
+  const envAllowedLower = new Set(['token', 'endpoint', 'version', 'ixs', 'ixs2']);
+  const assumedScriptVarsLower = new Set(['alertid', 'msisdn', 'msisdn2', 'user', 'ixs2']);
+  const scriptSetLower = new Set(Array.from(scriptSetVariables).map(v => v.toLowerCase()));
+  assumedScriptVarsLower.forEach(v => scriptSetLower.add(v));
+  const userProvided = Array.from(allVariables).filter(v => {
+    const vl = v.toLowerCase();
+    if (scriptSetLower.has(vl)) return false;
+    if (envAllowedLower.has(vl)) return false;
+    return true;
+  });
+
+  return {
+    userProvided: userProvided.sort(),
+    scriptSet: Array.from(scriptSetVariables).sort(),
+    allVars: Array.from(allVariables).sort()
+  };
+}
+
 // Show Run Tests Modal
 function showRunTestsModal() {
   const projectId = document.getElementById('run-tests-btn').getAttribute('data-project-id');
@@ -226,162 +338,7 @@ function showRunTestsModal() {
     let selectedCollection = null;
     let selectedTestsOrder = []; // Array of {collectionId, path, name, method, testId}
     let testIdCounter = 1; // Counter for generating unique test IDs
-    
-    // Helper function to extract variables from collection
-    function extractCollectionVariables(collection) {
-      const allVariables = new Set();
-      const scriptSetVariables = new Set(); // Variables set by test scripts
-      const collectionJson = collection.collection_json || {};
-      
-      // Get variables from collection.variable array
-      if (collectionJson.variable && Array.isArray(collectionJson.variable)) {
-        collectionJson.variable.forEach(v => {
-          if (v.key) allVariables.add(v.key);
-        });
-      }
-      
-      // Extract variables from URLs and request bodies using regex
-      function extractVariablesFromString(str) {
-        if (!str || typeof str !== 'string') return;
-        const matches = str.match(/\{\{([^}]+)\}\}/g);
-        if (matches) {
-          matches.forEach(match => {
-            const varName = match.replace(/\{\{|\}\}/g, '');
-            allVariables.add(varName);
-          });
-        }
-      }
-      
-      // Extract variables set by test scripts and pre-request scripts
-      // Support multiple pm.*.set variants and capture variable names robustly
-      function extractScriptSetVariables(items) {
-        if (!items || !Array.isArray(items)) return;
-        items.forEach(item => {
-          // Check both test scripts and pre-request scripts
-          if (item.event && Array.isArray(item.event)) {
-            item.event.forEach(event => {
-              // Consider any script events (test or prerequest)
-              if (event.script && event.script.exec) {
-                const scriptLines = Array.isArray(event.script.exec) 
-                  ? event.script.exec 
-                  : [event.script.exec];
-                
-                scriptLines.forEach(line => {
-                  if (typeof line === 'string') {
-                    // Generic regex for pm.<scope>.set("varName" or 'varName')
-                    const genericMatches = line.match(/pm\.(?:collectionVariables|environment|variables|globals)\.set\(["']([^"']+)["']/g);
-                    if (genericMatches) {
-                      genericMatches.forEach(match => {
-                        const varName = match.match(/["']([^"']+)["']/)[1];
-                        scriptSetVariables.add(varName);
-                      });
-                    }
 
-                    // Also detect pm.collectionVariables.set with different spacing/format
-                    const altMatches = line.match(/pm\.collectionVariables\.set\([^,\n\r]+/g);
-                    if (altMatches) {
-                      altMatches.forEach(m => {
-                        const mm = m.match(/["']([^"']+)["']/);
-                        if (mm && mm[1]) scriptSetVariables.add(mm[1]);
-                      });
-                    }
-                  }
-                });
-              }
-            });
-          }
-          
-          // Recurse into nested items
-          if (item.item && Array.isArray(item.item)) {
-            extractScriptSetVariables(item.item);
-          }
-        });
-      }
-      
-      // Recursively search for variables in collection items
-      function searchItems(items) {
-        if (!items || !Array.isArray(items)) return;
-        items.forEach(item => {
-          if (item.request) {
-            // Check URL
-            if (item.request.url) {
-              if (typeof item.request.url === 'string') {
-                extractVariablesFromString(item.request.url);
-              } else if (item.request.url.raw) {
-                extractVariablesFromString(item.request.url.raw);
-              } else if (item.request.url.host) {
-                if (Array.isArray(item.request.url.host)) {
-                  item.request.url.host.forEach(h => extractVariablesFromString(h));
-                } else {
-                  extractVariablesFromString(item.request.url.host);
-                }
-              }
-              if (item.request.url.path && Array.isArray(item.request.url.path)) {
-                item.request.url.path.forEach(p => extractVariablesFromString(p));
-              }
-            }
-            // Check headers
-            if (item.request.header && Array.isArray(item.request.header)) {
-              item.request.header.forEach(h => {
-                if (h.value) extractVariablesFromString(h.value);
-              });
-            }
-            // Check body
-            if (item.request.body) {
-              if (typeof item.request.body === 'string') {
-                extractVariablesFromString(item.request.body);
-              } else if (item.request.body.raw) {
-                extractVariablesFromString(item.request.body.raw);
-              }
-            }
-            // Check auth
-            if (item.request.auth) {
-              if (item.request.auth.bearer && Array.isArray(item.request.auth.bearer)) {
-                item.request.auth.bearer.forEach(b => {
-                  if (b.value) extractVariablesFromString(b.value);
-                });
-              }
-            }
-          }
-          // Recurse into nested items
-          if (item.item && Array.isArray(item.item)) {
-            searchItems(item.item);
-          }
-        });
-      }
-      
-      // First, extract all variables that are used
-      searchItems(collectionJson.item);
-      
-      // Then, identify which ones are set by scripts
-      extractScriptSetVariables(collectionJson.item);
-      
-      // Normalize and allow certain vars to be provided via environment instead
-      const envAllowedLower = new Set(['token','endpoint','version','ixs','ixs2']);
-      // Variables we assume are produced by the collection scripts and should NOT block running
-      const assumedScriptVarsLower = new Set(['alertid','msisdn','msisdn2','user','ixs2']);
-      
-      // Build lowercase set for script-set variables
-      const scriptSetLower = new Set(Array.from(scriptSetVariables).map(v => v.toLowerCase()));
-      // Add assumed script vars so they are not considered required
-      assumedScriptVarsLower.forEach(v => scriptSetLower.add(v));
-      
-      // Filter user-provided variables (case-insensitive) and exclude envAllowed
-      const userProvided = Array.from(allVariables).filter(v => {
-        const vl = v.toLowerCase();
-        if (scriptSetLower.has(vl)) return false;
-        if (envAllowedLower.has(vl)) return false;
-        return true;
-      });
-      
-      return {
-        userProvided: userProvided.sort(),
-        scriptSet: Array.from(scriptSetVariables).sort(),
-        // All variables detected in the collection (used to populate optional env vars)
-        allVars: Array.from(allVariables).sort()
-      };
-    }
-    
     // Handle collection selection
     document.getElementById('collection-select').addEventListener('change', (e) => {
       const collectionId = e.target.value; // treat as string (IDs may be UUIDs)
@@ -1128,7 +1085,8 @@ function onEnvSelected(e) {
 }
 
 function showCreateEnvModal(existingEnv = null) {
-  const projectId = document.getElementById('run-tests-btn').getAttribute('data-project-id');
+  const runBtn = document.getElementById('run-tests-btn');
+  const projectId = runBtn ? runBtn.getAttribute('data-project-id') : null;
 
   // Gather collection variables currently shown in the modal (if any)
   const collectionVarsEls = Array.from(document.querySelectorAll('.collection-var-value'));
@@ -1147,12 +1105,20 @@ function showCreateEnvModal(existingEnv = null) {
   });
 
   const existingName = existingEnv ? (existingEnv.name || '') : '';
+  const escapedName = (existingName || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
   const content = `
     <form id="create-env-form">
       <div class="form-group">
         <label>Name</label>
-        <input id="env-name" required style="width:100%;padding:8px;margin-bottom:8px;border:2px solid var(--color-primary, #14b8a6);" value="${existingName}">
+        <input id="env-name" required style="width:100%;padding:8px;margin-bottom:8px;border:2px solid var(--color-primary, #14b8a6);" value="${escapedName}">
+      </div>
+      <div class="form-group" id="create-env-prefill-group">
+        <label for="create-env-prefill-select">Pre-fill variables from (optional)</label>
+        <select id="create-env-prefill-select" style="width:100%;padding:8px;margin-bottom:6px;border:2px solid var(--color-primary, #14b8a6);border-radius:4px;background: var(--color-white, white);color: var(--color-text-primary, #1f2937);">
+          <option value="">None</option>
+        </select>
+        <p style="font-size:12px;color: var(--color-text-secondary, #6b7280);margin-top:4px;">Select a collection to pre-fill the variable names it needs (REST/Postman/OpenAPI). Select an environment to copy its variables. For SOAP (WSDL), add variables like <code>endpoint</code> manually or copy from an environment.</p>
       </div>
       <div class="form-group">
         <label>Variables (optional)</label>
@@ -1179,13 +1145,94 @@ function showCreateEnvModal(existingEnv = null) {
     const div = document.createElement('div');
     div.className = 'create-env-var-item';
     div.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;';
+    const safeKey = (key || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const safeVal = (value || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     div.innerHTML = `
-      <input type="text" placeholder="Variable name" class="create-env-var-key" style="flex:1;padding:8px;border:2px solid var(--color-primary, #14b8a6);" value="${(key||'')}">
-      <input type="text" placeholder="Value" class="create-env-var-value" style="flex:1;padding:8px;border:2px solid var(--color-primary, #14b8a6);" value="${(value||'')}">
+      <input type="text" placeholder="Variable name" class="create-env-var-key" style="flex:1;padding:8px;border:2px solid var(--color-primary, #14b8a6);" value="${safeKey}">
+      <input type="text" placeholder="Value" class="create-env-var-value" style="flex:1;padding:8px;border:2px solid var(--color-primary, #14b8a6);" value="${safeVal}">
       <button type="button" class="btn btn-secondary" style="padding:6px 8px;" onclick="this.closest('.create-env-var-item').remove();">Remove</button>
     `;
     list.appendChild(div);
   }
+
+  // Clear variable list and repopulate with key/value pairs
+  function setVarRows(varsObj) {
+    const list = document.getElementById('create-env-vars-list');
+    if (!list) return;
+    list.innerHTML = '';
+    const keys = Object.keys(varsObj || {});
+    keys.forEach(k => addVarRow(k, varsObj[k]));
+  }
+
+  const prefillSelect = document.getElementById('create-env-prefill-select');
+  let projectCollections = [];
+
+  // Populate pre-fill dropdown and apply selection
+  function initPrefillDropdown() {
+    if (!prefillSelect) return;
+    const envs = projectId ? loadSavedEnvs(projectId) : [];
+    let html = '<option value="">None</option>';
+    if (projectCollections.length > 0) {
+      html += '<optgroup label="From collection">';
+      projectCollections.forEach(c => {
+        const name = (c.name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        html += `<option value="coll-${c.id}">${name}</option>`;
+      });
+      html += '</optgroup>';
+    }
+    if (envs.length > 0) {
+      html += '<optgroup label="From environment">';
+      envs.forEach(e => {
+        const name = (e.name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        html += `<option value="env-${e.id}">${name}</option>`;
+      });
+      html += '</optgroup>';
+    }
+    prefillSelect.innerHTML = html;
+  }
+
+  prefillSelect.addEventListener('change', () => {
+    const val = prefillSelect.value;
+    if (!val) {
+      // Restore suggested + existing env vars
+      const keys = new Set(Object.keys(suggestedVars));
+      if (existingEnv) {
+        Object.keys(existingEnv).forEach(k => { if (k !== 'id' && k !== 'name') keys.add(k); });
+      }
+      const obj = {};
+      keys.forEach(k => { obj[k] = existingEnv && existingEnv[k] !== undefined ? existingEnv[k] : suggestedVars[k] || ''; });
+      setVarRows(obj);
+      return;
+    }
+    if (val.startsWith('coll-')) {
+      const id = val.replace('coll-', '');
+      const coll = projectCollections.find(c => String(c.id) === String(id));
+      if (!coll || !coll.collection_json) {
+        setVarRows({});
+        return;
+      }
+      const extracted = extractCollectionVariables(coll);
+      const names = extracted.allVars || [];
+      const cj = coll.collection_json || {};
+      const defaults = {};
+      if (cj.variable && Array.isArray(cj.variable)) {
+        cj.variable.forEach(v => { if (v.key) defaults[v.key] = v.value != null ? v.value : ''; });
+      }
+      const obj = {};
+      names.forEach(n => { obj[n] = defaults[n] != null ? defaults[n] : ''; });
+      setVarRows(obj);
+      return;
+    }
+    if (val.startsWith('env-')) {
+      const id = val.replace('env-', '');
+      const envs = projectId ? loadSavedEnvs(projectId) : [];
+      const env = envs.find(e => e.id === id);
+      if (!env) return;
+      const obj = {};
+      Object.keys(env).forEach(k => { if (k !== 'id' && k !== 'name') obj[k] = env[k] != null ? env[k] : ''; });
+      setVarRows(obj);
+    }
+  });
 
   // Pre-populate with suggested vars and existingEnv values
   const keys = new Set(Object.keys(suggestedVars));
@@ -1195,10 +1242,23 @@ function showCreateEnvModal(existingEnv = null) {
       keys.add(k);
     });
   }
+  const initialVars = {};
   keys.forEach(k => {
-    const v = existingEnv && typeof existingEnv[k] !== 'undefined' ? existingEnv[k] : suggestedVars[k] || '';
-    addVarRow(k, v);
+    initialVars[k] = existingEnv && typeof existingEnv[k] !== 'undefined' ? existingEnv[k] : suggestedVars[k] || '';
   });
+  setVarRows(initialVars);
+
+  // Load project collections and build pre-fill dropdown
+  if (projectId) {
+    apiRequest(`/projects/${projectId}/collections`).then(collections => {
+      projectCollections = collections || [];
+      initPrefillDropdown();
+    }).catch(() => {
+      initPrefillDropdown();
+    });
+  } else {
+    initPrefillDropdown();
+  }
 
   document.getElementById('create-env-add-var').addEventListener('click', () => addVarRow());
 

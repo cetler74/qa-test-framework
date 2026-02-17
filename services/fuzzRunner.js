@@ -71,16 +71,31 @@ function runCats(options) {
   if (options.skipPaths) args.push('--skipPaths=' + options.skipPaths);
   if (options.maxRequestsPerMinute) args.push('--maxRequestsPerMinute=' + options.maxRequestsPerMinute);
 
+  const proxy = options.proxy && (options.proxy.http || options.proxy.https) ? options.proxy : null;
+  const spawnOpts = {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    shell: false
+  };
+  if (proxy) {
+    const u = proxy.http || proxy.https || '';
+    spawnOpts.env = {
+      ...process.env,
+      HTTP_PROXY: u,
+      HTTPS_PROXY: u,
+      NO_PROXY: proxy.bypass || '',
+      http_proxy: u,
+      https_proxy: u,
+      no_proxy: proxy.bypass || ''
+    };
+  }
+
   return new Promise((resolve, reject) => {
     const parts = catsCmd.trim().split(/\s+/);
     const isJava = parts[0].toLowerCase() === 'java';
     const cmd = isJava ? 'java' : parts[0];
     const cmdArgs = isJava ? parts.slice(1).concat(args) : (parts.length > 1 ? parts.slice(1) : []).concat(args);
 
-    const child = spawn(cmd, cmdArgs, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: false
-    });
+    const child = spawn(cmd, cmdArgs, spawnOpts);
 
     let stderr = '';
     let lastProgressLine = '';
@@ -460,7 +475,8 @@ async function executeFuzz(projectId, apiSpecId, name, options = {}) {
       outputDir,
       paths: options.paths,
       skipPaths: options.skipPaths,
-      maxRequestsPerMinute: options.maxRequestsPerMinute
+      maxRequestsPerMinute: options.maxRequestsPerMinute,
+      proxy: options.proxy
     });
 
     if (!junitPath) {

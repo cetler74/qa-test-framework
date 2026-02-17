@@ -234,6 +234,9 @@ async function runPlaywrightTests(options = {}) {
   let page;
   let builtInContext = null;
 
+  const proxy = options.proxy && (options.proxy.http || options.proxy.https) ? options.proxy : null;
+  const proxyServer = proxy ? (proxy.http || proxy.https) : null;
+
   if (hasBuiltInToRun) {
     try {
       const launchOptions = {
@@ -241,6 +244,7 @@ async function runPlaywrightTests(options = {}) {
         args: playwrightConfig.launchArgs || []
       };
       if (slowMo > 0) launchOptions.slowMo = slowMo;
+      if (proxyServer) launchOptions.proxy = { server: proxyServer };
       const launch = BROWSERS[browserName] || chromium;
       browser = await launch.launch(launchOptions);
     } catch (err) {
@@ -579,7 +583,7 @@ async function runPlaywrightTests(options = {}) {
   for (const recId of recordedIds) {
     try {
       const startOrder = order + 1;
-      const runOpts = { timeoutMs, headless, video: videoOpt, trace: traceOpt, browserName, slowMo };
+      const runOpts = { timeoutMs, headless, video: videoOpt, trace: traceOpt, browserName, slowMo, proxy };
       const { results: recResults, testResultsDir: recTestResultsDir } = await runRecordedSpec(runId, recId, baseUrl, startOrder, runOpts);
       const hasFailure = recResults.some(r => r.status === 'failed');
       recordedRunDirs.push({ testResultsDir: recTestResultsDir, hasFailure });
@@ -727,8 +731,12 @@ async function runRecordedSpec(runId, recordedId, baseUrl, startOrder, runOption
     const userAgent = playwrightConfig.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
     const useVideo = videoOpt !== 'off' ? (videoOpt === 'retain-on-failure' ? "'retain-on-failure'" : "'on'") : "'off'";
     const useTrace = traceOpt !== 'off' ? (traceOpt === 'retain-on-failure' ? "'retain-on-failure'" : "'on'") : "'off'";
+    const proxySpec = runOptions.proxy && (runOptions.proxy.http || runOptions.proxy.https) ? runOptions.proxy : null;
+    const proxyServer = proxySpec ? (proxySpec.http || proxySpec.https) : null;
     const launchOpts = { headless, args: launchArgs };
     if (slowMo > 0) launchOpts.slowMo = slowMo;
+    if (proxyServer) launchOpts.proxy = { server: proxyServer };
+    const useProxyLine = proxyServer ? `proxy: { server: ${JSON.stringify(proxyServer)} },` : '';
     const configContent = `
 module.exports = {
   testDir: ${JSON.stringify(REPORTS_DIR)},
@@ -740,6 +748,7 @@ module.exports = {
     trace: ${useTrace},
     video: ${useVideo},
     screenshot: 'only-on-failure',
+    ${useProxyLine}
     launchOptions: ${JSON.stringify(launchOpts)}
   },
   projects: [{ name: ${JSON.stringify(browserName)}, use: { browserName: ${JSON.stringify(browserName)} } }],
@@ -759,12 +768,23 @@ module.exports = {
     // Use spawn (async) instead of spawnSync so the Node event loop is not blocked during the
     // subprocess run (video/trace recording can take a long time); the server can then accept
     // new run requests while this run is in progress.
+    const spawnEnv = { ...process.env };
+    if (proxySpec) {
+      const u = proxySpec.http || proxySpec.https || '';
+      spawnEnv.HTTP_PROXY = u;
+      spawnEnv.HTTPS_PROXY = u;
+      spawnEnv.NO_PROXY = proxySpec.bypass || '';
+      spawnEnv.http_proxy = u;
+      spawnEnv.https_proxy = u;
+      spawnEnv.no_proxy = proxySpec.bypass || '';
+    }
     const result = await new Promise((resolve, reject) => {
       const timeout = timeoutMs * 2 + 10000;
       let timedOut = false;
       const child = spawn(command, finalArgs, {
         cwd,
         shell: isWin,
+        env: spawnEnv,
         stdio: ['ignore', 'pipe', 'pipe']
       });
       const chunks = { stdout: [], stderr: [] };

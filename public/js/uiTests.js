@@ -706,9 +706,10 @@
       return;
     }
     try {
+      const projectId = window._projectRecordedTestsProjectId || window._runUiTestsProjectId || null;
       const res = await apiRequest('/playwright-recorded-tests/launch-codegen', {
         method: 'POST',
-        body: { baseUrl: url }
+        body: { baseUrl: url, projectId: projectId ? Number(projectId) : undefined }
       });
       currentCodegenSlug = res.slug;
       currentCodegenMode = res.mode || 'local';

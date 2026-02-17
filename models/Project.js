@@ -27,6 +27,10 @@ const Project = sequelize.define('Project', {
     allowNull: false,
     defaultValue: 'private'
   },
+  proxy_name: {
+    type: DataTypes.STRING(100),
+    allowNull: true
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

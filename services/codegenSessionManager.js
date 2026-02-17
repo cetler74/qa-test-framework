@@ -134,9 +134,10 @@ function isRemoteCodegenAvailable() {
  *
  * @param {string} slug - Unique session identifier
  * @param {string} url  - Target URL for Playwright Codegen
+ * @param {{ proxy?: { http?: string, https?: string, bypass?: string } }} [options] - Optional proxy for codegen browser
  * @returns {Promise<{slug: string, vncPort: number, noVncUrl: string, status: string}>}
  */
-async function createSession(slug, url) {
+async function createSession(slug, url, options = {}) {
   // Guard: max sessions
   const active = [...sessions.values()].filter(s => s.status === 'running' || s.status === 'starting');
   if (active.length >= MAX_SESSIONS) {
@@ -231,6 +232,17 @@ async function createSession(slug, url) {
     await delay(300);
 
     // 4. Spawn Playwright Codegen
+    const proxy = options.proxy && (options.proxy.http || options.proxy.https) ? options.proxy : null;
+    const codegenEnv = { ...process.env, DISPLAY: display };
+    if (proxy) {
+      const u = proxy.http || proxy.https || '';
+      codegenEnv.HTTP_PROXY = u;
+      codegenEnv.HTTPS_PROXY = u;
+      codegenEnv.NO_PROXY = proxy.bypass || '';
+      codegenEnv.http_proxy = u;
+      codegenEnv.https_proxy = u;
+      codegenEnv.no_proxy = proxy.bypass || '';
+    }
     session.codegenProc = spawn('npx', [
       'playwright', 'codegen',
       '--output', outputPath,
@@ -238,7 +250,7 @@ async function createSession(slug, url) {
     ], {
       stdio: 'ignore',
       detached: true,
-      env: { ...process.env, DISPLAY: display },
+      env: codegenEnv,
       cwd: path.join(__dirname, '..'),
     });
     session.codegenProc.unref();
