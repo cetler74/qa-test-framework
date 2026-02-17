@@ -224,28 +224,32 @@
                             Back to Projects
                         </button>
                     <h2 id="project-detail-name"></h2>
+                    <button type="button" class="btn btn-secondary" id="project-detail-edit-btn" title="Edit project name, description, and test proxy" style="display: none;">Edit project</button>
                 </div>
                 <div class="project-detail-content">
                     <div class="project-info">
                         <p id="project-detail-description"></p>
+                        <p id="project-detail-proxy" class="project-detail-meta"></p>
                     </div>
                     <div class="project-access-section" id="project-detail-access-section">
                         <h3>Access</h3>
                         <div class="project-access-form">
-                            <div class="form-group">
-                                <label for="project-detail-visibility">Visibility</label>
-                                <select id="project-detail-visibility">
-                                    <option value="private">Private (only you)</option>
-                                    <option value="shared">Shared (selected users)</option>
-                                    <option value="public">Public (all users)</option>
-                                </select>
+                            <div class="project-access-visibility-row">
+                                <div class="form-group">
+                                    <label for="project-detail-visibility">Visibility</label>
+                                    <select id="project-detail-visibility">
+                                        <option value="private">Private (only you)</option>
+                                        <option value="shared">Shared (selected users)</option>
+                                        <option value="public">Public (all users)</option>
+                                    </select>
+                                </div>
+                                <button type="button" class="btn btn-primary project-access-save-btn" id="project-detail-save-access-btn">Save access</button>
                             </div>
                             <div class="form-group project-detail-shared-wrap" id="project-detail-shared-wrap">
                                 <label for="project-detail-shared-users">Shared with</label>
                                 <select id="project-detail-shared-users" multiple size="4"></select>
                                 <p class="form-hint">Hold Ctrl/Cmd to select multiple users. Only applies when visibility is Shared.</p>
                             </div>
-                            <button type="button" class="btn btn-primary" id="project-detail-save-access-btn">Save access</button>
                         </div>
                     </div>
                     <div class="project-actions">
@@ -279,11 +283,11 @@
                         <h3>API Specs in Project</h3>
                         <div id="project-api-specs-list"></div>
                     </div>
-                    <div class="project-collections">
+                    <div class="project-collections project-section-box">
                         <h3>Available Collections</h3>
-                        <div id="project-collections-list"></div>
+                        <div id="project-collections-list" class="project-collections-list"></div>
                     </div>
-                    <div class="project-flows">
+                    <div class="project-flows project-section-box project-section-3d">
                         <h3>Flows</h3>
                         <p class="project-flows-desc">Ordered sequences of API and UI tests. Create a flow, add tasks, then run it.</p>
                         <div class="project-flows-actions">
@@ -296,7 +300,7 @@
                         </div>
                         <div id="project-flows-list"></div>
                     </div>
-                    <div class="project-schedules">
+                    <div class="project-schedules project-section-box project-section-3d">
                         <h3>Schedules</h3>
                         <p class="project-schedules-desc">Run a flow or the whole project on a schedule (cron or repeat interval).</p>
                         <div class="project-schedules-actions">
@@ -476,6 +480,13 @@ test('test', async ({ page }) => {
                             <button type="button" class="btn btn-primary" id="launch-codegen-btn">Launch Codegen</button>
                             <button type="button" class="btn btn-secondary" id="copy-codegen-cmd-btn">Copy command</button>
                         </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="recorded-test-proxy">Recording proxy</label>
+                        <select id="recorded-test-proxy">
+                            <option value="">No proxy</option>
+                        </select>
+                        <small class="form-text text-muted">Proxy used for the Codegen browser when recording. Useful when not in a project or to override the project proxy.</small>
                     </div>
 
                     <!-- Remote Codegen noVNC panel (hidden by default; shown when a remote session is active) -->

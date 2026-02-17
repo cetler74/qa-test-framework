@@ -623,11 +623,37 @@
     const autoRefreshBtn = document.getElementById('auto-refresh-codegen-btn');
     const addToProjectWrap = document.getElementById('recorded-test-add-to-project-wrap');
     const addToProjectSelect = document.getElementById('recorded-test-add-to-project');
+    const proxySelect = document.getElementById('recorded-test-proxy');
     if (!form) return;
-    
+
     if (addToProjectWrap) addToProjectWrap.style.display = editId ? 'none' : 'block';
     if (addToProjectSelect) addToProjectSelect.innerHTML = '<option value="">None</option>';
-    
+
+    // Populate recording proxy dropdown (from config/proxies.json)
+    apiRequest('/proxies').then(proxiesRes => {
+      const proxies = proxiesRes.proxies || [];
+      if (proxySelect) {
+        proxySelect.innerHTML = '<option value="">No proxy</option>' + proxies.map(p => {
+          const name = p.name || '';
+          return `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
+        }).join('');
+        // If we have project context, pre-select that project's proxy
+        if (!editId) {
+          const projectId = window._projectRecordedTestsProjectId || window._runUiTestsProjectId || null;
+          if (projectId) {
+            apiRequest(`/projects/${projectId}`).then(project => {
+              const pn = project.proxy_name || '';
+              if (pn && Array.from(proxySelect.options).some(o => o.value === pn)) {
+                proxySelect.value = pn;
+              }
+            }).catch(() => {});
+          }
+        }
+      }
+    }).catch(() => {
+      if (proxySelect) proxySelect.innerHTML = '<option value="">No proxy</option>';
+    });
+
     // Reset codegen state when opening form (unless editing)
     if (!editId) {
       currentCodegenSlug = null;
@@ -637,7 +663,7 @@
       if (loadBtn) loadBtn.style.display = 'none';
       if (autoRefreshBtn) autoRefreshBtn.style.display = 'none';
     }
-    
+
     idInput.value = editId || '';
     titleEl.textContent = editId ? 'Edit recorded test' : 'Add recorded test';
     nameInput.value = '';
@@ -658,7 +684,7 @@
         const defaultUrl = (c.baseUrl || '').trim() || 'https://example.com';
         codegenUrlInput.value = defaultUrl;
         if (baseUrlInput) baseUrlInput.value = defaultUrl;
-      }).catch(() => { 
+      }).catch(() => {
         codegenUrlInput.value = 'https://example.com';
         if (baseUrlInput) baseUrlInput.value = 'https://example.com';
       });
@@ -700,15 +726,18 @@
   document.getElementById('launch-codegen-btn')?.addEventListener('click', async () => {
     const urlInput = document.getElementById('recorded-test-codegen-url');
     const baseUrlInput = document.getElementById('recorded-test-base-url');
+    const proxySelect = document.getElementById('recorded-test-proxy');
     const url = (urlInput?.value || '').trim();
     if (!url) {
       alert('Please enter a Base URL for recording');
       return;
     }
     try {
+      const projectId = window._projectRecordedTestsProjectId || window._runUiTestsProjectId || null;
+      const proxyName = (proxySelect?.value || '').trim() || undefined;
       const res = await apiRequest('/playwright-recorded-tests/launch-codegen', {
         method: 'POST',
-        body: { baseUrl: url }
+        body: { baseUrl: url, projectId: projectId ? Number(projectId) : undefined, proxy_name: proxyName }
       });
       currentCodegenSlug = res.slug;
       currentCodegenMode = res.mode || 'local';

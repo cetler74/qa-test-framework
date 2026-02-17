@@ -99,17 +99,35 @@ function showCreateProjectModal() {
 // Edit Project
 window.editProject = async (projectId) => {
   try {
-    const project = await apiRequest(`/projects/${projectId}`);
+    const [project, proxiesRes] = await Promise.all([
+      apiRequest(`/projects/${projectId}`),
+      apiRequest('/proxies').catch(() => ({ proxies: [] }))
+    ]);
+
+    const proxies = proxiesRes.proxies || [];
+    const currentProxyName = project.proxy_name || '';
+    const proxyOptions = '<option value="">No proxy</option>' + proxies.map(p => {
+      const name = p.name || '';
+      const selected = name === currentProxyName ? ' selected' : '';
+      return `<option value="${escapeHtml(name)}"${selected}>${escapeHtml(name)}</option>`;
+    }).join('');
 
     const content = `
       <form id="edit-project-form">
         <div class="form-group">
           <label for="edit-project-name">Project Name *</label>
-          <input type="text" id="edit-project-name" value="${project.name}" required>
+          <input type="text" id="edit-project-name" value="${escapeHtml(project.name)}" required>
         </div>
         <div class="form-group">
           <label for="edit-project-description">Description</label>
-          <textarea id="edit-project-description">${project.description || ''}</textarea>
+          <textarea id="edit-project-description">${escapeHtml(project.description || '')}</textarea>
+        </div>
+        <div class="form-group">
+          <label for="edit-project-proxy">Test proxy</label>
+          <select id="edit-project-proxy">
+            ${proxyOptions}
+          </select>
+          <small class="form-text text-muted">Proxy used for API, UI, Codegen, and fuzz runs in this project.</small>
         </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
           <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
@@ -125,11 +143,13 @@ window.editProject = async (projectId) => {
 
       const name = document.getElementById('edit-project-name').value;
       const description = document.getElementById('edit-project-description').value;
+      const proxySelect = document.getElementById('edit-project-proxy');
+      const proxy_name = proxySelect ? (proxySelect.value || null) : null;
 
       try {
         await apiRequest(`/projects/${projectId}`, {
           method: 'PUT',
-          body: { name, description }
+          body: { name, description, proxy_name }
         });
 
         hideModal();
@@ -149,6 +169,14 @@ window.editProject = async (projectId) => {
   }
 };
 
+function escapeHtml(str) {
+  if (str == null) return '';
+  const s = String(str);
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
 // View Project
 window.viewProject = async (projectId) => {
   try {
@@ -157,8 +185,27 @@ window.viewProject = async (projectId) => {
     document.getElementById('project-detail-name').textContent = project.name;
     document.getElementById('project-detail-description').textContent = project.description || 'No description';
 
+    const proxyEl = document.getElementById('project-detail-proxy');
+    if (proxyEl) {
+      const proxyLabel = project.proxy_name || project.proxy?.name;
+      proxyEl.textContent = proxyLabel ? `Test proxy: ${proxyLabel}` : 'Test proxy: None';
+    }
+
+    const editBtn = document.getElementById('project-detail-edit-btn');
+    if (editBtn) {
+      editBtn.style.display = 'none';
+      editBtn.removeAttribute('data-project-id');
+      editBtn.onclick = null;
+    }
+
     const accessSection = document.getElementById('project-detail-access-section');
     const canManage = window.currentUser && (window.currentUser.is_admin || (project.owner && project.owner.id === window.currentUser.id));
+    if (editBtn && canManage) {
+      editBtn.style.display = 'inline-flex';
+      editBtn.setAttribute('data-project-id', projectId);
+      editBtn.onclick = () => editProject(projectId);
+    }
+
     if (accessSection) {
       if (!canManage) {
         accessSection.style.display = 'none';

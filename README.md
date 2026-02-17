@@ -12,6 +12,7 @@ A comprehensive API testing tool with Postman integration that allows you to man
 - **UI Tests (Playwright)**: Run browser-based UI tests (page load, key elements visible, basic navigation) against a configurable URL (e.g. 5gapisprint.meoempresas.pt/apis), with separate runs and HTML reports
 - **REST API Fuzzing (CATS)**: Run OpenAPI-based fuzz tests via CATS (Contract API Testing Service); view fuzz runs and HTML reports alongside API, UI, and SOAP runs
 - **Postman to OpenAPI**: Convert Postman collection JSON to OpenAPI 3.0 (Swagger) YAML for use with CATS, documentation, or other OpenAPI tools
+- **Test proxy**: Configure a list of proxies in `config/proxies.json` and choose one per project so API, UI, Codegen, and fuzz runs use it (for restricted/VPN environments)
 
 ## Prerequisites and dependencies
 
@@ -72,7 +73,9 @@ ADMIN_PASSWORD=your_admin_password
 node scripts/seed-admin.js
 ```
 
-This creates or updates a local user with admin rights. If the script says "Set ADMIN_USERNAME and ADMIN_PASSWORD in .env", ensure those variables are in `.env` and the file is saved to disk. See [SETUP.md – Auth and admin](SETUP.md#auth-and-initial-admin-user) for details.
+This creates or updates a local user with admin rights.
+
+7. **Optional – Proxy for test traffic**: If tests must use a corporate proxy, copy `config/proxies.example.json` to `config/proxies.json` and edit proxy URLs. Otherwise the app uses built-in defaults (including "no proxy"). In the app, edit a project and set **Test proxy** to the desired entry. If the script says "Set ADMIN_USERNAME and ADMIN_PASSWORD in .env", ensure those variables are in `.env` and the file is saved to disk. See [SETUP.md – Auth and admin](SETUP.md#auth-and-initial-admin-user) for details.
 
 ## Database Setup
 
@@ -116,6 +119,8 @@ This migration script will:
   - `014_playwright_result_video_trace.sql` - Video and trace on playwright results
   - `015_users_and_project_access.sql` - users, project owner/visibility, project_members (auth and project access)
   - `016_users_suspended.sql` - adds `suspended` flag to users (suspended users cannot log in)
+  - `017_project_proxy.sql` - adds `proxy_name` to projects (per-project test proxy selection)
+  - `018_session_store.sql` - creates `session` table for production (express-session with PostgreSQL; avoids in-memory MemoryStore warning)
 
 ### Migration Files
 
@@ -138,6 +143,8 @@ The `migrations/` directory contains SQL migration files that are executed in al
 - **014_playwright_result_video_trace.sql** - Video and trace on playwright results
 - **015_users_and_project_access.sql** - `users`, project `owner_id`/`visibility`, `project_members` (authentication and project access)
 - **016_users_suspended.sql** - `suspended` column on `users` (suspended users cannot log in; used by Manage users)
+- **017_project_proxy.sql** - `proxy_name` column on `projects` (references key in config/proxies.json for test traffic)
+- **018_session_store.sql** - `session` table for production session storage (connect-pg-simple; used when `NODE_ENV=production` to avoid MemoryStore warning)
 
 ### Manual Database Setup (Alternative)
 
@@ -213,6 +220,14 @@ The application uses the following main tables:
   ```
   Then restart the server.
 
+**"MemoryStore is not designed for a production environment" (Docker/server)**
+
+- Solution: Run with `NODE_ENV=production` (Docker Compose sets this by default) and run migrations so the `session` table exists (migration `018_session_store.sql`). The app then uses PostgreSQL for sessions instead of in-memory storage. If the warning persists, run `docker compose exec app npm run migrate` and restart the app.
+
+**Newman run crashes with "Unknown object type asyncfunction"**
+
+- Solution: The project overrides `object-hash` to v2.x (in `package.json` overrides) so collections that use async code in scripts do not crash. Ensure you run `npm install` (or rebuild the Docker image) so the override is applied.
+
 ## Dependency checklist (local run)
 
 Before running the app locally, ensure:
@@ -224,6 +239,7 @@ Before running the app locally, ensure:
 - [ ] **Initial admin user** created: set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`, save the file, then run `node scripts/seed-admin.js` (see [SETUP.md – Auth and admin](SETUP.md#auth-and-initial-admin-user))
 - [ ] (Optional) **Playwright browsers** for UI tests: `npx playwright install chromium`
 - [ ] (Optional) **Java 17+** and **CATS** (JAR or binary) if you use **Run Fuzz** — see [SETUP.md](SETUP.md#6-optional-rest-api-fuzzing-cats)
+- [ ] (Optional) **`config/proxies.json`** created from `config/proxies.example.json` and edited if tests must use a corporate proxy — see [SETUP.md – Proxy configuration](SETUP.md#4a-optional-proxy-configuration)
 
 ## Running the Application
 
@@ -444,9 +460,11 @@ flowchart TD
 
 ```bash
 cp .env.example .env
-# Edit .env — set DB_PASSWORD, SESSION_SECRET; for first-time login also set ADMIN_USERNAME and ADMIN_PASSWORD
+# Edit .env — set DB_PASSWORD, SESSION_SECRET (required for production); for first-time login also set ADMIN_USERNAME and ADMIN_PASSWORD
 docker compose up --build -d
-# Migrations run automatically. If ADMIN_USERNAME and ADMIN_PASSWORD are set in .env, the admin user is created on first startup.
+# Migrations run automatically on app startup (including 018_session_store for production session storage).
+# With NODE_ENV=production (default in docker-compose), sessions are stored in PostgreSQL; set a strong SESSION_SECRET.
+# If ADMIN_USERNAME and ADMIN_PASSWORD are set in .env, the admin user is created on first startup.
 # Otherwise run: docker compose exec app node scripts/seed-admin.js (after adding ADMIN_USERNAME and ADMIN_PASSWORD to .env and restarting, or pass env when exec’ing)
 # If you see DB schema errors (e.g. missing column), run: docker compose exec app npm run migrate
 # Open http://<server-ip>:3000
@@ -589,7 +607,8 @@ The application uses PostgreSQL with the following main tables:
 - `DB_USER` - Database user (default: postgres)
 - `DB_PASSWORD` - Database password
 - `PORT` - Server port (default: 3000)
-- **`SESSION_SECRET`** - Secret for session cookies (required for auth; change in production)
+- **`SESSION_SECRET`** - Secret for session cookies (required for auth; use a strong value in production)
+- **`NODE_ENV`** - Set to `production` on the server (Docker Compose sets this by default). When `production`, sessions are stored in PostgreSQL (migration `018_session_store.sql`) instead of in-memory, avoiding the MemoryStore warning and session loss on restart.
 - **`COOKIE_SECURE`** - Set to `true` only when the app is served over HTTPS. Leave unset (or false) for Docker or `http://localhost`, otherwise the session cookie is not sent and login appears to fail (401 on `/api/auth/me`).
 - **`ENABLE_LOCAL_AUTH`** - Enable local username/password login (default: true)
 - **`ENABLE_AD_AUTH`** - Enable Active Directory login (default: false). When true, set `AD_URL`, `AD_BASE_DN`, and optionally `AD_BIND_DN`, `AD_BIND_PASSWORD`, `AD_DOMAIN`
@@ -604,6 +623,9 @@ The application uses PostgreSQL with the following main tables:
 - `CODEGEN_MAX_SESSIONS` - Maximum concurrent remote Codegen sessions (default: 3)
 - `CODEGEN_SESSION_TIMEOUT_MS` - Remote Codegen session auto-timeout in ms (default: 600000 = 10 min)
 - `CODEGEN_VNC_PORT_START` - First websockify port for noVNC sessions (default: 6080)
+- **Proxy** – `config/proxies.json` defines named proxies (http, https, bypass); each project can select one in the UI (Edit project → Test proxy). If the file is missing, the app reads `config/proxies.example.json`. Optional: set `QA_PROXY` (e.g. in Docker) to override active proxy when running tests outside the UI.
+
+**Docker:** To use a proxy for test traffic, configure proxies in `config/proxies.json` (or mount it) and set the project's proxy in the app; optionally set `QA_PROXY` for CLI-style runs.
 
 ## License
 

@@ -4,6 +4,7 @@ const session = require('express-session');
 const cors = require('cors');
 const path = require('path');
 const http = require('http');
+const { Pool } = require('pg');
 const { attachUser, requireAuth } = require('./middleware/auth');
 
 const app = express();
@@ -16,6 +17,23 @@ app.set('trust proxy', 1);
 // In Docker with http://localhost:3000, leave COOKIE_SECURE unset so the session cookie is sent over HTTP.
 const cookieSecure = process.env.COOKIE_SECURE === 'true';
 
+// Session store: use PostgreSQL in production to avoid MemoryStore warning (leaks memory, single-process only).
+const dbPassword = process.env.DB_PASSWORD !== undefined && process.env.DB_PASSWORD !== null
+  ? String(process.env.DB_PASSWORD)
+  : '';
+const sessionStore = process.env.NODE_ENV === 'production'
+  ? new (require('connect-pg-simple')(session))({
+      pool: new Pool({
+        host: process.env.DB_HOST || 'localhost',
+        port: parseInt(process.env.DB_PORT, 10) || 5432,
+        user: process.env.DB_USER || 'postgres',
+        password: dbPassword,
+        database: process.env.DB_NAME || 'qa_framework'
+      }),
+      createTableIfMissing: true
+    })
+  : undefined;
+
 // Middleware
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
@@ -24,6 +42,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'dev-secret-change-in-production',
   resave: false,
   saveUninitialized: false,
+  store: sessionStore,
   cookie: {
     httpOnly: true,
     secure: cookieSecure,

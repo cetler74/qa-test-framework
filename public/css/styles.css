@@ -537,9 +537,28 @@ header h1 {
 .project-access-card .btn {
     margin-top: var(--spacing-sm);
 }
+.project-access-section {
+    margin-bottom: var(--spacing-2xl);
+}
 .project-access-section h3 {
     font-size: 1rem;
     margin-bottom: var(--spacing-md);
+}
+.project-access-visibility-row {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--spacing-lg);
+    flex-wrap: wrap;
+}
+.project-access-visibility-row .form-group {
+    margin-bottom: 0;
+    min-width: 200px;
+}
+.project-access-visibility-row .form-group label {
+    display: block;
+}
+.project-access-save-btn {
+    flex-shrink: 0;
 }
 .user-management-create-card {
     background: var(--color-white);
@@ -956,12 +975,12 @@ main {
     color: var(--color-text-inverse);
 }
 
-.run-status-in-progress {
+p.run-status-in-progress {
     margin-top: 6px;
     font-size: 13px;
     font-weight: 600;
     background: var(--color-warning);
-    color: var(--color-white);
+    color: rgba(255, 255, 255, 1);
     -webkit-background-clip: unset;
     background-clip: unset;
     padding: 6px 12px;
@@ -1098,6 +1117,12 @@ main {
     margin-top: var(--spacing-xl);
 }
 
+.project-detail-meta {
+    font-size: 14px;
+    color: var(--color-text-secondary);
+    margin-top: var(--spacing-sm);
+    margin-bottom: 0;
+}
 .project-info {
     background: var(--color-gray-50);
     padding: var(--spacing-xl);
@@ -1107,10 +1132,16 @@ main {
 }
 
 .project-actions {
+    margin-top: 0;
     margin-bottom: var(--spacing-2xl);
     display: flex;
+    align-items: center;
     gap: var(--spacing-md);
     flex-wrap: wrap;
+    min-height: 40px;
+}
+.project-actions .btn {
+    margin: 0;
 }
 
 .project-api-specs,
@@ -1118,6 +1149,41 @@ main {
 .project-flows,
 .project-schedules {
     margin-top: var(--spacing-2xl);
+}
+
+/* Available Collections: clear separation between items */
+.project-collections-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xl);
+}
+.project-collections-list .list-item {
+    margin-bottom: 0;
+    border: 1px solid var(--color-gray-200);
+    box-shadow: var(--shadow-md);
+}
+.dark-theme .project-collections-list .list-item {
+    border-color: var(--color-border, #334155);
+}
+
+/* Flows and Schedules: 3D-style section boxes */
+.project-section-box {
+    padding: var(--spacing-xl);
+    border-radius: var(--radius-lg);
+}
+.project-section-3d {
+    background: var(--color-white);
+    border: 1px solid var(--color-gray-200);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+    margin-top: var(--spacing-2xl);
+}
+.project-section-3d:first-of-type.project-section-box {
+    margin-top: var(--spacing-2xl);
+}
+.dark-theme .project-section-3d {
+    background: var(--color-bg-secondary, #1e293b);
+    border-color: var(--color-border, #334155);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.25), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
 }
 
 .project-api-specs h3,
@@ -2056,9 +2122,9 @@ main {
     background: var(--color-warning) !important;
 }
 
-.dark-theme .run-status-in-progress {
+.dark-theme p.run-status-in-progress {
     background: var(--color-warning) !important;
-    color: var(--color-white) !important;
+    color: rgba(255, 255, 255, 1) !important;
 }
 
 .dark-theme .fuzz-progress-output {

@@ -9,6 +9,7 @@ const { executeFlow } = require('./flowRunner');
 const { executeTests } = require('./testRunner');
 const { runPlaywrightTests } = require('./playwrightRunner');
 const playwrightConfig = require('../config/playwright');
+const { getProxyByName } = require('../lib/proxyConfig');
 
 const cronJobs = new Map();
 const intervalIds = new Map();
@@ -48,6 +49,8 @@ async function runScheduledJob(schedule) {
         ? await Collection.findAll({ where: { api_spec_id: projectApiSpecIds } })
         : [];
 
+      const proxy = getProxyByName(project.proxy_name);
+
       if (collectionsForProject.length > 0) {
         const testRun = await TestRun.create({
           name: `Scheduled: ${project.name}`,
@@ -60,7 +63,8 @@ async function runScheduledJob(schedule) {
         });
         executeTests(projectId, testRun.name, {
           testRunId: testRun.id,
-          collectionIds: collectionsForProject.map(c => c.id)
+          collectionIds: collectionsForProject.map(c => c.id),
+          proxy
         }).catch((err) => {
           console.error('[scheduler] Project API run failed:', err);
           TestRun.update({ status: 'failed' }, { where: { id: testRun.id } }).catch(() => {});
@@ -86,7 +90,8 @@ async function runScheduledJob(schedule) {
           baseUrl: playwrightConfig.baseUrl || '',
           headless: playwrightConfig.headless,
           timeoutMs: playwrightConfig.timeoutMs,
-          runOnly
+          runOnly,
+          proxy
         }).catch((err) => {
           console.error('[scheduler] Project UI run failed:', err);
           PlaywrightRun.update({ status: 'failed' }, { where: { id: run.id } }).catch(() => {});
