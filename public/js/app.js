@@ -951,6 +951,9 @@ async function loadTestRuns() {
         const runningLine = isRunning
           ? '<p class="run-status-in-progress">Run in progress — results will update when complete</p>' + (progressMsg ? `<p class="fuzz-progress-output" title="Live CATS output">${progressMsg}</p>` : '')
           : '';
+        const cancelBtn = isRunning
+          ? `<button type="button" class="btn btn-error btn-sm" onclick="event.stopPropagation(); cancelTestRun('${runType}', ${run.id})" title="Cancel this run">Cancel</button>`
+          : '';
         return `
         <div class="list-item" onclick="${onClick}" style="cursor: pointer;">
           <div class="list-item-info">
@@ -961,7 +964,10 @@ async function loadTestRuns() {
             </p>
             ${runningLine}
           </div>
-          <span class="status-badge ${run.status || 'pending'}">${run.status === 'partial_failed' ? 'Partial Failed' : (run.status || 'pending')}</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            ${cancelBtn}
+            <span class="status-badge ${run.status || 'pending'}">${run.status === 'partial_failed' ? 'Partial Failed' : (run.status || 'pending')}</span>
+          </div>
         </div>
       `;
       }).join('');
@@ -1006,7 +1012,7 @@ async function viewTestRun(testRunId) {
       <div style="font-size: inherit;">
         <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Status:</span>
         <span class="status-badge ${testRun.status}" style="margin-left: 8px;">${testRun.status === 'partial_failed' ? 'Partial Failed' : testRun.status}</span>
-        ${isRunning ? '<p style="margin-top: 8px; color: var(--color-warning, #f59e0b); font-weight: 600;">Run in progress — results will update automatically.</p>' : ''}
+        ${isRunning ? '<p style="margin-top: 8px; color: var(--color-warning, #f59e0b); font-weight: 600;">Run in progress — results will update automatically.</p><button type="button" class="btn btn-error btn-sm" onclick="cancelApiTestRun(' + testRunId + '); showView(\'test-runs\'); loadTestRuns();" style="margin-top: 8px;">Cancel run</button>' : ''}
       </div>
     `;
 
@@ -1226,6 +1232,26 @@ window.viewProject = (projectId) => {
 window.viewTestRun = viewTestRun;
 window.viewFuzzRun = viewFuzzRun;
 window.loadTestRuns = loadTestRuns;
+
+window.cancelApiTestRun = async (testRunId) => {
+  await cancelTestRun('api', testRunId);
+};
+
+window.cancelTestRun = async (runType, id) => {
+  const msg = runType === 'api'
+    ? 'Cancel this test run? It will stop after the current request.'
+    : runType === 'ui'
+      ? 'Cancel this UI test run?'
+      : 'Cancel this fuzz run?';
+  if (!confirm(msg)) return;
+  try {
+    const path = runType === 'api' ? `/test-runs/${id}/cancel` : runType === 'ui' ? `/playwright-runs/${id}/cancel` : `/fuzz-runs/${id}/cancel`;
+    await apiRequest(path, { method: 'POST' });
+    loadTestRuns();
+  } catch (err) {
+    alert('Error cancelling run: ' + (err.message || err));
+  }
+};
 
 window.editProject = (projectId) => {
   // Handled in projectManager.js

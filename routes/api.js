@@ -11,13 +11,13 @@ const SequelizeLib = require('sequelize');
 const { Op, literal } = require('sequelize');
 const { convertToPostmanCollection, parsePostmanCollection } = require('../services/apiSpecConverter');
 const { upload, validateAndParseApiSpec, validatePostmanCollection, parseWSDLToOperations } = require('../services/fileUpload');
-const { executeTests } = require('../services/testRunner');
+const { executeTests, requestCancelTestRun } = require('../services/testRunner');
 const { generateReport, getStableReportPath: getTestRunStableReportPath } = require('../services/reportGenerator');
 const { runPlaywrightTests, getPlaywrightTestListWithRecorded } = require('../services/playwrightRunner');
 const { executeFlow } = require('../services/flowRunner');
 const { computeNextRunAt, runScheduledJob } = require('../services/scheduler');
 const { executeSoapTests } = require('../services/soapRunner');
-const { executeFuzz } = require('../services/fuzzRunner');
+const { executeFuzz, cancelFuzzRun } = require('../services/fuzzRunner');
 const { generateFuzzReport, getStableReportPath } = require('../services/fuzzReportGenerator');
 const { generatePlaywrightReport } = require('../services/playwrightReportGenerator');
 const playwrightConfig = require('../config/playwright');
@@ -1459,6 +1459,23 @@ router.post('/fuzz-runs/execute', async (req, res) => {
   }
 });
 
+// Cancel a running fuzz run
+router.post('/fuzz-runs/:id/cancel', async (req, res) => {
+  try {
+    const run = await FuzzRun.findByPk(req.params.id, { attributes: ['id', 'project_id', 'status'] });
+    if (!run) return res.status(404).json({ error: 'Fuzz run not found' });
+    const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, run.project_id);
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+    if ((run.status || '').toLowerCase() !== 'running') {
+      return res.status(400).json({ error: 'Run is not running' });
+    }
+    const cancelled = await cancelFuzzRun(run.id);
+    res.json({ message: cancelled ? 'Fuzz run cancelled' : 'Run was not running', status: 'cancelled' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // List fuzz runs (filtered by project access)
 router.get('/fuzz-runs', async (req, res) => {
   try {
@@ -1574,6 +1591,25 @@ router.delete('/fuzz-runs/:id', async (req, res) => {
     if (!canManage) return res.status(403).json({ error: 'Forbidden' });
     await run.destroy();
     res.json({ message: 'Fuzz run deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cancel a running API test run (runner will stop after current work and set status to cancelled)
+router.post('/test-runs/:id/cancel', async (req, res) => {
+  try {
+    const testRun = await TestRun.findByPk(req.params.id, { attributes: ['id', 'project_id', 'status'] });
+    if (!testRun) return res.status(404).json({ error: 'Test run not found' });
+    const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, testRun.project_id);
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+    const status = (testRun.status || '').toLowerCase();
+    if (status !== 'running') {
+      return res.status(400).json({ error: 'Only running test runs can be cancelled' });
+    }
+    requestCancelTestRun(testRun.id);
+    await testRun.update({ status: 'cancelled' });
+    res.json({ message: 'Test run cancellation requested. It will stop after the current request.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1731,11 +1767,30 @@ router.post('/playwright-runs/execute', async (req, res) => {
       proxy
     })
       .then(() => console.log(`[api] Playwright run ${run.id} completed`))
-      .catch((err) => {
+      .catch(async (err) => {
         console.error(`[api] Playwright run ${run.id} failed:`, err);
-        PlaywrightRun.update({ status: 'failed' }, { where: { id: run.id } }).catch(() => {});
+        const current = await PlaywrightRun.findByPk(run.id, { attributes: ['status'] });
+        if (current && current.status === 'cancelled') return;
+        await PlaywrightRun.update({ status: 'failed' }, { where: { id: run.id } }).catch(() => {});
       });
     res.status(201).json({ playwrightRun: { id: run.id }, status: 'running', message: 'UI test execution started' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cancel a running Playwright (UI) test run
+router.post('/playwright-runs/:id/cancel', async (req, res) => {
+  try {
+    const run = await PlaywrightRun.findByPk(req.params.id, { attributes: ['id', 'project_id', 'status'] });
+    if (!run) return res.status(404).json({ error: 'Playwright run not found' });
+    const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, run.project_id);
+    if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+    if ((run.status || '').toLowerCase() !== 'running') {
+      return res.status(400).json({ error: 'Run is not running' });
+    }
+    const cancelled = await cancelPlaywrightRun(run.id);
+    res.json({ message: cancelled ? 'UI test run cancelled' : 'Run was not running', status: 'cancelled' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

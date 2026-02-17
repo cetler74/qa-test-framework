@@ -53,6 +53,9 @@ async function resolveContractPath(apiSpecId) {
 
 const PROGRESS_UPDATE_INTERVAL_MS = 2000;
 
+/** FuzzRun id -> child process. Used to cancel running fuzz runs. */
+const runningFuzzChildren = {};
+
 /**
  * Run CATS CLI with given options. Optionally streams stdout/stderr to onProgress for live progress.
  * @param {object} options - { contractPath, serverUrl, outputDir, onProgress?(message: string), fuzzRunId? }
@@ -96,6 +99,7 @@ function runCats(options) {
     const cmdArgs = isJava ? parts.slice(1).concat(args) : (parts.length > 1 ? parts.slice(1) : []).concat(args);
 
     const child = spawn(cmd, cmdArgs, spawnOpts);
+    if (fuzzRunId) runningFuzzChildren[fuzzRunId] = child;
 
     let stderr = '';
     let lastProgressLine = '';
@@ -138,6 +142,7 @@ function runCats(options) {
     });
 
     child.on('close', (exitCode) => {
+      if (fuzzRunId) delete runningFuzzChildren[fuzzRunId];
       if (progressTimer) clearTimeout(progressTimer);
       if ((stdoutBuf || stderrBuf) && (stdoutBuf.trim() || stderrBuf.trim())) {
         lastProgressLine = (stdoutBuf || '').trim() || (stderrBuf || '').trim();
@@ -153,10 +158,25 @@ function runCats(options) {
     });
 
     child.on('error', (err) => {
+      if (fuzzRunId) delete runningFuzzChildren[fuzzRunId];
       if (progressTimer) clearTimeout(progressTimer);
       reject(new Error(`Failed to run CATS: ${err.message}. Ensure CATS is installed (Java + CATS JAR or cats CLI).`));
     });
   });
+}
+
+/**
+ * Cancel a running fuzz run by killing its CATS subprocess. Updates the run status to 'cancelled'.
+ * @param {number} fuzzRunId - FuzzRun id
+ * @returns {Promise<boolean>} true if run was running and was cancelled, false otherwise
+ */
+async function cancelFuzzRun(fuzzRunId) {
+  const child = runningFuzzChildren[fuzzRunId];
+  if (!child) return false;
+  try { child.kill('SIGTERM'); } catch (_) {}
+  delete runningFuzzChildren[fuzzRunId];
+  await FuzzRun.update({ status: 'cancelled' }, { where: { id: fuzzRunId } });
+  return true;
 }
 
 /**
@@ -476,8 +496,13 @@ async function executeFuzz(projectId, apiSpecId, name, options = {}) {
       paths: options.paths,
       skipPaths: options.skipPaths,
       maxRequestsPerMinute: options.maxRequestsPerMinute,
-      proxy: options.proxy
+      proxy: options.proxy,
+      fuzzRunId: fuzzRun.id,
+      onProgress: options.onProgress
     });
+
+    const currentRun = await FuzzRun.findByPk(fuzzRun.id, { attributes: ['status'] });
+    if (currentRun && currentRun.status === 'cancelled') return await FuzzRun.findByPk(fuzzRun.id);
 
     if (!junitPath) {
       const noReportMsg = `CATS did not produce a JUNIT report (exit code: ${exitCode}). Check that CATS is installed (Java + CATS JAR or \`cats\` CLI) and the OpenAPI spec is valid.`;
@@ -585,6 +610,7 @@ async function executeFuzz(projectId, apiSpecId, name, options = {}) {
 }
 
 module.exports = {
+  cancelFuzzRun,
   resolveContractPath,
   runCats,
   parseJunitReport,

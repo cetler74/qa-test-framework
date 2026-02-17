@@ -15,6 +15,9 @@ const TRACES_DIR = path.join(REPORTS_DIR, 'playwright-traces');
 
 const BROWSERS = { chromium, firefox, webkit };
 
+/** RunId -> { cancelled: boolean, child?: ChildProcess, browser?: Browser }. Used to cancel running UI tests. */
+const runningPlaywrightState = {};
+
 /**
  * Take a full-page screenshot on failure. Returns filename (e.g. "runId_order.png") or null.
  * @param {import('playwright').Page} page
@@ -196,6 +199,8 @@ async function getPlaywrightTestListWithRecorded(projectId = null) {
  */
 async function runPlaywrightTests(options = {}) {
   const runId = options.playwrightRunId;
+  runningPlaywrightState[runId] = { cancelled: false };
+  try {
   const baseUrl = (options.baseUrl || playwrightConfig.baseUrl).replace(/\/$/, '');
   const headless = options.headless !== undefined ? options.headless : playwrightConfig.headless;
   const timeoutMs = options.timeoutMs || playwrightConfig.timeoutMs;
@@ -247,6 +252,7 @@ async function runPlaywrightTests(options = {}) {
       if (proxyServer) launchOptions.proxy = { server: proxyServer };
       const launch = BROWSERS[browserName] || chromium;
       browser = await launch.launch(launchOptions);
+      if (runningPlaywrightState[runId]) runningPlaywrightState[runId].browser = browser;
     } catch (err) {
       await record(++order, 'Browser launch', 'failed', 0, baseUrl, err.message, null);
       await updateRunSummary(runId, 1, 0, 1, Date.now() - startTime, 'failed');
@@ -581,10 +587,17 @@ async function runPlaywrightTests(options = {}) {
   // Track each recorded spec's output dir and whether it had a failure (so we prefer failed test's artifacts for run-level video/trace)
   const recordedRunDirs = [];
   for (const recId of recordedIds) {
+    if (runningPlaywrightState[runId] && runningPlaywrightState[runId].cancelled) break;
     try {
       const startOrder = order + 1;
       const runOpts = { timeoutMs, headless, video: videoOpt, trace: traceOpt, browserName, slowMo, proxy };
-      const { results: recResults, testResultsDir: recTestResultsDir } = await runRecordedSpec(runId, recId, baseUrl, startOrder, runOpts);
+      const out = await runRecordedSpec(runId, recId, baseUrl, startOrder, runOpts);
+      if (out.cancelled) {
+        await updateRunSummary(runId, total, passed, failed, Date.now() - startTime, 'cancelled');
+        return { summary: { total, passed, failed }, results };
+      }
+      const recResults = out.results;
+      const recTestResultsDir = out.testResultsDir;
       const hasFailure = recResults.some(r => r.status === 'failed');
       recordedRunDirs.push({ testResultsDir: recTestResultsDir, hasFailure });
       for (const r of recResults) {
@@ -676,6 +689,9 @@ async function runPlaywrightTests(options = {}) {
   await updateRunSummary(runId, total, passed, failed, durationMs, status);
 
   return { summary: { total, passed, failed }, results };
+  } finally {
+    delete runningPlaywrightState[runId];
+  }
 }
 
 /**
@@ -781,12 +797,14 @@ module.exports = {
     const result = await new Promise((resolve, reject) => {
       const timeout = timeoutMs * 2 + 10000;
       let timedOut = false;
+      let cancelledByUser = false;
       const child = spawn(command, finalArgs, {
         cwd,
         shell: isWin,
         env: spawnEnv,
         stdio: ['ignore', 'pipe', 'pipe']
       });
+      if (runningPlaywrightState[runId]) runningPlaywrightState[runId].child = child;
       const chunks = { stdout: [], stderr: [] };
       const maxBuffer = 4 * 1024 * 1024;
       let totalLen = 0;
@@ -805,6 +823,8 @@ module.exports = {
         try { child.kill('SIGKILL'); } catch (_) {}
       }, timeout);
       child.once('close', (code, signal) => {
+        if (runningPlaywrightState[runId]) runningPlaywrightState[runId].child = null;
+        if (signal && !timedOut) cancelledByUser = true;
         clearTimeout(timer);
         const stdout = Buffer.concat(chunks.stdout).toString('utf8').trim();
         const stderr = Buffer.concat(chunks.stderr).toString('utf8').trim();
@@ -812,20 +832,24 @@ module.exports = {
           status: timedOut ? 1 : (code != null ? code : (signal ? 1 : 0)),
           stdout,
           stderr,
-          error: timedOut ? new Error(`Playwright test timed out after ${timeout}ms`) : null
+          error: timedOut ? new Error(`Playwright test timed out after ${timeout}ms`) : null,
+          cancelled: cancelledByUser
         });
       });
       child.once('error', (err) => {
+        if (runningPlaywrightState[runId]) runningPlaywrightState[runId].child = null;
         clearTimeout(timer);
         try { child.kill(); } catch (_) {}
         resolve({
           status: 1,
           stdout: Buffer.concat(chunks.stdout).toString('utf8').trim(),
           stderr: Buffer.concat(chunks.stderr).toString('utf8').trim(),
-          error: err
+          error: err,
+          cancelled: false
         });
       });
     });
+    if (result.cancelled) return { results: [], testResultsDir, cancelled: true };
     const stderr = (result.stderr || '').trim();
     const stdout = (result.stdout || '').trim();
     const combinedOutput = [stderr, stdout, result.error ? String(result.error.message || result.error) : '']
@@ -1085,4 +1109,26 @@ if (isCli) {
   });
 }
 
-module.exports = { runPlaywrightTests, getPlaywrightTestList, getPlaywrightTestListWithRecorded };
+/**
+ * Cancel a running Playwright run by killing its subprocess and closing the browser (if any).
+ * Updates the run status to 'cancelled'. Idempotent if run is not running or already cancelled.
+ * @param {number} runId - PlaywrightRun id
+ * @returns {Promise<boolean>} true if run was running and was cancelled, false otherwise
+ */
+async function cancelPlaywrightRun(runId) {
+  const state = runningPlaywrightState[runId];
+  if (!state) return false;
+  state.cancelled = true;
+  if (state.child) {
+    try { state.child.kill('SIGTERM'); } catch (_) {}
+    state.child = null;
+  }
+  if (state.browser) {
+    try { await state.browser.close(); } catch (_) {}
+    state.browser = null;
+  }
+  await PlaywrightRun.update({ status: 'cancelled' }, { where: { id: runId } });
+  return true;
+}
+
+module.exports = { runPlaywrightTests, getPlaywrightTestList, getPlaywrightTestListWithRecorded, cancelPlaywrightRun };
