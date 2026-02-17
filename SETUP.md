@@ -43,13 +43,14 @@ This is the recommended deployment method for production servers and SaaS hostin
 # 1. Create your environment file
 cp .env.example .env
 
-# 2. Edit .env — set DB_PASSWORD and SESSION_SECRET at minimum.
+# 2. Edit .env — set DB_PASSWORD and SESSION_SECRET at minimum (use a strong SESSION_SECRET in production).
 #    For first-time login, add ADMIN_USERNAME and ADMIN_PASSWORD, then run seed-admin (step 4).
 #    Optionally adjust DB_NAME, CODEGEN_MAX_SESSIONS, etc.
 
 # 3. Build and start the containers
 docker compose up --build -d
-# Database migrations run automatically when the app container starts (see scripts/docker-entry.sh).
+# NODE_ENV=production is set by docker-compose; sessions are stored in PostgreSQL (migration 018_session_store).
+# Database migrations run automatically when the app container starts (see scripts/docker-entry.sh), including 018_session_store.
 # If ADMIN_USERNAME and ADMIN_PASSWORD are set in .env, the admin user is created automatically on first startup.
 # If you see schema errors (e.g. "column X does not exist"), run migrations manually:
 #   docker compose exec app npm run migrate
@@ -68,13 +69,15 @@ The application is now available at **http://\<server-ip\>:3000**. Sign in with 
 
 ### Database migrations (Docker)
 
-Migrations run automatically when the app container starts (`scripts/docker-entry.sh`). You do not need to run them manually for a normal first-time deploy or after `git pull` + rebuild.
+Migrations run automatically when the app container starts (`scripts/docker-entry.sh`). You do not need to run them manually for a normal first-time deploy or after `git pull` + rebuild. This includes **018_session_store.sql**, which creates the `session` table used for production session storage (when `NODE_ENV=production`).
 
-If you see database schema errors (e.g. "column X of relation Y does not exist"), run migrations inside the app container:
+If you see database schema errors (e.g. "column X of relation Y does not exist"), or the "MemoryStore is not designed for a production environment" warning, run migrations inside the app container:
 
 ```bash
 docker compose exec app npm run migrate
 ```
+
+Then restart the app if needed: `docker compose restart app`.
 
 ### Ports
 
@@ -109,7 +112,8 @@ docker compose up -d
 # Pull latest code, rebuild, and restart
 git pull
 docker compose up --build -d
-# Migrations run automatically on app startup. To run them without restarting:
+# Migrations run automatically on app startup (including any new ones, e.g. 018_session_store).
+# To run migrations without restarting the app:
 #   docker compose exec app npm run migrate
 ```
 
@@ -202,7 +206,7 @@ npm run migrate
 
 This will:
 - Create the database if it doesn't exist (name from `DB_NAME` in `.env`)
-- Run all migration files in order, including: projects, API specs, collections, test runs, Playwright runs/results/recorded tests, flows, schedules, SOAP, fuzz runs, **users/project access** (migration `015_users_and_project_access.sql`), **users.suspended** (migration `016_users_suspended.sql`), and **project.proxy_name** (migration `017_project_proxy.sql`). Migrations run automatically on Docker app startup; for local runs use `npm run migrate`.
+- Run all migration files in order, including: projects, API specs, collections, test runs, Playwright runs/results/recorded tests, flows, schedules, SOAP, fuzz runs, **users/project access** (migration `015_users_and_project_access.sql`), **users.suspended** (migration `016_users_suspended.sql`), **project.proxy_name** (migration `017_project_proxy.sql`), and **session store** (migration `018_session_store.sql`, used when `NODE_ENV=production`). Migrations run automatically on Docker app startup; for local runs use `npm run migrate`.
 
 ### 3. Auth and Initial Admin User
 

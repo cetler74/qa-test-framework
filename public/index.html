@@ -481,6 +481,13 @@ test('test', async ({ page }) => {
                             <button type="button" class="btn btn-secondary" id="copy-codegen-cmd-btn">Copy command</button>
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label for="recorded-test-proxy">Recording proxy</label>
+                        <select id="recorded-test-proxy">
+                            <option value="">No proxy</option>
+                        </select>
+                        <small class="form-text text-muted">Proxy used for the Codegen browser when recording. Useful when not in a project or to override the project proxy.</small>
+                    </div>
 
                     <!-- Remote Codegen noVNC panel (hidden by default; shown when a remote session is active) -->
                     <div id="codegen-vnc-panel" class="codegen-vnc-panel" style="display: none;">

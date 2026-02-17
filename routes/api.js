@@ -1997,12 +1997,15 @@ router.post('/playwright-recorded-tests', async (req, res) => {
 // On Windows/desktop (with DISPLAY): spawns codegen locally as before.
 router.post('/playwright-recorded-tests/launch-codegen', async (req, res) => {
   try {
-    const { baseUrl, projectId } = req.body;
+    const { baseUrl, projectId, proxy_name: proxyName } = req.body;
     const url = (baseUrl && typeof baseUrl === 'string' ? baseUrl.trim() : playwrightConfig.baseUrl) || 'https://example.com';
     const slug = `recorded-${Date.now()}`;
 
     let proxy = null;
-    if (projectId) {
+    if (proxyName && typeof proxyName === 'string' && proxyName.trim()) {
+      proxy = getProxyByName(proxyName.trim());
+    }
+    if (!proxy && projectId) {
       const project = await Project.findByPk(projectId, { attributes: ['proxy_name'] });
       proxy = project ? getProxyByName(project.proxy_name) : null;
     }
@@ -2035,17 +2038,16 @@ router.post('/playwright-recorded-tests/launch-codegen', async (req, res) => {
     }
     const isWin = process.platform === 'win32';
     const command = isWin ? 'npx.cmd' : 'npx';
-    const args = ['playwright', 'codegen', '--output', outputPath, url];
-    const localEnv = { ...process.env };
+    const args = ['playwright', 'codegen', '--output', outputPath];
     if (proxy && (proxy.http || proxy.https)) {
       const u = proxy.http || proxy.https || '';
-      localEnv.HTTP_PROXY = u;
-      localEnv.HTTPS_PROXY = u;
-      localEnv.NO_PROXY = proxy.bypass || '';
-      localEnv.http_proxy = u;
-      localEnv.https_proxy = u;
-      localEnv.no_proxy = proxy.bypass || '';
+      args.push('--proxy-server', u);
+      if (proxy.bypass && proxy.bypass.trim()) {
+        args.push('--proxy-bypass', proxy.bypass.trim());
+      }
     }
+    args.push(url);
+    const localEnv = { ...process.env };
     const child = spawn(command, args, {
       stdio: 'ignore',
       detached: true,

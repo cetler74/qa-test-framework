@@ -231,23 +231,19 @@ async function createSession(slug, url, options = {}) {
     });
     await delay(300);
 
-    // 4. Spawn Playwright Codegen
+    // 4. Spawn Playwright Codegen (use --proxy-server so the browser uses the proxy; env vars are not used by codegen's browser)
     const proxy = options.proxy && (options.proxy.http || options.proxy.https) ? options.proxy : null;
     const codegenEnv = { ...process.env, DISPLAY: display };
+    const codegenArgs = ['playwright', 'codegen', '--output', outputPath];
     if (proxy) {
       const u = proxy.http || proxy.https || '';
-      codegenEnv.HTTP_PROXY = u;
-      codegenEnv.HTTPS_PROXY = u;
-      codegenEnv.NO_PROXY = proxy.bypass || '';
-      codegenEnv.http_proxy = u;
-      codegenEnv.https_proxy = u;
-      codegenEnv.no_proxy = proxy.bypass || '';
+      codegenArgs.push('--proxy-server', u);
+      if (proxy.bypass && proxy.bypass.trim()) {
+        codegenArgs.push('--proxy-bypass', proxy.bypass.trim());
+      }
     }
-    session.codegenProc = spawn('npx', [
-      'playwright', 'codegen',
-      '--output', outputPath,
-      url,
-    ], {
+    codegenArgs.push(url);
+    session.codegenProc = spawn('npx', codegenArgs, {
       stdio: 'ignore',
       detached: true,
       env: codegenEnv,

@@ -120,6 +120,7 @@ This migration script will:
   - `015_users_and_project_access.sql` - users, project owner/visibility, project_members (auth and project access)
   - `016_users_suspended.sql` - adds `suspended` flag to users (suspended users cannot log in)
   - `017_project_proxy.sql` - adds `proxy_name` to projects (per-project test proxy selection)
+  - `018_session_store.sql` - creates `session` table for production (express-session with PostgreSQL; avoids in-memory MemoryStore warning)
 
 ### Migration Files
 
@@ -143,6 +144,7 @@ The `migrations/` directory contains SQL migration files that are executed in al
 - **015_users_and_project_access.sql** - `users`, project `owner_id`/`visibility`, `project_members` (authentication and project access)
 - **016_users_suspended.sql** - `suspended` column on `users` (suspended users cannot log in; used by Manage users)
 - **017_project_proxy.sql** - `proxy_name` column on `projects` (references key in config/proxies.json for test traffic)
+- **018_session_store.sql** - `session` table for production session storage (connect-pg-simple; used when `NODE_ENV=production` to avoid MemoryStore warning)
 
 ### Manual Database Setup (Alternative)
 
@@ -217,6 +219,14 @@ The application uses the following main tables:
   npm run migrate
   ```
   Then restart the server.
+
+**"MemoryStore is not designed for a production environment" (Docker/server)**
+
+- Solution: Run with `NODE_ENV=production` (Docker Compose sets this by default) and run migrations so the `session` table exists (migration `018_session_store.sql`). The app then uses PostgreSQL for sessions instead of in-memory storage. If the warning persists, run `docker compose exec app npm run migrate` and restart the app.
+
+**Newman run crashes with "Unknown object type asyncfunction"**
+
+- Solution: The project overrides `object-hash` to v2.x (in `package.json` overrides) so collections that use async code in scripts do not crash. Ensure you run `npm install` (or rebuild the Docker image) so the override is applied.
 
 ## Dependency checklist (local run)
 
@@ -450,9 +460,11 @@ flowchart TD
 
 ```bash
 cp .env.example .env
-# Edit .env — set DB_PASSWORD, SESSION_SECRET; for first-time login also set ADMIN_USERNAME and ADMIN_PASSWORD
+# Edit .env — set DB_PASSWORD, SESSION_SECRET (required for production); for first-time login also set ADMIN_USERNAME and ADMIN_PASSWORD
 docker compose up --build -d
-# Migrations run automatically. If ADMIN_USERNAME and ADMIN_PASSWORD are set in .env, the admin user is created on first startup.
+# Migrations run automatically on app startup (including 018_session_store for production session storage).
+# With NODE_ENV=production (default in docker-compose), sessions are stored in PostgreSQL; set a strong SESSION_SECRET.
+# If ADMIN_USERNAME and ADMIN_PASSWORD are set in .env, the admin user is created on first startup.
 # Otherwise run: docker compose exec app node scripts/seed-admin.js (after adding ADMIN_USERNAME and ADMIN_PASSWORD to .env and restarting, or pass env when exec’ing)
 # If you see DB schema errors (e.g. missing column), run: docker compose exec app npm run migrate
 # Open http://<server-ip>:3000
@@ -595,7 +607,8 @@ The application uses PostgreSQL with the following main tables:
 - `DB_USER` - Database user (default: postgres)
 - `DB_PASSWORD` - Database password
 - `PORT` - Server port (default: 3000)
-- **`SESSION_SECRET`** - Secret for session cookies (required for auth; change in production)
+- **`SESSION_SECRET`** - Secret for session cookies (required for auth; use a strong value in production)
+- **`NODE_ENV`** - Set to `production` on the server (Docker Compose sets this by default). When `production`, sessions are stored in PostgreSQL (migration `018_session_store.sql`) instead of in-memory, avoiding the MemoryStore warning and session loss on restart.
 - **`COOKIE_SECURE`** - Set to `true` only when the app is served over HTTPS. Leave unset (or false) for Docker or `http://localhost`, otherwise the session cookie is not sent and login appears to fail (401 on `/api/auth/me`).
 - **`ENABLE_LOCAL_AUTH`** - Enable local username/password login (default: true)
 - **`ENABLE_AD_AUTH`** - Enable Active Directory login (default: false). When true, set `AD_URL`, `AD_BASE_DN`, and optionally `AD_BIND_DN`, `AD_BIND_PASSWORD`, `AD_DOMAIN`
