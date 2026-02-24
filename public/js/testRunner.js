@@ -240,7 +240,7 @@ function showRunTestsModal() {
   // Load project collections
   apiRequest(`/projects/${projectId}/collections`).then(collections => {
     if (collections.length === 0) {
-      alert('No collections available in this project. Add API specs or upload Postman collections first.');
+      alert('No collections available in this project. Add an OpenAPI (YAML/JSON) spec to the project or upload a Postman collection. WSDL specs are used for SOAP runs, not for this API collection run.');
       return;
     }
     
@@ -261,6 +261,7 @@ function showRunTestsModal() {
             <option value="">Choose a collection...</option>
             ${collectionOptions}
           </select>
+          <p style="font-size: 12px; color: var(--color-text-secondary, #6b7280); margin-top: 6px;">Collections come from <strong>OpenAPI specs</strong> in this project (one collection per spec) or from <strong>uploaded Postman collections</strong>. For <strong>WSDL/SOAP</strong> specs, use the SOAP run option instead.</p>
         </div>
         <div class="form-group" id="test-selection-section" style="display: none; flex: 1; flex-direction: column; min-height: 0;">
           <label style="margin-bottom: 12px; display: block;">Select Tests to Run</label>

@@ -1113,6 +1113,20 @@ p.run-status-in-progress {
     transform: translateY(-1px);
 }
 .btn-run-type-fuzz svg { stroke: #fff; }
+.btn-run-type-soap {
+    background: #8b5cf6;
+    color: #fff;
+    border: 1px solid #8b5cf6;
+    box-shadow: var(--shadow-sm);
+}
+.btn-run-type-soap:hover {
+    background: #7c3aed;
+    border-color: #7c3aed;
+    color: #fff;
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+.btn-run-type-soap svg { stroke: #fff; }
 
 /* ============================================
    PROJECT DETAIL
@@ -2190,10 +2204,21 @@ p.run-status-in-progress {
     border-color: #c2410c !important;
 }
 
+.dark-theme .btn-run-type-soap {
+    background: #8b5cf6 !important;
+    border-color: #8b5cf6 !important;
+    color: #fff !important;
+}
+.dark-theme .btn-run-type-soap:hover {
+    background: #7c3aed !important;
+    border-color: #7c3aed !important;
+}
+
 .dark-theme #test-selection-container,
 .dark-theme #selected-tests-list,
 .dark-theme #collection-vars-list,
-.dark-theme #env-vars-section {
+.dark-theme #env-vars-section,
+.dark-theme #soap-operations-list {
     background: var(--color-bg-secondary) !important;
     border-color: var(--color-border) !important;
     color: var(--color-text-primary) !important;

@@ -1238,14 +1238,18 @@ window.cancelApiTestRun = async (testRunId) => {
 };
 
 window.cancelTestRun = async (runType, id) => {
-  const msg = runType === 'api'
+  const msg = runType === 'api' || runType === 'soap'
     ? 'Cancel this test run? It will stop after the current request.'
     : runType === 'ui'
       ? 'Cancel this UI test run?'
       : 'Cancel this fuzz run?';
   if (!confirm(msg)) return;
   try {
-    const path = runType === 'api' ? `/test-runs/${id}/cancel` : runType === 'ui' ? `/playwright-runs/${id}/cancel` : `/fuzz-runs/${id}/cancel`;
+    const path = (runType === 'api' || runType === 'soap')
+      ? `/test-runs/${id}/cancel`
+      : runType === 'ui'
+        ? `/playwright-runs/${id}/cancel`
+        : `/fuzz-runs/${id}/cancel`;
     await apiRequest(path, { method: 'POST' });
     loadTestRuns();
   } catch (err) {

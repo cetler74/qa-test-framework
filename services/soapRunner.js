@@ -4,6 +4,55 @@
 const path = require('path');
 const soap = require('soap');
 const { ApiSpec, SoapOperation, TestRun, TestResult } = require('../models');
+const { isTestRunCancelled, clearCancelTestRun } = require('./testRunner');
+
+/**
+ * Safely serialize a value to JSON; avoids circular reference errors (e.g. from soap client result).
+ * @param {*} value
+ * @returns {string|null}
+ */
+function safeJsonStringify(value) {
+  if (value == null) return null;
+  try {
+    return JSON.stringify(value);
+  } catch (e) {
+    if (e instanceof TypeError && e.message.includes('circular')) {
+      try {
+        return JSON.stringify(extractPlainData(value));
+      } catch (e2) {
+        return JSON.stringify({ _note: 'Response omitted (circular or non-serializable)' });
+      }
+    }
+    throw e;
+  }
+}
+
+/**
+ * Extract plain, serializable data from an object (skip functions and circular refs).
+ * @param {*} obj
+ * @param {Set} seen
+ * @returns {*}
+ */
+function extractPlainData(obj, seen = new Set()) {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (seen.has(obj)) return undefined;
+  if (Array.isArray(obj)) {
+    seen.add(obj);
+    return obj.map(item => extractPlainData(item, seen));
+  }
+  seen.add(obj);
+  const out = {};
+  for (const key of Object.keys(obj)) {
+    if (key === 'req' || key === 'res' || key === 'request' || key === 'response') continue;
+    try {
+      const v = extractPlainData(obj[key], seen);
+      if (v !== undefined) out[key] = v;
+    } catch (e) {
+      // skip
+    }
+  }
+  return out;
+}
 
 /**
  * Run SOAP operations and save results.
@@ -65,17 +114,32 @@ async function executeSoapTests(projectId, apiSpecId, operationIds, runName, tes
         completed++;
         if (completed < operations.length) return;
         const duration = Date.now() - startTime;
-        await testRun.update({
-          status: failed > 0 ? 'failed' : 'passed',
-          passed_tests: passed,
-          failed_tests: failed,
-          total_tests: operations.length,
-          duration_ms: duration
-        });
+        if (isTestRunCancelled(testRun.id)) {
+          clearCancelTestRun(testRun.id);
+          await testRun.update({
+            status: 'cancelled',
+            passed_tests: passed,
+            failed_tests: failed,
+            total_tests: operations.length,
+            duration_ms: duration
+          });
+        } else {
+          await testRun.update({
+            status: failed > 0 ? 'failed' : 'passed',
+            passed_tests: passed,
+            failed_tests: failed,
+            total_tests: operations.length,
+            duration_ms: duration
+          });
+        }
         resolve({ summary: { total: operations.length, passed, failed }, testRunId: testRun.id });
       };
 
       operations.forEach(async (op) => {
+        if (isTestRunCancelled(testRun.id)) {
+          checkDone();
+          return;
+        }
         const opStart = Date.now();
         const methodName = op.operation_name;
         if (typeof client[methodName] !== 'function') {
@@ -104,7 +168,7 @@ async function executeSoapTests(projectId, apiSpecId, operationIds, runName, tes
             duration_ms: duration,
             response_code: err ? null : 200,
             error_message: err ? (err.message || String(err)) : null,
-            response_body: result ? JSON.stringify(result) : null
+            response_body: result ? safeJsonStringify(result) : null
           });
           checkDone();
         });

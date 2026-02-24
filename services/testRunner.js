@@ -3,6 +3,22 @@ const fs = require('fs');
 const path = require('path');
 const { Collection, TestRun, TestResult, ApiSpec } = require('../models');
 
+// In-memory set of test run IDs that have been requested to cancel (API runs only).
+// Runner checks this so it can stop after the current collection and mark run as cancelled.
+const cancelledTestRunIds = new Set();
+
+function isTestRunCancelled(id) {
+  return id != null && cancelledTestRunIds.has(Number(id));
+}
+
+function requestCancelTestRun(id) {
+  if (id != null) cancelledTestRunIds.add(Number(id));
+}
+
+function clearCancelTestRun(id) {
+  if (id != null) cancelledTestRunIds.delete(Number(id));
+}
+
 /**
  * Remove duplicate leading protocol from a URL string (e.g. "https://https://api.example.com" -> "https://api.example.com").
  * Used for base URL and similar env vars so requests are not sent to malformed URLs.
@@ -660,6 +676,11 @@ async function executeTests(projectId, testRunName, options = {}) {
       if (!testRun) {
         throw new Error(`Test run with ID ${options.testRunId} not found`);
       }
+      if (isTestRunCancelled(testRun.id)) {
+        await testRun.update({ status: 'cancelled' });
+        clearCancelTestRun(testRun.id);
+        return { testRun, testResults: [], summary: { total: 0, passed: 0, failed: 0, duration: 0 } };
+      }
     } else {
       // Create test run record with placeholder values (will be updated after counting results)
       testRun = await TestRun.create({
@@ -1145,6 +1166,12 @@ async function executeTests(projectId, testRunName, options = {}) {
       newmanResults = await runNewmanTests(mergedCollection, options);
     }
 
+    if (isTestRunCancelled(testRun.id)) {
+      await testRun.update({ status: 'cancelled' });
+      clearCancelTestRun(testRun.id);
+      return { testRun, testResults: [], summary: { total: 0, passed: 0, failed: 0, duration: 0 } };
+    }
+
     // Test run was already initialized earlier, total_tests was already updated
 
     // Create test result records and determine their status
@@ -1376,6 +1403,12 @@ async function executeTests(projectId, testRunName, options = {}) {
     
     console.log(`[testRunner] Final statistics: ${totalTests} total, ${passedTests} passed, ${failedTests} failed`);
 
+    if (isTestRunCancelled(testRun.id)) {
+      await testRun.update({ status: 'cancelled', total_tests: totalTests, passed_tests: passedTests, failed_tests: failedTests, duration_ms: duration });
+      clearCancelTestRun(testRun.id);
+      return { testRun, testResults, summary: { total: totalTests, passed: passedTests, failed: failedTests, duration } };
+    }
+
     // Update test run record with correct counts (partial_failed when some pass and some fail)
     await testRun.update({
       status: (failedTests > 0 && passedTests > 0) ? 'partial_failed' : (failedTests > 0 ? 'failed' : 'passed'),
@@ -1385,6 +1418,7 @@ async function executeTests(projectId, testRunName, options = {}) {
       duration_ms: duration
     });
 
+    clearCancelTestRun(testRun.id);
     return {
       testRun,
       testResults,
@@ -1403,6 +1437,9 @@ async function executeTests(projectId, testRunName, options = {}) {
 module.exports = {
   mergeCollections,
   runNewmanTests,
-  executeTests
+  executeTests,
+  requestCancelTestRun,
+  isTestRunCancelled,
+  clearCancelTestRun
 };
 

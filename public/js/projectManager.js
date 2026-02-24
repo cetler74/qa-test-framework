@@ -18,6 +18,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Run Fuzz button (from project): open Run Fuzz modal
   document.getElementById('run-fuzz-btn')?.addEventListener('click', showRunFuzzModal);
+
+  // Run SOAP button (from project): open Run SOAP modal
+  document.getElementById('run-soap-btn')?.addEventListener('click', showRunSoapModal);
   
   // Run UI Test button (from project): open run UI tests flow with project context
   document.getElementById('run-ui-test-btn')?.addEventListener('click', () => {
@@ -262,6 +265,7 @@ window.viewProject = async (projectId) => {
     if (runUiTestBtn) runUiTestBtn.setAttribute('data-project-id', projectId);
     if (runFuzzBtn) runFuzzBtn.setAttribute('data-project-id', projectId);
     if (manageProjectRecordedBtn) manageProjectRecordedBtn.setAttribute('data-project-id', projectId);
+    document.getElementById('run-soap-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('create-flow-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('create-schedule-btn')?.setAttribute('data-project-id', projectId);
 
@@ -437,11 +441,11 @@ function showUploadApiSpecModal() {
   const content = `
     <form id="upload-api-spec-form">
       <div class="form-group">
-        <label>Upload API Specification File (YAML or JSON)</label>
+        <label>Upload API Specification File (OpenAPI YAML/JSON or WSDL)</label>
         <div class="file-upload-area" id="file-upload-area">
           <p>Click to select or drag and drop</p>
-          <p style="font-size: 12px; color: #666; margin-top: 10px;">Supports .yaml, .yml, .json files</p>
-          <input type="file" id="api-spec-file" accept=".yaml,.yml,.json" style="display: none;">
+          <p style="font-size: 12px; color: #666; margin-top: 10px;">Supports .yaml, .yml, .json, .wsdl, .xml files</p>
+          <input type="file" id="api-spec-file" accept=".yaml,.yml,.json,.wsdl,.xml" style="display: none;">
         </div>
         <div id="file-name" style="margin-top: 10px; font-size: 14px; color: #666;"></div>
       </div>
@@ -524,10 +528,10 @@ function showUploadPostmanCollectionModal() {
   const content = `
     <form id="upload-postman-collection-form">
       <div class="form-group">
-        <label>Upload Postman Collection JSON File</label>
+        <label>Upload Postman Collection (JSON)</label>
         <div class="file-upload-area" id="postman-file-upload-area">
           <p id="postman-upload-prompt">Click to select or drag and drop</p>
-          <p class="file-upload-hint">Supports .json Postman collection files</p>
+          <p class="file-upload-hint">Supports .json Postman collection files (v2.0 / v2.1)</p>
           <input type="file" id="postman-collection-file" accept=".json" style="display: none;">
         </div>
         <div id="postman-selected-file-card" class="selected-file-card" style="display: none;">
@@ -811,6 +815,138 @@ async function showRunFuzzModal() {
         alert('Error starting fuzz run: ' + (err.message || err));
       }
     });
+  } catch (err) {
+    alert('Error loading project: ' + (err.message || err));
+  }
+}
+
+// Run SOAP modal: select WSDL spec, operations, run name; POST /soap-runs/execute
+async function showRunSoapModal() {
+  const projectId = document.getElementById('run-soap-btn')?.getAttribute('data-project-id');
+  if (!projectId) {
+    alert('Please select a project first.');
+    return;
+  }
+  try {
+    const project = await apiRequest(`/projects/${projectId}`);
+    const wsdlSpecs = (project.apiSpecs || []).filter(s => s.format === 'wsdl');
+    if (wsdlSpecs.length === 0) {
+      alert('This project has no WSDL API specs. Add a WSDL spec to the project to run SOAP tests.');
+      return;
+    }
+    const specOptions = wsdlSpecs.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+    const content = `
+      <form id="run-soap-form" style="display: flex; flex-direction: column; height: 100%;">
+        <div class="form-group" style="margin-bottom: 20px;">
+          <label for="soap-run-name">Test Run Name *</label>
+          <input type="text" id="soap-run-name" required placeholder="e.g., Release 1.0" style="width: 100%; padding: 10px; font-size: 14px;">
+        </div>
+        <div class="form-group" style="margin-bottom: 20px;">
+          <label for="soap-api-spec">Select WSDL API Spec *</label>
+          <select id="soap-api-spec" required style="width: 100%; padding: 10px; border: 2px solid var(--color-primary, #14b8a6); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937); font-size: 14px;">
+            <option value="">Choose a WSDL spec...</option>
+            ${specOptions}
+          </select>
+          <p style="font-size: 12px; color: var(--color-text-secondary, #6b7280); margin-top: 6px;">Select the WSDL spec and operations to run. Results appear in Test Runs with run type SOAP.</p>
+        </div>
+        <div class="form-group" id="soap-operations-group" style="display: none; flex: 1; flex-direction: column; min-height: 0; margin-bottom: 20px;">
+          <label style="margin-bottom: 12px; display: block;">Select SOAP operations to Run</label>
+          <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-sm btn-secondary" id="soap-select-all">Select All</button>
+            <button type="button" class="btn btn-sm btn-secondary" id="soap-deselect-all">Deselect All</button>
+          </div>
+          <div id="soap-operations-list" style="max-height: 600px; overflow-y: auto; border: 1px solid var(--color-gray-300, #d1d5db); border-radius: 4px; padding: 15px; background: var(--color-gray-50, #f9fafb); color: var(--color-text-primary, #1f2937);">
+            <!-- Filled when spec is selected -->
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--color-gray-200, #e5e7eb); flex-shrink: 0;">
+          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="run-soap-submit" disabled>Run SOAP</button>
+        </div>
+      </form>
+    `;
+    showModal('Run SOAP', content);
+
+    const specSelect = document.getElementById('soap-api-spec');
+    const operationsGroup = document.getElementById('soap-operations-group');
+    const operationsList = document.getElementById('soap-operations-list');
+    const runNameInput = document.getElementById('soap-run-name');
+    const submitBtn = document.getElementById('run-soap-submit');
+
+    function updateSoapSubmitState() {
+      const checked = operationsList.querySelectorAll('.soap-op-checkbox:checked');
+      submitBtn.disabled = checked.length === 0 || !runNameInput.value.trim();
+    }
+
+    document.getElementById('soap-select-all')?.addEventListener('click', () => {
+      operationsList.querySelectorAll('.soap-op-checkbox').forEach(cb => { cb.checked = true; });
+      updateSoapSubmitState();
+    });
+    document.getElementById('soap-deselect-all')?.addEventListener('click', () => {
+      operationsList.querySelectorAll('.soap-op-checkbox').forEach(cb => { cb.checked = false; });
+      updateSoapSubmitState();
+    });
+
+    specSelect.addEventListener('change', async () => {
+      const apiSpecId = specSelect.value;
+      operationsList.innerHTML = '';
+      operationsGroup.style.display = 'none';
+      submitBtn.disabled = true;
+      if (!apiSpecId) return;
+      try {
+        const operations = await apiRequest(`/api-specs/${apiSpecId}/soap-operations`);
+        if (operations.length === 0) {
+          operationsList.innerHTML = '<p style="margin: 0; color: var(--color-text-secondary, #6b7280); font-style: italic;">No operations in this WSDL.</p>';
+        } else {
+          operationsList.innerHTML = operations.map(op => `
+            <div class="test-item" data-soap-op-id="${op.id}">
+              <div class="test-item-left">
+                <input type="checkbox" class="soap-op-checkbox test-checkbox" value="${op.id}" data-name="${(op.name || '').replace(/"/g, '&quot;')}">
+              </div>
+              <div class="test-item-body">
+                <div class="test-item-row">
+                  <span class="test-item-name" style="flex: 1; min-width: 200px;">📁 ${op.name || op.operation_name || op.id}</span>
+                </div>
+              </div>
+            </div>
+          `).join('');
+        }
+        operationsGroup.style.display = 'flex';
+        updateSoapSubmitState();
+        operationsList.querySelectorAll('.soap-op-checkbox').forEach(cb => cb.addEventListener('change', updateSoapSubmitState));
+      } catch (err) {
+        operationsList.innerHTML = '<p style="margin: 0; color: var(--color-error, #dc2626);">Failed to load operations.</p>';
+        operationsGroup.style.display = 'flex';
+      }
+    });
+
+    runNameInput.addEventListener('input', updateSoapSubmitState);
+
+    document.getElementById('run-soap-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const apiSpecId = specSelect.value;
+      const operationIds = Array.from(operationsList.querySelectorAll('.soap-op-checkbox:checked')).map(cb => parseInt(cb.value, 10));
+      const name = runNameInput.value.trim();
+      if (!apiSpecId || operationIds.length === 0 || !name) {
+        alert('Please select a WSDL spec, at least one operation, and enter a run name.');
+        return;
+      }
+      try {
+        await apiRequest('/soap-runs/execute', {
+          method: 'POST',
+          body: { projectId: Number(projectId), apiSpecId: Number(apiSpecId), operationIds, name }
+        });
+        hideModal();
+        showView('test-runs');
+        if (typeof loadTestRuns === 'function') loadTestRuns();
+        alert('SOAP run started. It appears in Test Runs as running.');
+      } catch (err) {
+        alert('Error starting SOAP run: ' + (err.message || err));
+      }
+    });
+
+    // Trigger load for first spec if only one
+    if (wsdlSpecs.length === 1) specSelect.dispatchEvent(new Event('change'));
   } catch (err) {
     alert('Error loading project: ' + (err.message || err));
   }
