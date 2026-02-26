@@ -23,9 +23,20 @@ const { generatePlaywrightReport } = require('../services/playwrightReportGenera
 const playwrightConfig = require('../config/playwright');
 const { validateSpecContent } = require('../services/recordedTestValidation');
 const codegenSessionManager = require('../services/codegenSessionManager');
-const { loadProxyConfig, getProxyByName } = require('../lib/proxyConfig');
+const { loadProxyConfig, getProxyByName, getProxyForUrl } = require('../lib/proxyConfig');
+const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
 
-/** Remove duplicate leading protocol in URL-like env var values (e.g. "https://https://api.example.com" -> "https://api.example.com"). */
+/** Extract first soap:address location URL from a WSDL file for proxy inference. Returns '' if not found. */
+function getSoapServiceUrlFromWsdl(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return '';
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const m = content.match(/soap:address\s+location\s*=\s*["']([^"']+)["']/i);
+    return m ? m[1].trim() : '';
+  } catch (_) {
+    return '';
+  }
+}
 function normalizeBaseUrl(value) {
   if (value == null || typeof value !== 'string') return value === undefined ? '' : String(value);
   const s = value.trim();
@@ -255,16 +266,7 @@ router.put('/projects/:id', (req, res, next) => {
       if (name !== undefined) updates.name = name;
       if (description !== undefined) updates.description = description;
       if (visibility !== undefined) updates.visibility = visibility;
-      if (proxy_name !== undefined) {
-        const pn = proxy_name === '' || proxy_name === null ? null : String(proxy_name).trim();
-        if (pn === null) {
-          updates.proxy_name = null;
-        } else {
-          const proxyEntry = getProxyByName(pn);
-          if (!proxyEntry) return res.status(400).json({ error: `Unknown proxy: ${pn}. Add it to config/proxies.json or use an existing key.` });
-          updates.proxy_name = pn;
-        }
-      }
+      // proxy_name is ignored; proxy is inferred from URL per run (getProxyForUrl)
       await project.update(updates);
       if (Array.isArray(shared_user_ids)) {
         await ProjectMember.destroy({ where: { project_id: project.id } });
@@ -1328,9 +1330,9 @@ router.post('/test-runs/execute', async (req, res) => {
       }
     }
 
-    // Resolve project proxy for this run
-    const project = await Project.findByPk(projectId, { attributes: ['id', 'proxy_name'] });
-    const proxy = project ? getProxyByName(project.proxy_name) : null;
+    // Infer proxy from run URL (env vars: endpoint, base_url, or first URL-like value)
+    const derivedUrl = deriveUrlFromEnvVars(testOptions.envVars);
+    const proxy = getProxyForUrl(derivedUrl);
 
     // Create test run immediately with 'running' status so frontend can track progress
     const testRun = await TestRun.create({
@@ -1379,6 +1381,14 @@ router.post('/soap-runs/execute', async (req, res) => {
     if (!projectId || !apiSpecId || !operationIds || !Array.isArray(operationIds) || operationIds.length === 0 || !name) {
       return res.status(400).json({ error: 'projectId, apiSpecId, operationIds (array), and name are required' });
     }
+    const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, projectId);
+    if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
+    const apiSpec = await ApiSpec.findByPk(apiSpecId, { attributes: ['id', 'file_path', 'format'] });
+    if (!apiSpec || apiSpec.format !== 'wsdl') {
+      return res.status(400).json({ error: 'API spec not found or not WSDL' });
+    }
+    const soapServiceUrl = getSoapServiceUrlFromWsdl(path.resolve(apiSpec.file_path));
+    const proxy = getProxyForUrl(soapServiceUrl);
     const testRun = await TestRun.create({
       name,
       status: 'running',
@@ -1389,7 +1399,7 @@ router.post('/soap-runs/execute', async (req, res) => {
       failed_tests: 0,
       duration_ms: 0
     });
-    executeSoapTests(projectId, apiSpecId, operationIds, name, testRun.id)
+    executeSoapTests(projectId, apiSpecId, operationIds, name, testRun.id, { proxy })
       .then(() => {
         console.log(`[api] SOAP run ${testRun.id} completed`);
         setImmediate(() => {
@@ -1435,8 +1445,7 @@ router.post('/fuzz-runs/execute', async (req, res) => {
       failed_tests: 0,
       duration_ms: 0
     });
-    const project = await Project.findByPk(projectId, { attributes: ['proxy_name'] });
-    const proxy = project ? getProxyByName(project.proxy_name) : null;
+    const proxy = getProxyForUrl(baseUrl);
     executeFuzz(projectId, apiSpecId, name, {
       fuzzRunId: fuzzRun.id,
       serverUrl: baseUrl,
@@ -1746,8 +1755,7 @@ router.post('/playwright-runs/execute', async (req, res) => {
       duration_ms: 0,
       browser_name: browserName
     });
-    const project = await Project.findByPk(projectId, { attributes: ['proxy_name'] });
-    const proxy = project ? getProxyByName(project.proxy_name) : null;
+    const proxy = getProxyForUrl(url);
     let headless = typeof bodyHeadless === 'boolean' ? bodyHeadless : playwrightConfig.headless;
     const hasDisplay = process.platform === 'win32' || !!process.env.DISPLAY;
     if (!hasDisplay && !headless) headless = true;
@@ -2052,18 +2060,11 @@ router.post('/playwright-recorded-tests', async (req, res) => {
 // On Windows/desktop (with DISPLAY): spawns codegen locally as before.
 router.post('/playwright-recorded-tests/launch-codegen', async (req, res) => {
   try {
-    const { baseUrl, projectId, proxy_name: proxyName } = req.body;
+    const { baseUrl, projectId } = req.body;
     const url = (baseUrl && typeof baseUrl === 'string' ? baseUrl.trim() : playwrightConfig.baseUrl) || 'https://example.com';
     const slug = `recorded-${Date.now()}`;
 
-    let proxy = null;
-    if (proxyName && typeof proxyName === 'string' && proxyName.trim()) {
-      proxy = getProxyByName(proxyName.trim());
-    }
-    if (!proxy && projectId) {
-      const project = await Project.findByPk(projectId, { attributes: ['proxy_name'] });
-      proxy = project ? getProxyByName(project.proxy_name) : null;
-    }
+    const proxy = getProxyForUrl(url);
 
     // --- Remote Codegen path (headless Linux with Xvfb + noVNC) ---
     if (codegenSessionManager.isRemoteCodegenAvailable()) {

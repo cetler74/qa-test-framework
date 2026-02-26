@@ -61,9 +61,10 @@ function extractPlainData(obj, seen = new Set()) {
  * @param {number[]} operationIds - SoapOperation IDs to run
  * @param {string} runName - Test run name
  * @param {number} [testRunId] - Existing test run ID (if already created)
+ * @param {{ proxy?: { http?: string, https?: string, bypass?: string } }} [options] - Optional proxy for external SOAP endpoints
  * @returns {Promise<{ summary: { total, passed, failed }, testRunId }>}
  */
-async function executeSoapTests(projectId, apiSpecId, operationIds, runName, testRunId) {
+async function executeSoapTests(projectId, apiSpecId, operationIds, runName, testRunId, options = {}) {
   const apiSpec = await ApiSpec.findByPk(apiSpecId);
   if (!apiSpec || apiSpec.format !== 'wsdl') {
     throw new Error('API spec not found or not WSDL');
@@ -95,9 +96,15 @@ async function executeSoapTests(projectId, apiSpecId, operationIds, runName, tes
 
   const startTime = Date.now();
   const wsdlPath = path.resolve(apiSpec.file_path);
+  const proxy = options && options.proxy;
+  const soapOptions = {};
+  if (proxy && (proxy.http || proxy.https)) {
+    const proxyUrl = proxy.https || proxy.http;
+    soapOptions.request = { proxy: proxyUrl };
+  }
 
   return new Promise((resolve, reject) => {
-    soap.createClient(wsdlPath, (err, client) => {
+    soap.createClient(wsdlPath, Object.keys(soapOptions).length ? soapOptions : undefined, (err, client) => {
       if (err) {
         TestRun.update(
           { status: 'failed', failed_tests: operations.length, duration_ms: Date.now() - startTime },

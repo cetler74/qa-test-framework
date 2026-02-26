@@ -206,7 +206,7 @@ npm run migrate
 
 This will:
 - Create the database if it doesn't exist (name from `DB_NAME` in `.env`)
-- Run all migration files in order, including: projects, API specs, collections, test runs, Playwright runs/results/recorded tests, flows, schedules, SOAP, fuzz runs, **users/project access** (migration `015_users_and_project_access.sql`), **users.suspended** (migration `016_users_suspended.sql`), **project.proxy_name** (migration `017_project_proxy.sql`), and **session store** (migration `018_session_store.sql`, used when `NODE_ENV=production`). Migrations run automatically on Docker app startup; for local runs use `npm run migrate`.
+- Run all migration files in order, including: projects, API specs, collections, test runs, Playwright runs/results/recorded tests, flows, schedules, SOAP, fuzz runs, **users/project access** (migration `015_users_and_project_access.sql`), **users.suspended** (migration `016_users_suspended.sql`), **project.proxy_name** (migration `017_project_proxy.sql`; column kept for compatibility—proxy is now inferred from URL per run), and **session store** (migration `018_session_store.sql`, used when `NODE_ENV=production`). Migrations run automatically on Docker app startup; for local runs use `npm run migrate`.
 
 ### 3. Auth and Initial Admin User
 
@@ -243,19 +243,24 @@ npm run dev
 
 ### 4a. Optional: Proxy configuration
 
-When running in restricted networks (e.g. VM with corporate proxy), API, UI, Codegen, and fuzz runs can use a proxy. Each project can select one proxy from a shared list.
+When running in restricted networks (e.g. VM with corporate proxy), API, UI, Codegen, SOAP, and fuzz runs can use a proxy. **Proxy is not configured per project.** It is inferred from the URL or endpoint used for each run:
 
-**Purpose:** Tests (API, UI, Codegen, fuzz) use the project's selected proxy so they can reach external URLs through your network's proxy.
+- **API**: URL from run env vars (e.g. `endpoint`, `base_url`) or first URL-like value
+- **UI**: Base URL of the run or recording
+- **SOAP**: Service URL from WSDL when available
+- **Fuzz**: Server URL of the run
+
+**Behaviour:** Internal URLs (localhost, 127.0.0.1, 10.0.0.0/8) use **no proxy**. All other (external) URLs use the proxy named in **`activeProxy`** in `config/proxies.json`. Set **`bypass`** on that proxy so internal links still bypass the proxy when it is in use (e.g. `localhost,127.0.0.1,10.0.0.0/8`).
 
 **Setup:**
 
 1. Copy the example config: `cp config/proxies.example.json config/proxies.json`
-2. Edit `config/proxies.json`: add or change proxy entries. Each entry has `http`, `https`, and `bypass` (comma-separated hosts to bypass, e.g. `localhost,127.0.0.1`). The example includes `proxy_DIT_Gestao`, `proxy_DIT_FE`, `proxy_DEO`, and `no-proxy`.
+2. Edit `config/proxies.json`: add or change proxy entries. Each entry has `http`, `https`, and `bypass` (comma-separated hosts/ranges to bypass, e.g. `localhost,127.0.0.1,10.0.0.0/8`). Set **`activeProxy`** to the key of the proxy to use for external URLs (e.g. `proxy_DEO`). The example includes `proxy_DIT_Gestao`, `proxy_DIT_FE`, `proxy_DEO`, and `no-proxy`.
 3. If the file may contain credentials (e.g. `user:pass@host`), add `config/proxies.json` to `.gitignore` so it is not committed.
 
-**Usage:** In the app, edit a project (Edit) and choose **Test proxy** from the dropdown. The list is read from `config/proxies.json`. Restart the app after editing `config/proxies.json` if the list does not update (the app caches the config in memory).
+**Usage:** No UI selection is required. The app applies the proxy automatically based on the URL of each run. Restart the app after editing `config/proxies.json` if the config does not update (the app caches it in memory).
 
-**Docker:** Mount `config/proxies.json` into the container or bake the default into the image. Projects can still select their proxy in the UI. Optionally set `QA_PROXY` in the container environment to override the active proxy for CLI-style test runs.
+**Docker:** Mount `config/proxies.json` into the container or bake the default into the image; set `activeProxy` as above. Optionally set `QA_PROXY` in the container environment to override the active proxy for CLI-style test runs.
 
 ### 5. Optional: UI Tests (Playwright)
 

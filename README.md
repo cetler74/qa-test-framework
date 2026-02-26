@@ -12,7 +12,7 @@ A comprehensive API testing tool with Postman integration that allows you to man
 - **UI Tests (Playwright)**: Run browser-based UI tests (page load, key elements visible, basic navigation) against a configurable URL (e.g. 5gapisprint.meoempresas.pt/apis), with separate runs and HTML reports
 - **REST API Fuzzing (CATS)**: Run OpenAPI-based fuzz tests via CATS (Contract API Testing Service); view fuzz runs and HTML reports alongside API, UI, and SOAP runs
 - **Postman to OpenAPI**: Convert Postman collection JSON to OpenAPI 3.0 (Swagger) YAML for use with CATS, documentation, or other OpenAPI tools
-- **Test proxy**: Configure a list of proxies in `config/proxies.json` and choose one per project so API, UI, Codegen, and fuzz runs use it (for restricted/VPN environments)
+- **Test proxy (URL-based)**: Proxy is inferred from the URL or endpoint used for each run (API, UI, SOAP, Fuzz). Internal URLs (localhost, 127.0.0.1, 10.x.x.x) use no proxy; external URLs use the proxy set in `config/proxies.json` (`activeProxy`). No per-project proxy selection.
 
 ## Prerequisites and dependencies
 
@@ -75,7 +75,7 @@ node scripts/seed-admin.js
 
 This creates or updates a local user with admin rights.
 
-7. **Optional – Proxy for test traffic**: If tests must use a corporate proxy, copy `config/proxies.example.json` to `config/proxies.json` and edit proxy URLs. Otherwise the app uses built-in defaults (including "no proxy"). In the app, edit a project and set **Test proxy** to the desired entry. If the script says "Set ADMIN_USERNAME and ADMIN_PASSWORD in .env", ensure those variables are in `.env` and the file is saved to disk. See [SETUP.md – Auth and admin](SETUP.md#auth-and-initial-admin-user) for details.
+7. **Optional – Proxy for test traffic**: If tests must use a corporate proxy, copy `config/proxies.example.json` to `config/proxies.json`, set `activeProxy` to the desired proxy key, and configure `bypass` (e.g. `localhost,127.0.0.1,10.0.0.0/8`) so internal traffic does not go through the proxy. Proxy is applied automatically based on the URL/endpoint of each run (API env URL, UI base URL, SOAP service URL, Fuzz server URL)—there is no per-project proxy setting. See [SETUP.md – Proxy configuration](SETUP.md#4a-optional-proxy-configuration). If the script says "Set ADMIN_USERNAME and ADMIN_PASSWORD in .env", ensure those variables are in `.env` and the file is saved to disk. See [SETUP.md – Auth and admin](SETUP.md#auth-and-initial-admin-user) for details.
 
 ## Database Setup
 
@@ -119,7 +119,7 @@ This migration script will:
   - `014_playwright_result_video_trace.sql` - Video and trace on playwright results
   - `015_users_and_project_access.sql` - users, project owner/visibility, project_members (auth and project access)
   - `016_users_suspended.sql` - adds `suspended` flag to users (suspended users cannot log in)
-  - `017_project_proxy.sql` - adds `proxy_name` to projects (per-project test proxy selection)
+  - `017_project_proxy.sql` - adds `proxy_name` to projects (kept for backward compatibility; proxy is now inferred from URL per run)
   - `018_session_store.sql` - creates `session` table for production (express-session with PostgreSQL; avoids in-memory MemoryStore warning)
 
 ### Migration Files
@@ -143,7 +143,7 @@ The `migrations/` directory contains SQL migration files that are executed in al
 - **014_playwright_result_video_trace.sql** - Video and trace on playwright results
 - **015_users_and_project_access.sql** - `users`, project `owner_id`/`visibility`, `project_members` (authentication and project access)
 - **016_users_suspended.sql** - `suspended` column on `users` (suspended users cannot log in; used by Manage users)
-- **017_project_proxy.sql** - `proxy_name` column on `projects` (references key in config/proxies.json for test traffic)
+- **017_project_proxy.sql** - `proxy_name` column on `projects` (kept for compatibility; proxy is inferred from URL/endpoint per run, not from project)
 - **018_session_store.sql** - `session` table for production session storage (connect-pg-simple; used when `NODE_ENV=production` to avoid MemoryStore warning)
 
 ### Manual Database Setup (Alternative)
@@ -239,7 +239,7 @@ Before running the app locally, ensure:
 - [ ] **Initial admin user** created: set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`, save the file, then run `node scripts/seed-admin.js` (see [SETUP.md – Auth and admin](SETUP.md#auth-and-initial-admin-user))
 - [ ] (Optional) **Playwright browsers** for UI tests: `npx playwright install chromium`
 - [ ] (Optional) **Java 17+** and **CATS** (JAR or binary) if you use **Run Fuzz** — see [SETUP.md](SETUP.md#6-optional-rest-api-fuzzing-cats)
-- [ ] (Optional) **`config/proxies.json`** created from `config/proxies.example.json` and edited if tests must use a corporate proxy — see [SETUP.md – Proxy configuration](SETUP.md#4a-optional-proxy-configuration)
+- [ ] (Optional) **`config/proxies.json`** created from `config/proxies.example.json` with `activeProxy` set if tests must use a corporate proxy; proxy is inferred from the URL/endpoint of each run — see [SETUP.md – Proxy configuration](SETUP.md#4a-optional-proxy-configuration)
 
 ## Running the Application
 
@@ -623,9 +623,9 @@ The application uses PostgreSQL with the following main tables:
 - `CODEGEN_MAX_SESSIONS` - Maximum concurrent remote Codegen sessions (default: 3)
 - `CODEGEN_SESSION_TIMEOUT_MS` - Remote Codegen session auto-timeout in ms (default: 600000 = 10 min)
 - `CODEGEN_VNC_PORT_START` - First websockify port for noVNC sessions (default: 6080)
-- **Proxy** – `config/proxies.json` defines named proxies (http, https, bypass); each project can select one in the UI (Edit project → Test proxy). If the file is missing, the app reads `config/proxies.example.json`. Optional: set `QA_PROXY` (e.g. in Docker) to override active proxy when running tests outside the UI.
+- **Proxy** – `config/proxies.json` defines named proxies (http, https, bypass) and `activeProxy`. Proxy is inferred from the URL/endpoint used for each run: internal URLs (localhost, 127.0.0.1, 10.x.x.x) use no proxy; external URLs use `activeProxy`. There is no per-project proxy selection. If the file is missing, the app reads `config/proxies.example.json`. Optional: set `QA_PROXY` (e.g. in Docker) to override active proxy when running tests outside the UI.
 
-**Docker:** To use a proxy for test traffic, configure proxies in `config/proxies.json` (or mount it) and set the project's proxy in the app; optionally set `QA_PROXY` for CLI-style runs.
+**Docker:** To use a proxy for test traffic, configure `config/proxies.json` (or mount it) with `activeProxy` and `bypass`; proxy is applied automatically based on the run URL. Optionally set `QA_PROXY` for CLI-style runs.
 
 ## License
 
