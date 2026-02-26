@@ -151,13 +151,12 @@ function getPlaywrightTestList() {
 }
 
 /**
- * Combined list: built-in tests + recorded tests from DB.
+ * Combined list: recorded tests only (no built-in tests).
  * Recorded entries have id like "recorded-<numericId>".
  * @param {number} [projectId] - If set, only include recorded tests linked to this project (project_recorded_tests).
  * @returns {Promise<Array<{ id: string, name: string, base_url?: string }>>}
  */
 async function getPlaywrightTestListWithRecorded(projectId = null) {
-  const builtIn = getPlaywrightTestList();
   let recorded = [];
   try {
     const options = {
@@ -171,20 +170,20 @@ async function getPlaywrightTestListWithRecorded(projectId = null) {
       });
       const ids = links.map(l => l.recorded_test_id);
       if (ids.length === 0) {
-        return [...builtIn];
+        return [];
       }
       options.where = { id: ids };
     }
     const rows = await PlaywrightRecordedTest.findAll(options);
     recorded = rows.map(r => ({
       id: `recorded-${r.id}`,
-      name: `Recorded: ${r.name}`,
+      name: r.name,
       base_url: r.base_url || undefined
     }));
   } catch (err) {
     console.error('[playwrightRunner] Failed to load recorded tests:', err.message);
   }
-  return [...builtIn, ...recorded];
+  return recorded;
 }
 
 /**
@@ -201,7 +200,9 @@ async function runPlaywrightTests(options = {}) {
   const runId = options.playwrightRunId;
   runningPlaywrightState[runId] = { cancelled: false };
   try {
-  const baseUrl = (options.baseUrl || playwrightConfig.baseUrl).replace(/\/$/, '');
+  const baseUrl = (options.baseUrl !== undefined && options.baseUrl !== '' && String(options.baseUrl).trim())
+    ? String(options.baseUrl).trim().replace(/\/$/, '')
+    : undefined;
   const headless = options.headless !== undefined ? options.headless : playwrightConfig.headless;
   const timeoutMs = options.timeoutMs || playwrightConfig.timeoutMs;
   const runOnly = options.runOnly && Array.isArray(options.runOnly) ? options.runOnly : null;
@@ -211,8 +212,8 @@ async function runPlaywrightTests(options = {}) {
   const slowMo = typeof options.slowMo === 'number' && options.slowMo >= 0 ? options.slowMo : 0;
 
   const recordedIds = runOnly ? runOnly.filter(id => String(id).startsWith('recorded-')).map(id => String(id).replace('recorded-', '')) : [];
-  const builtInRunOnly = runOnly ? runOnly.filter(id => !String(id).startsWith('recorded-')) : null;
-  const shouldRun = (id) => !builtInRunOnly || builtInRunOnly.includes(id);
+  const builtInRunOnly = null;
+  const shouldRun = () => false;
 
   const results = [];
   const startTime = Date.now();
@@ -221,11 +222,16 @@ async function runPlaywrightTests(options = {}) {
   let failed = 0;
   let order = 0;
 
-  const hasBuiltInToRun = builtInRunOnly === null || builtInRunOnly.length > 0;
+  const hasBuiltInToRun = false;
   const filterValidations = uiTestsConfig.filterValidations || [];
   const sections = uiTestsConfig.apiSections || [];
   // Start with 0 total; we update with actual result count as tests complete (recorded specs can have multiple test() blocks).
   await updateRunSummary(runId, 0, 0, 0, 0, 'running');
+
+  if (recordedIds.length === 0) {
+    await updateRunSummary(runId, 0, 0, 0, 0, 'passed');
+    return { summary: { total: 0, passed: 0, failed: 0 }, results: [] };
+  }
 
   const record = async (orderNum, testName, status, durationMs, endpoint, errorMessage, assertions, screenshotPath = null) => {
     results.push({ test_name: testName, status, duration_ms: durationMs, endpoint, error_message: errorMessage, assertions, execution_order: orderNum, screenshot_path: screenshotPath });

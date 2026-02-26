@@ -120,7 +120,7 @@
                         </svg>
                     </button>
                     <div class="user-dropdown-menu" id="user-dropdown-menu" role="menu">
-                        <button type="button" class="user-dropdown-item" id="user-dropdown-profile" role="menuitem" disabled title="Coming soon">
+                        <button type="button" class="user-dropdown-item" id="user-dropdown-profile" role="menuitem" title="Profile and change password">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                             </svg>
@@ -224,33 +224,12 @@
                             Back to Projects
                         </button>
                     <h2 id="project-detail-name"></h2>
-                    <button type="button" class="btn btn-secondary" id="project-detail-edit-btn" title="Edit project name, description, and test proxy" style="display: none;">Edit project</button>
+                    <button type="button" class="btn btn-secondary" id="project-detail-edit-btn" title="Edit project name, description, and access" style="display: none;">Edit project</button>
                 </div>
                 <div class="project-detail-content">
                     <div class="project-info">
                         <p id="project-detail-description"></p>
                         <p id="project-detail-proxy" class="project-detail-meta"></p>
-                    </div>
-                    <div class="project-access-section" id="project-detail-access-section">
-                        <h3>Access</h3>
-                        <div class="project-access-form">
-                            <div class="project-access-visibility-row">
-                                <div class="form-group">
-                                    <label for="project-detail-visibility">Visibility</label>
-                                    <select id="project-detail-visibility">
-                                        <option value="private">Private (only you)</option>
-                                        <option value="shared">Shared (selected users)</option>
-                                        <option value="public">Public (all users)</option>
-                                    </select>
-                                </div>
-                                <button type="button" class="btn btn-primary project-access-save-btn" id="project-detail-save-access-btn">Save access</button>
-                            </div>
-                            <div class="form-group project-detail-shared-wrap" id="project-detail-shared-wrap">
-                                <label for="project-detail-shared-users">Shared with</label>
-                                <select id="project-detail-shared-users" multiple size="4"></select>
-                                <p class="form-hint">Hold Ctrl/Cmd to select multiple users. Only applies when visibility is Shared.</p>
-                            </div>
-                        </div>
                     </div>
                     <div class="project-actions">
                         <button class="btn btn-primary" id="add-api-spec-btn">
@@ -531,10 +510,6 @@ test('test', async ({ page }) => {
                             <label for="recorded-test-name">Test name <span class="required">*</span></label>
                             <input type="text" id="recorded-test-name" required placeholder="e.g. Login flow" />
                         </div>
-                        <div class="form-group">
-                            <label for="recorded-test-base-url">Base URL (optional)</label>
-                            <input type="url" id="recorded-test-base-url" placeholder="https://example.com" />
-                        </div>
                         <div class="form-group" id="recorded-test-add-to-project-wrap">
                             <label for="recorded-test-add-to-project">Also add to project (optional)</label>
                             <select id="recorded-test-add-to-project">
@@ -599,17 +574,9 @@ test('test', async ({ page }) => {
                     <h2>Run UI Tests</h2>
                 </div>
                 <div class="run-ui-tests-page">
-                    <p class="run-ui-tests-intro">Choose a test suite, select which tests to run, then start the run.</p>
+                    <p class="run-ui-tests-intro">Select which recorded tests to run, then start the run.</p>
                     <div class="run-ui-tests-options">
-                        <div class="form-group run-ui-tests-suite-wrap">
-                            <label for="run-ui-tests-suite">Test suite</label>
-                            <select id="run-ui-tests-suite">
-                                <option value="all">All tests (built-in + recorded)</option>
-                                <option value="builtin">Built-in tests only</option>
-                                <option value="recorded">Recorded tests only</option>
-                            </select>
-                        </div>
-                        <div class="run-ui-tests-list-type">
+                        <div class="form-group run-ui-tests-list-type">
                             <label class="radio-label"><input type="radio" name="test-list-type" value="full" /> Run entire suite</label>
                             <label class="radio-label"><input type="radio" name="test-list-type" value="selected" checked /> Select which tests to run</label>
                         </div>
@@ -625,10 +592,6 @@ test('test', async ({ page }) => {
                         <div class="form-group">
                             <label for="run-ui-tests-name">Run name</label>
                             <input type="text" id="run-ui-tests-name" required placeholder="e.g. 5G API Sprint check" />
-                        </div>
-                        <div class="form-group">
-                            <label for="run-ui-tests-base-url">Base URL</label>
-                            <input type="url" id="run-ui-tests-base-url" placeholder="https://5gapisprint.meoempresas.pt/apis" />
                         </div>
                         <div class="form-group">
                             <label for="run-ui-tests-browser">Browser</label>

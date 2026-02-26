@@ -1730,7 +1730,7 @@ router.post('/playwright-runs/execute', async (req, res) => {
     if (!projectId) {
       return res.status(400).json({ error: 'projectId is required for UI test runs' });
     }
-    const url = baseUrl || playwrightConfig.baseUrl;
+    const url = (baseUrl && typeof baseUrl === 'string' && baseUrl.trim()) ? baseUrl.trim() : undefined;
     let runOnly = null;
     if (suite === 'selected' && Array.isArray(selectedTestIds) && selectedTestIds.length > 0) {
       runOnly = selectedTestIds;
@@ -1747,7 +1747,7 @@ router.post('/playwright-runs/execute', async (req, res) => {
     const run = await PlaywrightRun.create({
       name,
       status: 'running',
-      base_url: url,
+      base_url: url || '',
       project_id: projectId,
       total_tests: 0,
       passed_tests: 0,
@@ -1755,7 +1755,7 @@ router.post('/playwright-runs/execute', async (req, res) => {
       duration_ms: 0,
       browser_name: browserName
     });
-    const proxy = await getProxyForUrlAsync(url);
+    const proxy = await getProxyForUrlAsync(url || playwrightConfig.baseUrl || '');
     let headless = typeof bodyHeadless === 'boolean' ? bodyHeadless : playwrightConfig.headless;
     const hasDisplay = process.platform === 'win32' || !!process.env.DISPLAY;
     if (!hasDisplay && !headless) headless = true;

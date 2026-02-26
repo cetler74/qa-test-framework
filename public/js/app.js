@@ -201,7 +201,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     showLoginView();
   });
 
-  // Navigation (only relevant when logged in)
+  document.getElementById('user-dropdown-profile')?.addEventListener('click', () => {
+    closeUserDropdown();
+    const u = currentUser || window.currentUser;
+    const isLocal = u && u.auth_source === 'local';
+    const changePasswordSection = isLocal ? `
+      <div class="form-group" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color, #e5e7eb);">
+        <h4 style="margin: 0 0 12px 0;">Change password</h4>
+        <form id="profile-change-password-form" class="modal-form">
+          <div class="form-group">
+            <label for="profile-current-password">Current password</label>
+            <input type="password" id="profile-current-password" autocomplete="current-password" required />
+          </div>
+          <div class="form-group">
+            <label for="profile-new-password">New password</label>
+            <input type="password" id="profile-new-password" minlength="6" autocomplete="new-password" required />
+          </div>
+          <div class="form-group">
+            <label for="profile-new-password-confirm">Confirm new password</label>
+            <input type="password" id="profile-new-password-confirm" minlength="6" autocomplete="new-password" required />
+          </div>
+          <p id="profile-change-password-error" class="login-error" style="display: none;"></p>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Update password</button>
+          </div>
+        </form>
+      </div>
+    ` : '<p style="margin-top: 16px; color: var(--text-muted, #6b7280);">Password is managed by your organization (SSO/LDAP).</p>';
+    const body = `
+      <div class="profile-modal-content">
+        <p><strong>Username</strong>: ${(u && u.username) ? String(u.username).replace(/</g, '&lt;') : ''}</p>
+        <p><strong>Display name</strong>: ${(u && (u.display_name || u.username)) ? String(u.display_name || u.username).replace(/</g, '&lt;') : ''}</p>
+        ${changePasswordSection}
+      </div>
+    `;
+    showModal('Profile', body);
+  });
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       if (btn.id === 'settings-nav-btn') {
@@ -417,6 +452,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         await apiRequest('/users/' + userId, { method: 'PATCH', body: { password } });
         hideModal();
         loadUserManagement();
+      } catch (err) {
+        if (errEl) { errEl.textContent = err.message || 'Failed to update password.'; errEl.style.display = 'block'; }
+      }
+    } else if (form.id === 'profile-change-password-form') {
+      e.preventDefault();
+      const currentPassword = document.getElementById('profile-current-password')?.value;
+      const newPassword = document.getElementById('profile-new-password')?.value;
+      const confirmPassword = document.getElementById('profile-new-password-confirm')?.value;
+      const errEl = document.getElementById('profile-change-password-error');
+      if (errEl) errEl.style.display = 'none';
+      if (!currentPassword) {
+        if (errEl) { errEl.textContent = 'Current password is required.'; errEl.style.display = 'block'; }
+        return;
+      }
+      if (!newPassword || newPassword.length < 6) {
+        if (errEl) { errEl.textContent = 'New password must be at least 6 characters.'; errEl.style.display = 'block'; }
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        if (errEl) { errEl.textContent = 'New passwords do not match.'; errEl.style.display = 'block'; }
+        return;
+      }
+      try {
+        await apiRequest('/auth/me/change-password', {
+          method: 'POST',
+          body: { current_password: currentPassword, new_password: newPassword }
+        });
+        hideModal();
+        alert('Password updated successfully.');
       } catch (err) {
         if (errEl) { errEl.textContent = err.message || 'Failed to update password.'; errEl.style.display = 'block'; }
       }

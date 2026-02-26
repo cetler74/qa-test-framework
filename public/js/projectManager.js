@@ -103,6 +103,17 @@ function showCreateProjectModal() {
 window.editProject = async (projectId) => {
   try {
     const project = await apiRequest(`/projects/${projectId}`);
+    let users = [];
+    try {
+      users = await apiRequest('/users') || [];
+    } catch (e) {}
+    const vis = project.visibility || 'private';
+    const sharedIds = (project.shared_users || []).map(u => u.id);
+    const ownerId = project.owner && project.owner.id;
+    const otherUsers = (users || []).filter(u => u.id !== ownerId);
+    const sharedOptions = otherUsers.map(u =>
+      `<option value="${u.id}" ${sharedIds.includes(u.id) ? 'selected' : ''}>${escapeHtml(u.display_name || u.username)}</option>`
+    ).join('');
 
     const content = `
       <form id="edit-project-form">
@@ -114,6 +125,19 @@ window.editProject = async (projectId) => {
           <label for="edit-project-description">Description</label>
           <textarea id="edit-project-description">${escapeHtml(project.description || '')}</textarea>
         </div>
+        <div class="form-group">
+          <label for="edit-project-visibility">Visibility</label>
+          <select id="edit-project-visibility">
+            <option value="private" ${vis === 'private' ? 'selected' : ''}>Private (only you)</option>
+            <option value="shared" ${vis === 'shared' ? 'selected' : ''}>Shared (selected users)</option>
+            <option value="public" ${vis === 'public' ? 'selected' : ''}>Public (all users)</option>
+          </select>
+        </div>
+        <div class="form-group edit-project-shared-wrap" id="edit-project-shared-wrap" style="display: ${vis === 'shared' ? 'block' : 'none'};">
+          <label for="edit-project-shared-users">Shared with</label>
+          <select id="edit-project-shared-users" multiple size="4">${sharedOptions}</select>
+          <p class="form-hint">Hold Ctrl/Cmd to select multiple users. Only applies when visibility is Shared.</p>
+        </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
           <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
           <button type="submit" class="btn btn-primary">Save</button>
@@ -121,18 +145,29 @@ window.editProject = async (projectId) => {
       </form>
     `;
 
-    showModal('Edit Project', content);
+    showModal('Edit project', content);
+
+    const visSelect = document.getElementById('edit-project-visibility');
+    const sharedWrap = document.getElementById('edit-project-shared-wrap');
+    if (visSelect && sharedWrap) {
+      visSelect.addEventListener('change', function () {
+        sharedWrap.style.display = this.value === 'shared' ? 'block' : 'none';
+      });
+    }
 
     document.getElementById('edit-project-form').addEventListener('submit', async (e) => {
       e.preventDefault();
 
       const name = document.getElementById('edit-project-name').value;
       const description = document.getElementById('edit-project-description').value;
+      const visibility = document.getElementById('edit-project-visibility')?.value || 'private';
+      const sharedEl = document.getElementById('edit-project-shared-users');
+      const shared_user_ids = sharedEl ? Array.from(sharedEl.selectedOptions).map(o => Number(o.value)) : [];
 
       try {
         await apiRequest(`/projects/${projectId}`, {
           method: 'PUT',
-          body: { name, description }
+          body: { name, description, visibility, shared_user_ids }
         });
 
         hideModal();
@@ -180,7 +215,6 @@ window.viewProject = async (projectId) => {
       editBtn.onclick = null;
     }
 
-    const accessSection = document.getElementById('project-detail-access-section');
     const canManage = window.currentUser && (window.currentUser.is_admin || (project.owner && project.owner.id === window.currentUser.id));
     if (editBtn && canManage) {
       editBtn.style.display = 'inline-flex';
@@ -188,52 +222,6 @@ window.viewProject = async (projectId) => {
       editBtn.onclick = () => editProject(projectId);
     }
 
-    if (accessSection) {
-      if (!canManage) {
-        accessSection.style.display = 'none';
-      } else {
-        accessSection.style.display = 'block';
-        const visSelect = document.getElementById('project-detail-visibility');
-        const sharedWrap = document.getElementById('project-detail-shared-wrap');
-        const sharedSelect = document.getElementById('project-detail-shared-users');
-        const saveAccessBtn = document.getElementById('project-detail-save-access-btn');
-        const vis = project.visibility || 'private';
-        if (visSelect) visSelect.value = vis;
-        if (sharedWrap) sharedWrap.style.display = vis === 'shared' ? 'block' : 'none';
-        try {
-          const users = await apiRequest('/users');
-          const sharedIds = (project.shared_users || []).map(u => u.id);
-          if (sharedSelect) {
-            sharedSelect.innerHTML = (users || [])
-              .filter(u => u.id !== (project.owner && project.owner.id))
-              .map(u => `<option value="${u.id}" ${sharedIds.includes(u.id) ? 'selected' : ''}>${u.display_name || u.username}</option>`)
-              .join('');
-          }
-        } catch (e) {
-          if (sharedSelect) sharedSelect.innerHTML = '<option value="">Failed to load users</option>';
-        }
-        if (visSelect && !visSelect.dataset.accessListener) {
-          visSelect.addEventListener('change', function onVisChange() {
-            const wrap = document.getElementById('project-detail-shared-wrap');
-            if (wrap) wrap.style.display = this.value === 'shared' ? 'block' : 'none';
-          });
-          visSelect.dataset.accessListener = '1';
-        }
-        saveAccessBtn?.replaceWith(saveAccessBtn.cloneNode(true));
-        document.getElementById('project-detail-save-access-btn')?.addEventListener('click', async () => {
-          const visibility = document.getElementById('project-detail-visibility')?.value || 'private';
-          const sel = document.getElementById('project-detail-shared-users');
-          const shared_user_ids = sel ? Array.from(sel.selectedOptions).map(o => Number(o.value)) : [];
-          try {
-            await apiRequest(`/projects/${projectId}`, { method: 'PUT', body: { visibility, shared_user_ids } });
-            viewProject(projectId);
-          } catch (err) {
-            alert('Failed to save access: ' + (err.message || 'Unknown error'));
-          }
-        });
-      }
-    }
-    
     // Store project ID for later use
     document.getElementById('add-api-spec-btn').setAttribute('data-project-id', projectId);
     document.getElementById('upload-postman-collection-btn').setAttribute('data-project-id', projectId);

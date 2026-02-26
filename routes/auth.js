@@ -169,4 +169,44 @@ router.get('/me', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/auth/me/change-password - change own password (local users only)
+ * Body: { current_password, new_password }
+ */
+router.post('/me/change-password', async (req, res) => {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  try {
+    const user = await User.findByPk(req.session.userId, {
+      attributes: ['id', 'auth_source', 'password_hash']
+    });
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+    if (user.auth_source !== 'local') {
+      return res.status(400).json({ error: 'Password change is only available for local accounts' });
+    }
+    const { current_password, new_password } = req.body || {};
+    if (!current_password || !new_password) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+    const newPwd = String(new_password);
+    if (newPwd.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+    if (!user.password_hash) {
+      return res.status(400).json({ error: 'Account has no password set' });
+    }
+    const match = await bcrypt.compare(String(current_password), user.password_hash);
+    if (!match) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+    const hash = await bcrypt.hash(newPwd, 10);
+    await user.update({ password_hash: hash });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Change password error:', err);
+    res.status(500).json({ error: err.message || 'Failed to change password' });
+  }
+});
+
 module.exports = router;
