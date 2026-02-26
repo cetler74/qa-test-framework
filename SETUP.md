@@ -260,7 +260,12 @@ When running in restricted networks (e.g. VM with corporate proxy), API, UI, Cod
 
 **Usage:** No UI selection is required. The app applies the proxy automatically based on the URL of each run. Restart the app after editing `config/proxies.json` if the config does not update (the app caches it in memory).
 
-**Docker:** Mount `config/proxies.json` into the container or bake the default into the image; set `activeProxy` as above. Optionally set `QA_PROXY` in the container environment to override the active proxy for CLI-style test runs.
+**Docker and proxy:** Several things can affect proxy use when the app runs in Docker:
+
+1. **`config/proxies.json` is not in the image** – The file is in `.gitignore`, so the image only contains `config/proxies.example.json` (which has `activeProxy: "no-proxy"`). To use a proxy in Docker, either **mount** your `config/proxies.json` (e.g. in `docker-compose.yml`: `volumes: - ./config/proxies.json:/app/config/proxies.json:ro`) or copy it into the image in a custom Dockerfile.
+2. **Override active proxy via env** – Set **`QA_PROXY`** in the container environment to the proxy key you want (e.g. `QA_PROXY=proxy_DEO`). The app will use that instead of `activeProxy` from the file. Proxy definitions still come from the mounted or baked-in `proxies.json` (or `proxies.example.json`).
+3. **DNS resolution** – “Internal” URLs (no proxy) are detected using DNS from **inside the container**. If a hostname resolves to a private IP (10.x, 172.16–31.x, 192.168.x), no proxy is used. If DNS fails or resolves to a public IP, the proxy is used. So in Docker, different DNS or unreachable internal DNS can make some URLs use the proxy when they wouldn’t on the host (or the opposite).
+4. **Reachability of the proxy server** – The proxy (e.g. `http://10.162.2.24:3128`) must be reachable from the container. With the default bridge network, outbound traffic goes via the host; if the host can reach the proxy, the container usually can. If the container runs in an isolated network (e.g. some CI), ensure the proxy host is routable and that `bypass` includes any internal hosts that must not go through the proxy.
 
 ### 5. Optional: UI Tests (Playwright)
 
