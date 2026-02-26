@@ -9,7 +9,7 @@ const { executeFlow } = require('./flowRunner');
 const { executeTests } = require('./testRunner');
 const { runPlaywrightTests } = require('./playwrightRunner');
 const playwrightConfig = require('../config/playwright');
-const { getProxyForUrl } = require('../lib/proxyConfig');
+const { getProxyForUrlAsync } = require('../lib/proxyConfig');
 
 const cronJobs = new Map();
 const intervalIds = new Map();
@@ -49,7 +49,7 @@ async function runScheduledJob(schedule) {
         ? await Collection.findAll({ where: { api_spec_id: projectApiSpecIds } })
         : [];
 
-      const apiProxy = getProxyForUrl('');
+      const apiProxy = await getProxyForUrlAsync('');
 
       if (collectionsForProject.length > 0) {
         const testRun = await TestRun.create({
@@ -75,7 +75,7 @@ async function runScheduledJob(schedule) {
       const recordedIds = links.map(l => l.recorded_test_id);
       if (recordedIds.length > 0) {
         const baseUrl = playwrightConfig.baseUrl || '';
-        const uiProxy = getProxyForUrl(baseUrl);
+        const uiProxy = await getProxyForUrlAsync(baseUrl);
         const run = await PlaywrightRun.create({
           name: `Scheduled: ${project.name}`,
           status: 'running',

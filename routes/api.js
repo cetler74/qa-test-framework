@@ -23,7 +23,7 @@ const { generatePlaywrightReport } = require('../services/playwrightReportGenera
 const playwrightConfig = require('../config/playwright');
 const { validateSpecContent } = require('../services/recordedTestValidation');
 const codegenSessionManager = require('../services/codegenSessionManager');
-const { loadProxyConfig, getProxyByName, getProxyForUrl } = require('../lib/proxyConfig');
+const { loadProxyConfig, getProxyByName, getProxyForUrl, getProxyForUrlAsync } = require('../lib/proxyConfig');
 const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
 
 /** Extract first soap:address location URL from a WSDL file for proxy inference. Returns '' if not found. */
@@ -1332,7 +1332,7 @@ router.post('/test-runs/execute', async (req, res) => {
 
     // Infer proxy from run URL (env vars: endpoint, base_url, or first URL-like value)
     const derivedUrl = deriveUrlFromEnvVars(testOptions.envVars);
-    const proxy = getProxyForUrl(derivedUrl);
+    const proxy = await getProxyForUrlAsync(derivedUrl);
 
     // Create test run immediately with 'running' status so frontend can track progress
     const testRun = await TestRun.create({
@@ -1388,7 +1388,7 @@ router.post('/soap-runs/execute', async (req, res) => {
       return res.status(400).json({ error: 'API spec not found or not WSDL' });
     }
     const soapServiceUrl = getSoapServiceUrlFromWsdl(path.resolve(apiSpec.file_path));
-    const proxy = getProxyForUrl(soapServiceUrl);
+    const proxy = await getProxyForUrlAsync(soapServiceUrl);
     const testRun = await TestRun.create({
       name,
       status: 'running',
@@ -1445,7 +1445,7 @@ router.post('/fuzz-runs/execute', async (req, res) => {
       failed_tests: 0,
       duration_ms: 0
     });
-    const proxy = getProxyForUrl(baseUrl);
+    const proxy = await getProxyForUrlAsync(baseUrl);
     executeFuzz(projectId, apiSpecId, name, {
       fuzzRunId: fuzzRun.id,
       serverUrl: baseUrl,
@@ -1755,7 +1755,7 @@ router.post('/playwright-runs/execute', async (req, res) => {
       duration_ms: 0,
       browser_name: browserName
     });
-    const proxy = getProxyForUrl(url);
+    const proxy = await getProxyForUrlAsync(url);
     let headless = typeof bodyHeadless === 'boolean' ? bodyHeadless : playwrightConfig.headless;
     const hasDisplay = process.platform === 'win32' || !!process.env.DISPLAY;
     if (!hasDisplay && !headless) headless = true;
@@ -2064,7 +2064,7 @@ router.post('/playwright-recorded-tests/launch-codegen', async (req, res) => {
     const url = (baseUrl && typeof baseUrl === 'string' ? baseUrl.trim() : playwrightConfig.baseUrl) || 'https://example.com';
     const slug = `recorded-${Date.now()}`;
 
-    const proxy = getProxyForUrl(url);
+    const proxy = await getProxyForUrlAsync(url);
 
     // --- Remote Codegen path (headless Linux with Xvfb + noVNC) ---
     if (codegenSessionManager.isRemoteCodegenAvailable()) {

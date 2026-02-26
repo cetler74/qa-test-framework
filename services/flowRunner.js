@@ -7,7 +7,7 @@ const { executeTests } = require('./testRunner');
 const { runPlaywrightTests } = require('./playwrightRunner');
 const { executeFuzz } = require('./fuzzRunner');
 const playwrightConfig = require('../config/playwright');
-const { getProxyForUrl } = require('../lib/proxyConfig');
+const { getProxyForUrlAsync } = require('../lib/proxyConfig');
 const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
 
 /**
@@ -65,7 +65,7 @@ async function executeFlow(flowId, options = {}) {
 
       const selectedTests = { [collectionId]: [path] };
       const selectedTestsOrdered = [{ collectionId, path, testId: `Step ${i + 1}` }];
-      const apiProxy = getProxyForUrl(deriveUrlFromEnvVars(envVars));
+      const apiProxy = await getProxyForUrlAsync(deriveUrlFromEnvVars(envVars));
 
       executeTests(projectId, runName, {
         testRunId: testRun.id,
@@ -97,7 +97,7 @@ async function executeFlow(flowId, options = {}) {
         duration_ms: 0
       });
       uiRunIds.push(run.id);
-      const uiProxy = getProxyForUrl(baseUrl);
+      const uiProxy = await getProxyForUrlAsync(baseUrl);
 
       runPlaywrightTests({
         playwrightRunId: run.id,
@@ -131,7 +131,7 @@ async function executeFlow(flowId, options = {}) {
       });
       fuzzRunIds.push(fuzzRun.id);
       const fuzzServerUrl = serverUrl.replace(/\/$/, '');
-      const fuzzProxy = getProxyForUrl(fuzzServerUrl);
+      const fuzzProxy = await getProxyForUrlAsync(fuzzServerUrl);
       executeFuzz(projectId, apiSpecId, runName, {
         fuzzRunId: fuzzRun.id,
         serverUrl: fuzzServerUrl,
