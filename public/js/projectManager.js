@@ -102,18 +102,7 @@ function showCreateProjectModal() {
 // Edit Project
 window.editProject = async (projectId) => {
   try {
-    const [project, proxiesRes] = await Promise.all([
-      apiRequest(`/projects/${projectId}`),
-      apiRequest('/proxies').catch(() => ({ proxies: [] }))
-    ]);
-
-    const proxies = proxiesRes.proxies || [];
-    const currentProxyName = project.proxy_name || '';
-    const proxyOptions = '<option value="">No proxy</option>' + proxies.map(p => {
-      const name = p.name || '';
-      const selected = name === currentProxyName ? ' selected' : '';
-      return `<option value="${escapeHtml(name)}"${selected}>${escapeHtml(name)}</option>`;
-    }).join('');
+    const project = await apiRequest(`/projects/${projectId}`);
 
     const content = `
       <form id="edit-project-form">
@@ -124,13 +113,6 @@ window.editProject = async (projectId) => {
         <div class="form-group">
           <label for="edit-project-description">Description</label>
           <textarea id="edit-project-description">${escapeHtml(project.description || '')}</textarea>
-        </div>
-        <div class="form-group">
-          <label for="edit-project-proxy">Test proxy</label>
-          <select id="edit-project-proxy">
-            ${proxyOptions}
-          </select>
-          <small class="form-text text-muted">Proxy used for API, UI, Codegen, and fuzz runs in this project.</small>
         </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
           <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
@@ -146,13 +128,11 @@ window.editProject = async (projectId) => {
 
       const name = document.getElementById('edit-project-name').value;
       const description = document.getElementById('edit-project-description').value;
-      const proxySelect = document.getElementById('edit-project-proxy');
-      const proxy_name = proxySelect ? (proxySelect.value || null) : null;
 
       try {
         await apiRequest(`/projects/${projectId}`, {
           method: 'PUT',
-          body: { name, description, proxy_name }
+          body: { name, description }
         });
 
         hideModal();
@@ -190,8 +170,7 @@ window.viewProject = async (projectId) => {
 
     const proxyEl = document.getElementById('project-detail-proxy');
     if (proxyEl) {
-      const proxyLabel = project.proxy_name || project.proxy?.name;
-      proxyEl.textContent = proxyLabel ? `Test proxy: ${proxyLabel}` : 'Test proxy: None';
+      proxyEl.textContent = 'Proxy: Inferred from URL per run';
     }
 
     const editBtn = document.getElementById('project-detail-edit-btn');

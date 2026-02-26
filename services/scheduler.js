@@ -9,7 +9,7 @@ const { executeFlow } = require('./flowRunner');
 const { executeTests } = require('./testRunner');
 const { runPlaywrightTests } = require('./playwrightRunner');
 const playwrightConfig = require('../config/playwright');
-const { getProxyByName } = require('../lib/proxyConfig');
+const { getProxyForUrlAsync } = require('../lib/proxyConfig');
 
 const cronJobs = new Map();
 const intervalIds = new Map();
@@ -49,7 +49,7 @@ async function runScheduledJob(schedule) {
         ? await Collection.findAll({ where: { api_spec_id: projectApiSpecIds } })
         : [];
 
-      const proxy = getProxyByName(project.proxy_name);
+      const apiProxy = await getProxyForUrlAsync('');
 
       if (collectionsForProject.length > 0) {
         const testRun = await TestRun.create({
@@ -64,7 +64,7 @@ async function runScheduledJob(schedule) {
         executeTests(projectId, testRun.name, {
           testRunId: testRun.id,
           collectionIds: collectionsForProject.map(c => c.id),
-          proxy
+          proxy: apiProxy
         }).catch((err) => {
           console.error('[scheduler] Project API run failed:', err);
           TestRun.update({ status: 'failed' }, { where: { id: testRun.id } }).catch(() => {});
@@ -74,10 +74,12 @@ async function runScheduledJob(schedule) {
       const links = await ProjectRecordedTest.findAll({ where: { project_id: projectId }, attributes: ['recorded_test_id'] });
       const recordedIds = links.map(l => l.recorded_test_id);
       if (recordedIds.length > 0) {
+        const baseUrl = playwrightConfig.baseUrl || '';
+        const uiProxy = await getProxyForUrlAsync(baseUrl);
         const run = await PlaywrightRun.create({
           name: `Scheduled: ${project.name}`,
           status: 'running',
-          base_url: playwrightConfig.baseUrl || '',
+          base_url: baseUrl,
           project_id: projectId,
           total_tests: 0,
           passed_tests: 0,
@@ -87,11 +89,11 @@ async function runScheduledJob(schedule) {
         const runOnly = recordedIds.map(id => 'recorded-' + id);
         runPlaywrightTests({
           playwrightRunId: run.id,
-          baseUrl: playwrightConfig.baseUrl || '',
+          baseUrl,
           headless: playwrightConfig.headless,
           timeoutMs: playwrightConfig.timeoutMs,
           runOnly,
-          proxy
+          proxy: uiProxy
         }).catch((err) => {
           console.error('[scheduler] Project UI run failed:', err);
           PlaywrightRun.update({ status: 'failed' }, { where: { id: run.id } }).catch(() => {});

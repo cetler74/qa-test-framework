@@ -249,7 +249,12 @@ async function runPlaywrightTests(options = {}) {
         args: playwrightConfig.launchArgs || []
       };
       if (slowMo > 0) launchOptions.slowMo = slowMo;
-      if (proxyServer) launchOptions.proxy = { server: proxyServer };
+      if (proxyServer) {
+        launchOptions.proxy = {
+          server: proxyServer,
+          ...(proxy.bypass && proxy.bypass.trim() ? { bypass: proxy.bypass.trim() } : {})
+        };
+      }
       const launch = BROWSERS[browserName] || chromium;
       browser = await launch.launch(launchOptions);
       if (runningPlaywrightState[runId]) runningPlaywrightState[runId].browser = browser;
@@ -751,8 +756,16 @@ async function runRecordedSpec(runId, recordedId, baseUrl, startOrder, runOption
     const proxyServer = proxySpec ? (proxySpec.http || proxySpec.https) : null;
     const launchOpts = { headless, args: launchArgs };
     if (slowMo > 0) launchOpts.slowMo = slowMo;
-    if (proxyServer) launchOpts.proxy = { server: proxyServer };
-    const useProxyLine = proxyServer ? `proxy: { server: ${JSON.stringify(proxyServer)} },` : '';
+    if (proxyServer) {
+      launchOpts.proxy = {
+        server: proxyServer,
+        ...(proxySpec.bypass && proxySpec.bypass.trim() ? { bypass: proxySpec.bypass.trim() } : {})
+      };
+    }
+    const proxyObj = launchOpts.proxy ? (proxySpec.bypass && proxySpec.bypass.trim()
+      ? { server: proxyServer, bypass: proxySpec.bypass.trim() }
+      : { server: proxyServer }) : null;
+    const useProxyLine = proxyObj ? `proxy: ${JSON.stringify(proxyObj)},` : '';
     const configContent = `
 module.exports = {
   testDir: ${JSON.stringify(REPORTS_DIR)},
