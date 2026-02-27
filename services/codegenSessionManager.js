@@ -27,6 +27,8 @@ const VNC_PORT_START = parseInt(process.env.CODEGEN_VNC_PORT_START, 10) || 6080;
 const DISPLAY_START = 99; // Xvfb display numbers start at :99
 const X11VNC_PORT_START = 5999; // internal VNC port per display (not exposed)
 const NOVNC_PATH = process.env.NOVNC_PATH || '/usr/share/novnc';
+/** When true, pass --ignore-https-errors to codegen so Chromium accepts self-signed/internal CA certs (e.g. in Docker). */
+const IGNORE_HTTPS_ERRORS = process.env.CODEGEN_IGNORE_HTTPS_ERRORS !== 'false';
 
 // ---------------------------------------------------------------------------
 // Session store  (in-memory; single-process is fine for this use case)
@@ -235,6 +237,9 @@ async function createSession(slug, url, options = {}) {
     const proxy = options.proxy && (options.proxy.http || options.proxy.https) ? options.proxy : null;
     const codegenEnv = { ...process.env, DISPLAY: display };
     const codegenArgs = ['playwright', 'codegen', '--output', outputPath];
+    if (IGNORE_HTTPS_ERRORS) {
+      codegenArgs.push('--ignore-https-errors');
+    }
     if (proxy) {
       const u = proxy.http || proxy.https || '';
       codegenArgs.push('--proxy-server', u);
