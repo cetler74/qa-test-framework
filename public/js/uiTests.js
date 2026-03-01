@@ -952,6 +952,8 @@ async function viewPlaywrightRun(id) {
     }
     document.getElementById('view-ui-report-btn').setAttribute('data-playwright-run-id', id);
     document.getElementById('download-ui-report-btn').setAttribute('data-playwright-run-id', id);
+    const deleteUiRunBtn = document.getElementById('delete-ui-run-btn');
+    if (deleteUiRunBtn) deleteUiRunBtn.setAttribute('data-playwright-run-id', id);
     const viewVideoBtn = document.getElementById('view-ui-video-btn');
     const viewTraceBtn = document.getElementById('view-ui-trace-btn');
     const downloadTraceBtn = document.getElementById('download-ui-trace-btn');
@@ -1034,6 +1036,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('download-ui-trace-btn')?.addEventListener('click', () => {
     const id = document.getElementById('download-ui-trace-btn').getAttribute('data-playwright-run-id');
     if (id) window.location.href = `${API_BASE}/playwright-runs/${id}/trace`;
+  });
+  document.getElementById('delete-ui-run-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('delete-ui-run-btn');
+    const id = btn?.getAttribute('data-playwright-run-id');
+    if (!id) return;
+    if (!confirm('Delete this run and all its artifacts (reports, videos, traces)? This cannot be undone.')) return;
+    try {
+      await apiRequest(`/playwright-runs/${id}`, { method: 'DELETE' });
+      showView('test-runs');
+      if (typeof loadTestRuns === 'function') loadTestRuns();
+      alert('Run deleted successfully.');
+    } catch (err) {
+      alert('Error deleting run: ' + (err.message || err));
+    }
   });
   // Per-result video/trace links (event delegation; use closest so click on icon still works)
   document.getElementById('playwright-results-list')?.addEventListener('click', (e) => {

@@ -25,6 +25,7 @@ const { validateSpecContent } = require('../services/recordedTestValidation');
 const codegenSessionManager = require('../services/codegenSessionManager');
 const { loadProxyConfig, getProxyByName, getProxyForUrl, getProxyForUrlAsync } = require('../lib/proxyConfig');
 const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
+const { deleteTestRunArtifacts, deleteFuzzRunArtifacts, deletePlaywrightRunArtifacts } = require('../services/artifactCleanup');
 
 /** Extract first soap:address location URL from a WSDL file for proxy inference. Returns '' if not found. */
 function getSoapServiceUrlFromWsdl(filePath) {
@@ -294,6 +295,25 @@ router.put('/projects/:id', (req, res, next) => {
 router.delete('/projects/:id', (req, res, next) => {
   loadProjectAndCheckAccess(req, res, async () => {
     try {
+      const projectId = req.project.id;
+      const [testRuns, fuzzRuns, playwrightRuns] = await Promise.all([
+        TestRun.findAll({ where: { project_id: projectId }, attributes: ['id'] }),
+        FuzzRun.findAll({ where: { project_id: projectId }, attributes: ['id', 'report_path'] }),
+        PlaywrightRun.findAll({
+          where: { project_id: projectId },
+          attributes: ['id', 'video_path', 'trace_path'],
+          include: [{ model: PlaywrightResult, as: 'results', attributes: ['video_path', 'trace_path'] }]
+        })
+      ]);
+      testRuns.forEach((r) => deleteTestRunArtifacts(r.id));
+      fuzzRuns.forEach((r) => {
+        deleteFuzzRunArtifacts(r.id, r.report_path);
+      });
+      playwrightRuns.forEach((run) => {
+        const results = (run.results || []).map((r) => ({ video_path: r.video_path, trace_path: r.trace_path }));
+        deletePlaywrightRunArtifacts(run, results);
+      });
+      await FuzzRun.destroy({ where: { project_id: projectId } });
       await req.project.destroy();
       res.json({ message: 'Project deleted successfully' });
     } catch (error) {
@@ -1594,10 +1614,11 @@ router.get('/fuzz-runs/:id/report/download', async (req, res) => {
 // Delete fuzz run (manage project required)
 router.delete('/fuzz-runs/:id', async (req, res) => {
   try {
-    const run = await FuzzRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    const run = await FuzzRun.findByPk(req.params.id, { attributes: ['id', 'project_id', 'report_path'] });
     if (!run) return res.status(404).json({ error: 'Fuzz run not found' });
     const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, run.project_id);
     if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+    deleteFuzzRunArtifacts(run.id, run.report_path);
     await run.destroy();
     res.json({ message: 'Fuzz run deleted successfully' });
   } catch (error) {
@@ -1631,6 +1652,7 @@ router.delete('/test-runs/:id', async (req, res) => {
     if (!testRun) return res.status(404).json({ error: 'Test run not found' });
     const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, testRun.project_id);
     if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+    deleteTestRunArtifacts(testRun.id);
     await testRun.destroy();
     res.json({ message: 'Test run deleted successfully' });
   } catch (error) {
@@ -1981,10 +2003,15 @@ router.get('/playwright-runs/:runId/results/:resultId/trace', async (req, res) =
 // Delete Playwright run
 router.delete('/playwright-runs/:id', async (req, res) => {
   try {
-    const run = await PlaywrightRun.findByPk(req.params.id, { attributes: ['id', 'project_id'] });
+    const run = await PlaywrightRun.findByPk(req.params.id, {
+      attributes: ['id', 'project_id', 'video_path', 'trace_path'],
+      include: [{ model: PlaywrightResult, as: 'results', attributes: ['video_path', 'trace_path'] }]
+    });
     if (!run) return res.status(404).json({ error: 'Playwright run not found' });
     const canManage = run.project_id ? await userCanManageProjectId(req.user.id, req.user.is_admin, run.project_id) : req.user.is_admin;
     if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+    const results = (run.results || []).map((r) => ({ video_path: r.video_path, trace_path: r.trace_path }));
+    deletePlaywrightRunArtifacts(run, results);
     await run.destroy();
     res.json({ message: 'Playwright run deleted successfully' });
   } catch (error) {

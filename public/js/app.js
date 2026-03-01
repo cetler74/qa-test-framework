@@ -4,6 +4,13 @@ const API_BASE = '/api';
 // Auth state
 let currentUser = null;
 
+function authSourceLabel(source) {
+  const s = (source || 'local');
+  if (s === 'ad') return 'Active Directory';
+  if (s === 'pam') return 'OS account';
+  return 'Local';
+}
+
 function showLoginView() {
   document.getElementById('login-view').style.display = 'flex';
   document.getElementById('app-container').style.display = 'none';
@@ -232,6 +239,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       <div class="profile-modal-content">
         <p><strong>Username</strong>: ${(u && u.username) ? String(u.username).replace(/</g, '&lt;') : ''}</p>
         <p><strong>Display name</strong>: ${(u && (u.display_name || u.username)) ? String(u.display_name || u.username).replace(/</g, '&lt;') : ''}</p>
+        <p><strong>Sign-in method</strong>: ${u ? authSourceLabel(u.auth_source) : ''}</p>
         ${changePasswordSection}
       </div>
     `;
@@ -765,7 +773,7 @@ async function loadUserManagement() {
           <div class="list-item user-management-item" data-user-id="${u.id}">
             <div class="list-item-info">
               <h3>${displayName} ${adminBadge} ${suspendedBadge}</h3>
-              <p>${username} · ${source}</p>
+              <p>${username} · ${authSourceLabel(source)}</p>
             </div>
             <div class="list-item-actions">
               ${editBtn}
@@ -879,12 +887,6 @@ async function loadProjects() {
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
               Edit
-            </button>
-            <button class="btn btn-danger" onclick="deleteProject(${project.id})">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px;">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-              Delete
             </button>
           </div>
         </div>
@@ -1018,6 +1020,7 @@ async function loadTestRuns() {
         const cancelBtn = isRunning
           ? `<button type="button" class="btn btn-error btn-sm" onclick="event.stopPropagation(); cancelTestRun('${runType}', ${run.id})" title="Cancel this run">Cancel</button>`
           : '';
+        const deleteBtn = `<button type="button" class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteTestRunFromList('${runType}', ${run.id})" title="Delete this run and all artifacts (reports, videos, traces)">Delete</button>`;
         return `
         <div class="list-item" onclick="${onClick}" style="cursor: pointer;">
           <div class="list-item-info">
@@ -1030,6 +1033,7 @@ async function loadTestRuns() {
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
             ${cancelBtn}
+            ${deleteBtn}
             <span class="status-badge ${run.status || 'pending'}">${run.status === 'partial_failed' ? 'Partial Failed' : (run.status || 'pending')}</span>
           </div>
         </div>
@@ -1167,6 +1171,12 @@ async function viewTestRun(testRunId) {
     downloadBtn.removeAttribute('data-detail-type');
     viewBtn.setAttribute('data-test-run-id', testRunId);
     downloadBtn.setAttribute('data-test-run-id', testRunId);
+    const deleteRunBtn = document.getElementById('delete-test-run-btn');
+    if (deleteRunBtn) {
+      deleteRunBtn.setAttribute('data-detail-type', 'api');
+      deleteRunBtn.setAttribute('data-detail-id', String(testRunId));
+      deleteRunBtn.style.display = isRunning ? 'none' : '';
+    }
     showView('test-run-detail');
 
     if (isRunning) {
@@ -1266,6 +1276,12 @@ async function viewFuzzRun(fuzzRunId) {
     viewBtn.setAttribute('data-detail-type', 'fuzz');
     downloadBtn.setAttribute('data-fuzz-run-id', fuzzRunId);
     downloadBtn.setAttribute('data-detail-type', 'fuzz');
+    const deleteRunBtn = document.getElementById('delete-test-run-btn');
+    if (deleteRunBtn) {
+      deleteRunBtn.setAttribute('data-detail-type', 'fuzz');
+      deleteRunBtn.setAttribute('data-detail-id', String(fuzzRunId));
+      deleteRunBtn.style.display = isRunning ? 'none' : '';
+    }
     showView('test-run-detail');
 
     if (isRunning) {
@@ -1288,6 +1304,23 @@ document.getElementById('back-to-test-runs')?.addEventListener('click', () => {
   loadTestRuns();
 });
 
+document.getElementById('delete-test-run-btn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('delete-test-run-btn');
+  const type = btn?.getAttribute('data-detail-type');
+  const id = btn?.getAttribute('data-detail-id');
+  if (!type || !id) return;
+  if (!confirm('Delete this run and all its artifacts (reports, videos, traces)? This cannot be undone.')) return;
+  try {
+    const path = type === 'fuzz' ? `/fuzz-runs/${id}` : type === 'ui' ? `/playwright-runs/${id}` : `/test-runs/${id}`;
+    await apiRequest(path, { method: 'DELETE' });
+    showView('test-runs');
+    loadTestRuns();
+    alert('Run deleted successfully.');
+  } catch (err) {
+    alert('Error deleting run: ' + (err.message || err));
+  }
+});
+
 // Export functions for onclick handlers
 window.viewProject = (projectId) => {
   // Handled in projectManager.js
@@ -1296,6 +1329,18 @@ window.viewProject = (projectId) => {
 window.viewTestRun = viewTestRun;
 window.viewFuzzRun = viewFuzzRun;
 window.loadTestRuns = loadTestRuns;
+
+window.deleteTestRunFromList = async (runType, id) => {
+  if (!confirm('Delete this run and all its artifacts (reports, videos, traces)? This cannot be undone.')) return;
+  try {
+    const path = runType === 'ui' ? `/playwright-runs/${id}` : runType === 'fuzz' ? `/fuzz-runs/${id}` : `/test-runs/${id}`;
+    await apiRequest(path, { method: 'DELETE' });
+    loadTestRuns();
+    alert('Run deleted successfully.');
+  } catch (err) {
+    alert('Error deleting run: ' + (err.message || err));
+  }
+};
 
 window.cancelApiTestRun = async (testRunId) => {
   await cancelTestRun('api', testRunId);

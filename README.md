@@ -612,6 +612,7 @@ The application uses PostgreSQL with the following main tables:
 - **`COOKIE_SECURE`** - Set to `true` only when the app is served over HTTPS. Leave unset (or false) for Docker or `http://localhost`, otherwise the session cookie is not sent and login appears to fail (401 on `/api/auth/me`).
 - **`ENABLE_LOCAL_AUTH`** - Enable local username/password login (default: true)
 - **`ENABLE_AD_AUTH`** - Enable Active Directory login (default: false). When true, set `AD_URL`, `AD_BASE_DN`, and optionally `AD_BIND_DN`, `AD_BIND_PASSWORD`, `AD_DOMAIN`
+- **`ENABLE_PAM_AUTH`** - Enable PAM (OS user) login (default: false). **Linux only.** When true, set **`PAM_AUTH_URL`** to the URL of the PAM auth proxy. When the app runs in Docker, the proxy must run on the host; use `http://host.docker.internal:9090` on Windows/Mac (Docker Desktop), or on Linux use the host IP (e.g. `http://10.0.0.5:9090`) or add `extra_hosts: - "host.docker.internal:host-gateway"` to the app service and use `http://host.docker.internal:9090`. See [SETUP.md – PAM (OS user) login](SETUP.md#pam-os-user-login) for details.
 - **`ADMIN_USERNAME`** / **`ADMIN_PASSWORD`** - Used by `node scripts/seed-admin.js` to create or update the first admin user (local auth). Must be set in `.env` and the file saved before running the script.
 - `UPLOAD_DIR` - Directory for uploaded files (default: ./uploads)
 - `REPORTS_DIR` - Directory for generated reports (default: ./reports)

@@ -229,6 +229,32 @@ The app requires sign-in. You must create at least one admin user before you can
 
 4. (Optional) To enable **Active Directory** login as well, set `ENABLE_AD_AUTH=true` and configure `AD_URL`, `AD_BASE_DN`, and optionally `AD_BIND_DN`, `AD_BIND_PASSWORD`, `AD_DOMAIN` in `.env`. See `.env.example` for the full list.
 
+#### PAM (OS user) login
+
+**Linux only.** Users can sign in with their **Linux OS account** (PAM). The app verifies credentials by calling a small **PAM auth proxy** over HTTP.
+
+- **Enable:** Set `ENABLE_PAM_AUTH=true` and `PAM_AUTH_URL` in `.env` (see **PAM_AUTH_URL** below).
+- **When the app runs in Docker:** The app runs inside a container and cannot use PAM directly. Run the reference **PAM auth proxy** on the **Linux host** so the container can call it:
+  1. On the host: `cd pam-auth-proxy && npm install && npm start` (see `pam-auth-proxy/README.md`). The proxy listens on port 9090 by default.
+  2. Set `PAM_AUTH_URL` so the app container can reach the proxy (see **PAM_AUTH_URL** below).
+- **Admin PAM users:** After a user signs in with PAM once, they appear in User management. An existing admin can set **Admin** for that user. Alternatively, run `node scripts/seed-pam-admin.js` after setting `PAM_ADMIN_USERNAME=<linux-username>` in `.env`; that user will have admin rights on first PAM login.
+
+**PAM_AUTH_URL — what to use**
+
+`PAM_AUTH_URL` is the URL the app (in Docker or not) uses to call the PAM auth proxy. The proxy runs on the **host**; from inside a container you must use a URL that reaches the host.
+
+- **Windows or Mac (Docker Desktop):** Use `PAM_AUTH_URL=http://host.docker.internal:9090`. Docker Desktop provides the special hostname `host.docker.internal`, which resolves to the host machine from inside any container.
+- **Linux server:** Docker on Linux does **not** provide `host.docker.internal` by default. Use one of:
+  - **Host IP:** Set `PAM_AUTH_URL=http://<host-ip>:9090` where `<host-ip>` is the server’s IP reachable from the container (e.g. the host’s primary interface: `10.0.0.5`, `192.168.1.100`).
+  - **Same hostname as Docker Desktop:** Add `host.docker.internal` to the app service in `docker-compose.yml` so you can keep using `PAM_AUTH_URL=http://host.docker.internal:9090`:
+    ```yaml
+    app:
+      ...
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+    ```
+    Then set `PAM_AUTH_URL=http://host.docker.internal:9090`. (Requires Docker 20.10+.)
+
 ### 4. Start the Server
 
 ```bash

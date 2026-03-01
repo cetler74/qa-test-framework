@@ -26,6 +26,9 @@
                 <button type="button" class="login-strategy-tab" data-strategy="ad" id="login-tab-ad">
                     Active Directory
                 </button>
+                <button type="button" class="login-strategy-tab" data-strategy="pam" id="login-tab-pam">
+                    OS account
+                </button>
             </div>
             <input type="hidden" id="login-strategy" value="local" />
             <form id="login-form">
@@ -694,6 +697,7 @@ test('test', async ({ page }) => {
                             </svg>
                             Download Trace
                         </button>
+                        <button class="btn btn-danger" id="delete-ui-run-btn" title="Delete this run and all artifacts (reports, videos, traces)">Delete run</button>
                     </div>
                     <div id="playwright-results-list"></div>
                 </div>
@@ -726,6 +730,7 @@ test('test', async ({ page }) => {
                             </svg>
                             Download Report
                         </button>
+                        <button class="btn btn-danger" id="delete-test-run-btn" title="Delete this run and all artifacts (reports, videos, traces)" style="display: none;">Delete run</button>
                     </div>
                     <div id="test-results-list"></div>
                 </div>
