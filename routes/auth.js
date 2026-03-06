@@ -6,6 +6,9 @@ const { User } = require('../models');
 
 const ENABLE_LOCAL = process.env.ENABLE_LOCAL_AUTH !== 'false';
 const ENABLE_AD = process.env.ENABLE_AD_AUTH === 'true';
+const ENABLE_PAM = process.env.ENABLE_PAM_AUTH === 'true';
+const PAM_AUTH_URL = (process.env.PAM_AUTH_URL || '').trim();
+
 const AD_URL = process.env.AD_URL || '';
 const AD_BASE_DN = process.env.AD_BASE_DN || '';
 const AD_BIND_DN = process.env.AD_BIND_DN || '';
@@ -14,7 +17,7 @@ const AD_DOMAIN = process.env.AD_DOMAIN || '';
 
 /**
  * POST /api/auth/login
- * Body: { strategy: 'local' | 'ad', username, password }
+ * Body: { strategy: 'local' | 'ad' | 'pam', username, password }
  */
 router.post('/login', async (req, res) => {
   try {
@@ -22,7 +25,14 @@ router.post('/login', async (req, res) => {
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password required' });
     }
-    const user = strategy === 'ad' ? await loginAd(username, password) : await loginLocal(username, password);
+    let user;
+    if (strategy === 'pam') {
+      user = await loginPam(username, password);
+    } else if (strategy === 'ad') {
+      user = await loginAd(username, password);
+    } else {
+      user = await loginLocal(username, password);
+    }
     if (!user) {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
@@ -49,6 +59,80 @@ async function loginLocal(username, password) {
   if (!user || !user.password_hash || user.suspended) return null;
   const match = await bcrypt.compare(password, user.password_hash);
   return match ? user : null;
+}
+
+async function loginPam(username, password) {
+  if (!ENABLE_PAM || !PAM_AUTH_URL) return null;
+  const ok = await verifyPamCredentials(username, password);
+  if (!ok) return null;
+  return findOrCreatePamUser(username, ok.display_name);
+}
+
+function verifyPamCredentials(username, password) {
+  return new Promise((resolve) => {
+    const payload = JSON.stringify({ username, password });
+    let url;
+    try {
+      url = new URL(PAM_AUTH_URL);
+    } catch (_) {
+      return resolve(null);
+    }
+    const isHttps = url.protocol === 'https:';
+    const lib = isHttps ? require('https') : require('http');
+    const path = url.pathname && url.pathname !== '/' ? url.pathname : '/verify';
+    const options = {
+      hostname: url.hostname,
+      port: url.port || (isHttps ? 443 : 80),
+      path,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload, 'utf8')
+      },
+      timeout: 5000
+    };
+    const req = lib.request(options, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        if (res.statusCode !== 200) return resolve(null);
+        try {
+          const data = JSON.parse(body);
+          resolve({ display_name: data.display_name || null });
+        } catch (_) {
+          resolve({ display_name: null });
+        }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(null);
+    });
+    req.setTimeout(5000);
+    req.write(payload);
+    req.end();
+  });
+}
+
+async function findOrCreatePamUser(username, displayName) {
+  let user = await User.findOne({ where: { username } });
+  if (user) {
+    if (user.auth_source !== 'pam') return null;
+    if (user.suspended) return null;
+    await user.update({
+      display_name: displayName || user.display_name,
+      updated_at: new Date()
+    });
+    return user;
+  }
+  user = await User.create({
+    username,
+    display_name: displayName || username,
+    auth_source: 'pam',
+    is_admin: false
+  });
+  return user;
 }
 
 function loginAd(username, password) {

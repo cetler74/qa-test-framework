@@ -14,7 +14,7 @@
     "proxy_DEO": {
       "http": "http://10.103.16.12:3128",
       "https": "http://10.103.16.12:3128",
-      "bypass": "localhost,127.0.0.1"
+      "bypass": "localhost,127.0.0.1,10.0.0.0/8"
     },
     "no-proxy": {
       "http": "",

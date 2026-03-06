@@ -138,9 +138,14 @@ window.editProject = async (projectId) => {
           <select id="edit-project-shared-users" multiple size="4">${sharedOptions}</select>
           <p class="form-hint">Hold Ctrl/Cmd to select multiple users. Only applies when visibility is Shared.</p>
         </div>
-        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
-          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; flex-wrap: wrap; gap: 10px;">
+          <div>
+            <button type="button" class="btn btn-danger" id="edit-project-delete-btn">Delete project</button>
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
         </div>
       </form>
     `;
@@ -180,6 +185,19 @@ window.editProject = async (projectId) => {
         alert('Project updated successfully');
       } catch (error) {
         alert('Error updating project: ' + error.message);
+      }
+    });
+
+    document.getElementById('edit-project-delete-btn').addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) return;
+      try {
+        await apiRequest(`/projects/${projectId}`, { method: 'DELETE' });
+        hideModal();
+        showView('projects');
+        loadProjects();
+        alert('Project deleted successfully');
+      } catch (error) {
+        alert('Error deleting project: ' + error.message);
       }
     });
   } catch (error) {
