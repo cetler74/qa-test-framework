@@ -1,0 +1,320 @@
+{
+  "info": {
+    "name": "Calculator SOAP API (dneonline)",
+    "description": "Complete SOAP Calculator collection with automated tests for Add, Subtract, Multiply, Divide operations from WSDL http://www.dneonline.com/calculator.asmx?wsdl",
+    "_postman_id": "calculator-soap-2026",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://www.dneonline.com/calculator.asmx",
+      "type": "string"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Collection-level: Initialize test data",
+          "const testCases = [{a:15,b:5}, {a:99,b:1}, {a:50,b:25}];",
+          "pm.collectionVariables.set('testIndex', (parseInt(pm.collectionVariables.get('testIndex') || 0) + 1) % testCases.length);",
+          "const currentTest = testCases[parseInt(pm.collectionVariables.get('testIndex'))];",
+          "pm.collectionVariables.set('testA', currentTest.a);",
+          "pm.collectionVariables.set('testB', currentTest.b);",
+          "console.log(`Collection Test #${pm.collectionVariables.get('testIndex')}: ${currentTest.a} ? ${currentTest.b}`);"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Add",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Dynamic inputs from collection variables",
+              "const intA = pm.collectionVariables.get('testA') || Math.floor(Math.random() * 100) + 1;",
+              "const intB = pm.collectionVariables.get('testB') || Math.floor(Math.random() * 100) + 1;",
+              "pm.environment.set('intA', intA);",
+              "pm.environment.set('intB', intB);",
+              "pm.environment.set('expectedAdd', parseInt(intA) + parseInt(intB));",
+              "",
+              "// Update request body",
+              "const body = `<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+              "<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:tem=\"http://tempuri.org/\">",
+              "  <soap:Body>",
+              "    <tem:Add>",
+              "      <tem:intA>${intA}</tem:intA>",
+              "      <tem:intB>${intB}</tem:intB>",
+              "    </tem:Add>",
+              "  </soap:Body>",
+              "</soap:Envelope>`;",
+              "",
+              "pm.request.body.update({",
+              "  mode: 'raw',",
+              "  raw: body,",
+              "  options: { raw: { language: 'xml' }}",
+              "});",
+              "console.log(`Add Pre-request: ${intA} + ${intB}`);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', () => {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Add result correct', () => {",
+              "  const expected = parseInt(pm.environment.get('expectedAdd'));",
+              "  const jsonResp = xml2Json(pm.response.text());",
+              "  const actual = parseInt(jsonResp['soap:Envelope']['soap:Body'][0]['AddResponse'][0]['AddResult'][0]);",
+              "  ",
+              "  pm.expect(actual).to.equal(expected);",
+              "  pm.environment.set('actualAdd', actual);",
+              "  console.log(`Add: ${pm.environment.get('intA')} + ${pm.environment.get('intB')} = ${actual} ✓`);",
+              "});",
+              "",
+              "pm.test('No SOAP fault', () => {",
+              "  pm.expect(pm.response.text()).not.to.include('soap:Fault');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "text/xml; charset=utf-8"
+          },
+          {
+            "key": "SOAPAction",
+            "value": "http://tempuri.org/Add"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:tem=\"http://tempuri.org/\">\n  <soap:Body>\n    <tem:Add>\n      <tem:intA>{{intA}}</tem:intA>\n      <tem:intB>{{intB}}</tem:intB>\n    </tem:Add>\n  </soap:Body>\n</soap:Envelope>",
+          "options": { "raw": { "language": "xml" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}",
+          "host": ["{{baseUrl}}"],
+          "path": []
+        }
+      }
+    },
+    {
+      "name": "Subtract",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const intA = pm.environment.get('intA') || pm.collectionVariables.get('testA') || 15;",
+              "const intB = pm.environment.get('intB') || pm.collectionVariables.get('testB') || 5;",
+              "pm.environment.set('expectedSubtract', parseInt(intA) - parseInt(intB));",
+              "",
+              "const body = `<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+              "<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:tem=\"http://tempuri.org/\">",
+              "  <soap:Body>",
+              "    <tem:Subtract>",
+              "      <tem:intA>${intA}</tem:intA>",
+              "      <tem:intB>${intB}</tem:intB>",
+              "    </tem:Subtract>",
+              "  </soap:Body>",
+              "</soap:Envelope>`;",
+              "",
+              "pm.request.body.update({",
+              "  mode: 'raw',",
+              "  raw: body,",
+              "  options: { raw: { language: 'xml' }}",
+              "});"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', () => { pm.response.to.have.status(200); });",
+              "",
+              "pm.test('Subtract result correct', () => {",
+              "  const expected = parseInt(pm.environment.get('expectedSubtract'));",
+              "  const jsonResp = xml2Json(pm.response.text());",
+              "  const actual = parseInt(jsonResp['soap:Envelope']['soap:Body'][0]['SubtractResponse'][0]['SubtractResult'][0]);",
+              "  ",
+              "  pm.expect(actual).to.equal(expected);",
+              "  console.log(`Subtract: ${pm.environment.get('intA')} - ${pm.environment.get('intB')} = ${actual} ✓`);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "text/xml; charset=utf-8"
+          },
+          {
+            "key": "SOAPAction",
+            "value": "http://tempuri.org/Subtract"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:tem=\"http://tempuri.org/\">\n  <soap:Body>\n    <tem:Subtract>\n      <tem:intA>{{intA}}</tem:intA>\n      <tem:intB>{{intB}}</tem:intB>\n    </tem:Subtract>\n  </soap:Body>\n</soap:Envelope>",
+          "options": { "raw": { "language": "xml" } }
+        },
+        "url": { "raw": "{{baseUrl}}", "host": ["{{baseUrl}}"] }
+      }
+    },
+    {
+      "name": "Multiply",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const intA = pm.environment.get('intA') || 25;",
+              "const intB = pm.environment.get('intB') || 4;",
+              "pm.environment.set('expectedMultiply', parseInt(intA) * parseInt(intB));",
+              "",
+              "const body = `<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+              "<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:tem=\"http://tempuri.org/\">",
+              "  <soap:Body>",
+              "    <tem:Multiply>",
+              "      <tem:intA>${intA}</tem:intA>",
+              "      <tem:intB>${intB}</tem:intB>",
+              "    </tem:Multiply>",
+              "  </soap:Body>",
+              "</soap:Envelope>`;",
+              "",
+              "pm.request.body.update({ mode: 'raw', raw: body, options: { raw: { language: 'xml' }}});"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', () => { pm.response.to.have.status(200); });",
+              "",
+              "pm.test('Multiply result correct', () => {",
+              "  const expected = parseInt(pm.environment.get('expectedMultiply'));",
+              "  const jsonResp = xml2Json(pm.response.text());",
+              "  const actual = parseInt(jsonResp['soap:Envelope']['soap:Body'][0]['MultiplyResponse'][0]['MultiplyResult'][0]);",
+              "  pm.expect(actual).to.equal(expected);",
+              "  console.log(`Multiply: ${pm.environment.get('intA')} × ${pm.environment.get('intB')} = ${actual} ✓`);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "text/xml; charset=utf-8"
+          },
+          {
+            "key": "SOAPAction",
+            "value": "http://tempuri.org/Multiply"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:tem=\"http://tempuri.org/\">\n  <soap:Body>\n    <tem:Multiply>\n      <tem:intA>{{intA}}</tem:intA>\n      <tem:intB>{{intB}}</tem:intB>\n    </tem:Multiply>\n  </soap:Body>\n</soap:Envelope>",
+          "options": { "raw": { "language": "xml" } }
+        },
+        "url": { "raw": "{{baseUrl}}", "host": ["{{baseUrl}}"] }
+      }
+    },
+    {
+      "name": "Divide",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const intA = pm.environment.get('intA') || 100;",
+              "const intB = pm.environment.get('intB') || 4;",
+              "pm.environment.set('expectedDivide', intB !== 0 ? Math.floor(parseInt(intA) / parseInt(intB)) : 0);",
+              "",
+              "const body = `<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+              "<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:tem=\"http://tempuri.org/\">",
+              "  <soap:Body>",
+              "    <tem:Divide>",
+              "      <tem:intA>${intA}</tem:intA>",
+              "      <tem:intB>${intB}</tem:intB>",
+              "    </tem:Divide>",
+              "  </soap:Body>",
+              "</soap:Envelope>`;",
+              "",
+              "pm.request.body.update({ mode: 'raw', raw: body, options: { raw: { language: 'xml' }}});"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status 200', () => { pm.response.to.have.status(200); });",
+              "",
+              "pm.test('Divide result correct (integer division)', () => {",
+              "  const intB = parseInt(pm.environment.get('intB')) || 1;",
+              "  const expected = intB !== 0 ? Math.floor(parseInt(pm.environment.get('intA')) / intB) : 0;",
+              "  ",
+              "  const jsonResp = xml2Json(pm.response.text());",
+              "  const actual = parseInt(jsonResp['soap:Envelope']['soap:Body'][0]['DivideResponse'][0]['DivideResult'][0]);",
+              "  ",
+              "  pm.expect(actual).to.equal(expected);",
+              "  console.log(`Divide: ${pm.environment.get('intA')} ÷ ${intB} = ${actual} ✓`);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "text/xml; charset=utf-8"
+          },
+          {
+            "key": "SOAPAction",
+            "value": "http://tempuri.org/Divide"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:tem=\"http://tempuri.org/\">\n  <soap:Body>\n    <tem:Divide>\n      <tem:intA>{{intA}}</tem:intA>\n      <tem:intB>{{intB}}</tem:intB>\n    </tem:Divide>\n  </soap:Body>\n</soap:Envelope>",
+          "options": { "raw": { "language": "xml" } }
+        },
+        "url": { "raw": "{{baseUrl}}", "host": ["{{baseUrl}}"] }
+      }
+    }
+  ]
+}
