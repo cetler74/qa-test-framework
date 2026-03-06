@@ -894,32 +894,30 @@ router.get('/collections', async (req, res) => {
   }
 });
 
-// Get collections for a project (access required)
+// Get collections for a project (access required) — only collections belonging to this project
 router.get('/projects/:projectId/collections', (req, res, next) => {
   loadProjectAndCheckAccess(req, res, async () => {
     try {
-      const project = await Project.findByPk(req.project.id, {
+      const projectId = parseInt(req.params.projectId, 10);
+      const project = await Project.findByPk(projectId, {
         include: [{
           model: ApiSpec,
           as: 'apiSpecs',
           include: [{ model: Collection, as: 'collections' }]
         }]
       });
+      if (!project) return res.status(404).json({ error: 'Project not found' });
       const collections = [];
-    // Get collections from API specs in the project
-    project.apiSpecs.forEach(apiSpec => {
-      if (apiSpec.collections) {
-        collections.push(...apiSpec.collections);
-      }
-    });
-
-    // Also get standalone collections (collections without api_spec_id)
-    // These are Postman collections uploaded directly
-    const standaloneCollections = await Collection.findAll({
-      where: {
-        api_spec_id: null
-      }
-    });
+      // Collections from API specs that are in this project
+      (project.apiSpecs || []).forEach(apiSpec => {
+        if (apiSpec.collections) {
+          collections.push(...apiSpec.collections);
+        }
+      });
+      // Standalone collections that belong to this project only (project_id = projectId)
+      const standaloneCollections = await Collection.findAll({
+        where: { project_id: projectId }
+      });
       collections.push(...standaloneCollections);
       res.json(collections);
     } catch (error) {
@@ -928,7 +926,7 @@ router.get('/projects/:projectId/collections', (req, res, next) => {
   }, req.params.projectId, false);
 });
 
-// Upload Postman collection directly
+// Upload Postman collection directly (optional projectId in body for project-specific collection)
 router.post('/collections/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -946,11 +944,19 @@ router.post('/collections/upload', upload.single('file'), async (req, res) => {
     
     console.log(`Collection validated: ${collection.info?.name || 'Unknown'}, items: ${collection.item?.length || 0}`);
 
-    // Create collection record
+    const projectId = req.body.projectId ? parseInt(req.body.projectId, 10) : null;
+
+    if (projectId && req.user) {
+      const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, projectId);
+      if (!canAccess) return res.status(403).json({ error: 'Forbidden: no access to this project' });
+    }
+
+    // Create collection record (project_id makes it specific to one project when provided)
     const collectionRecord = await Collection.create({
       name: collection.info?.name || 'Imported Collection',
       version: collection.info?.version || '1.0.0',
-      collection_json: collection
+      collection_json: collection,
+      project_id: projectId || null
     });
 
     console.log(`Collection created with ID: ${collectionRecord.id}`);

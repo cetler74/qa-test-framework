@@ -613,7 +613,10 @@ function showUploadPostmanCollectionModal() {
     
     const formData = new FormData();
     formData.append('file', fileInput.files[0]);
-    
+    if (projectId && document.getElementById('add-to-project')?.checked) {
+      formData.append('projectId', projectId);
+    }
+
     try {
       const response = await fetch('/api/collections/upload', {
         method: 'POST',
@@ -633,23 +636,14 @@ function showUploadPostmanCollectionModal() {
       }
       
       const collection = await response.json();
-      
-      // If project ID is provided and checkbox is checked, add to project
+
       if (projectId && document.getElementById('add-to-project')?.checked) {
-        try {
-          // First, create a dummy API spec for this collection (or we can modify backend to allow collections without API specs)
-          // For now, we'll just refresh the project view
-          hideModal();
-          viewProject(projectId);
-          alert('Postman collection uploaded successfully!');
-        } catch (addError) {
-          hideModal();
-          alert('Collection uploaded, but error adding to project: ' + addError.message);
-        }
+        hideModal();
+        viewProject(projectId);
+        alert('Postman collection uploaded and added to this project.');
       } else {
         hideModal();
         alert('Postman collection uploaded successfully!');
-        // Refresh collections if on collections view
         if (typeof loadCollections === 'function') {
           loadCollections();
         }

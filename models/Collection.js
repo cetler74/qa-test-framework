@@ -27,6 +27,14 @@ const Collection = sequelize.define('Collection', {
       key: 'id'
     }
   },
+  project_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'projects',
+      key: 'id'
+    }
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

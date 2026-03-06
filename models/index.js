@@ -58,6 +58,16 @@ Collection.belongsTo(ApiSpec, {
   as: 'apiSpec'
 });
 
+Project.hasMany(Collection, {
+  foreignKey: 'project_id',
+  as: 'standaloneCollections'
+});
+
+Collection.belongsTo(Project, {
+  foreignKey: 'project_id',
+  as: 'project'
+});
+
 Project.hasMany(TestRun, {
   foreignKey: 'project_id',
   as: 'testRuns'
