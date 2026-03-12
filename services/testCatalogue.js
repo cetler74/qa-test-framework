@@ -132,30 +132,8 @@ async function discoverSoapTestsForProject(projectId) {
 async function discoverUiTestsForProject(projectId) {
   const results = [];
 
-  // Only attach built-in UI tests for projects that actually
-  // use UI tests (have recorded tests or prior UI runs).
-  const projectIdInt = parseInt(projectId, 10);
-  const [uiRunCount, recordedCount] = await Promise.all([
-    PlaywrightRun.count({ where: { project_id: projectIdInt } }),
-    ProjectRecordedTest.count({ where: { project_id: projectIdInt } })
-  ]);
-
-  const hasUiForProject = (uiRunCount > 0) || (recordedCount > 0);
-
-  if (hasUiForProject) {
-    const builtIn = getPlaywrightTestList();
-    builtIn.forEach((t) => {
-      results.push({
-        test_type: 'ui_builtin',
-        stable_key: `ui_builtin:${t.id}`,
-        name: t.name || t.id,
-        endpoint: null,
-        method: 'UI',
-        source_id: null,
-        source_kind: 'ui_builtin'
-      });
-    });
-  }
+  // NOTE: We no longer include built-in UI tests in the catalogue at all.
+  // Only recorded UI tests that are explicitly linked to the project are tracked.
 
   // Recorded tests linked to this project
   const recorded = await getPlaywrightTestListWithRecorded(projectId);

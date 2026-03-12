@@ -1124,11 +1124,9 @@ async function updateProjectTestStatsForUiResult(run, result) {
       testType = 'ui_recorded';
       sourceKind = 'ui_recorded';
     } else {
-      // Built-in UI test: use name as identifier to keep it stable
-      const id = testName || `ui-${result.id}`;
-      stableKey = `ui_builtin:${id}`;
-      testType = 'ui_builtin';
-      sourceKind = 'ui_builtin';
+      // Built-in UI test: we do not include these in the project_tests catalogue anymore
+      // to avoid polluting coverage with global UI checks.
+      return;
     }
 
     const name = testName || 'UI Test';
