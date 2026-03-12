@@ -607,6 +607,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // Global Test Catalogue filters
+  const testsCatApply = document.getElementById('tests-catalogue-apply-btn');
+  const testsCatClear = document.getElementById('tests-catalogue-clear-btn');
+  if (testsCatApply) {
+    testsCatApply.addEventListener('click', () => loadGlobalTestsCatalogue());
+  }
+  if (testsCatClear) {
+    testsCatClear.addEventListener('click', () => {
+      const proj = document.getElementById('tests-catalogue-project-filter');
+      const type = document.getElementById('tests-catalogue-type-filter');
+      const status = document.getElementById('tests-catalogue-status-filter');
+      if (proj) proj.value = '';
+      if (type) type.value = '';
+      if (status) status.value = '';
+      loadGlobalTestsCatalogue();
+    });
+  }
+
   // Dashboard: click or Enter/Space on a next-scheduled item opens edit schedule modal
   document.getElementById('app-container')?.addEventListener('click', (e) => {
     const item = e.target.closest('#next-scheduled-list .next-scheduled-item');
@@ -653,6 +671,140 @@ async function loadViewData(view) {
     case 'user-management':
       loadUserManagement();
       break;
+    case 'tests-catalogue':
+      loadGlobalTestsCatalogue();
+      break;
+  }
+}
+
+// Global Test Catalogue / Coverage view
+async function loadGlobalTestsCatalogue() {
+  const projectSelect = document.getElementById('tests-catalogue-project-filter');
+  const typeSelect = document.getElementById('tests-catalogue-type-filter');
+  const statusSelect = document.getElementById('tests-catalogue-status-filter');
+  const metricsEl = document.getElementById('tests-catalogue-metrics');
+  const tableEl = document.getElementById('tests-catalogue-table');
+  if (!projectSelect || !typeSelect || !statusSelect || !metricsEl || !tableEl) return;
+
+  try {
+    // Populate projects dropdown
+    const projects = await apiRequest('/projects');
+    const currentProject = projectSelect.value || '';
+    projectSelect.innerHTML = '<option value=\"\">All Projects</option>' +
+      (projects || []).map(p => `<option value=\"${p.id}\" ${String(p.id) === String(currentProject) ? 'selected' : ''}>${(p.name || '').replace(/</g, '&lt;')}</option>`).join('');
+
+    const params = new URLSearchParams();
+    const projectId = projectSelect.value;
+    const type = typeSelect.value;
+    const status = statusSelect.value;
+    if (projectId) params.append('projectId', projectId);
+    if (type) params.append('test_type', type);
+    if (status) params.append('last_status', status);
+
+    tableEl.innerHTML = '<p class=\"muted\">Loading tests…</p>';
+    metricsEl.innerHTML = '';
+
+    const tests = await apiRequest(`/tests/catalogue?${params.toString()}`);
+    if (!tests || tests.length === 0) {
+      tableEl.innerHTML = `
+        <div class=\"empty-state\">
+          <p>No tests match the current filters.</p>
+        </div>
+      `;
+      metricsEl.innerHTML = '';
+      return;
+    }
+
+    // Compute simple coverage metrics
+    const total = tests.length;
+    const passed = tests.filter(t => t.stats && t.stats.last_status === 'passed').length;
+    const failed = tests.filter(t => t.stats && (t.stats.last_status === 'failed' || t.stats.last_status === 'partial_failed')).length;
+    const neverRun = tests.filter(t => !t.stats || t.stats.last_status === 'not_run').length;
+    const coveragePct = total > 0 ? Math.round(((total - neverRun) / total) * 100) : 0;
+
+    metricsEl.innerHTML = `
+      <div class=\"dashboard-stats tests-catalogue-stats\">
+        <div class=\"stat-card\">
+          <div class=\"stat-value\">${total}</div>
+          <div class=\"stat-label\">Total tests</div>
+        </div>
+        <div class=\"stat-card\">
+          <div class=\"stat-value\" style=\"color:#16a34a;\">${passed}</div>
+          <div class=\"stat-label\">Last status: passed</div>
+        </div>
+        <div class=\"stat-card\">
+          <div class=\"stat-value\" style=\"color:#dc2626;\">${failed}</div>
+          <div class=\"stat-label\">Last status: failed / partial</div>
+        </div>
+        <div class=\"stat-card\">
+          <div class=\"stat-value\">${coveragePct}%</div>
+          <div class=\"stat-label\">Ever run (coverage)</div>
+        </div>
+      </div>
+    `;
+
+    const rows = tests.map(t => {
+      const stats = t.stats || {};
+      const lastStatus = stats.last_status || 'not_run';
+      const lastRunAt = stats.last_run_at ? formatDateTime(stats.last_run_at) : '—';
+      const totalRuns = stats.total_runs != null ? stats.total_runs : 0;
+      const typeLabel =
+        t.test_type === 'soap' ? 'SOAP' :
+        t.test_type === 'ui_builtin' ? 'UI (built-in)' :
+        t.test_type === 'ui_recorded' ? 'UI (recorded)' :
+        'API';
+      const projectName = t.project && t.project.name ? t.project.name : (t.project_id || '');
+      const statusClass =
+        lastStatus === 'passed'
+          ? 'passed'
+          : lastStatus === 'failed'
+            ? 'failed'
+            : lastStatus === 'partial_failed'
+              ? 'partial_failed'
+              : lastStatus === 'running'
+                ? 'running'
+                : lastStatus === 'cancelled'
+                  ? 'cancelled'
+                  : 'pending';
+      return `
+        <tr>
+          <td>${escapeHtml(projectName)}</td>
+          <td>${typeLabel}</td>
+          <td>${escapeHtml(t.name || '')}</td>
+          <td>${escapeHtml(t.method || '')}</td>
+          <td>${escapeHtml(t.endpoint || '')}</td>
+          <td><span class=\"status-badge ${statusClass}\">${lastStatus}</span></td>
+          <td>${lastRunAt}</td>
+          <td>${totalRuns}</td>
+        </tr>
+      `;
+    }).join('');
+
+    tableEl.innerHTML = `
+      <div class=\"table-responsive\">
+        <table class=\"table\">
+          <thead>
+            <tr>
+              <th>Project</th>
+              <th>Type</th>
+              <th>Name</th>
+              <th>Method</th>
+              <th>Endpoint / Target</th>
+              <th>Last status</th>
+              <th>Last run</th>
+              <th>Total runs</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    console.error('Error loading global test catalogue:', err);
+    metricsEl.innerHTML = '';
+    tableEl.innerHTML = '<div class=\"empty-state\"><p>Failed to load test catalogue.</p></div>';
   }
 }
 

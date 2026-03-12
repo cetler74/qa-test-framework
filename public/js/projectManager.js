@@ -1,5 +1,8 @@
 // Project management functions
 
+// Global flag for Tests & Coverage edit mode
+window.projectTestsEditMode = false;
+
 document.addEventListener('DOMContentLoaded', () => {
   // Create project button
   document.getElementById('create-project-btn')?.addEventListener('click', showCreateProjectModal);
@@ -55,6 +58,87 @@ document.addEventListener('DOMContentLoaded', () => {
     const projectId = document.getElementById('create-schedule-btn')?.getAttribute('data-project-id');
     if (!projectId) return;
     showCreateScheduleModal(Number(projectId));
+  });
+
+  // Toggle Tests & Coverage edit mode
+  const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
+  editModeBtn?.addEventListener('click', () => {
+    window.projectTestsEditMode = !window.projectTestsEditMode;
+    const projectId = editModeBtn.getAttribute('data-project-id');
+
+    // Update button label/state
+    editModeBtn.textContent = window.projectTestsEditMode ? 'Done editing' : 'Edit mode';
+
+    // Show/hide management buttons based on edit mode
+    const syncBtn = document.getElementById('sync-project-tests-btn');
+    const clearBtn = document.getElementById('clear-project-tests-btn');
+    const displayStyle = window.projectTestsEditMode ? 'inline-flex' : 'none';
+    if (syncBtn) syncBtn.style.display = displayStyle;
+    if (clearBtn) clearBtn.style.display = displayStyle;
+
+    if (projectId) {
+      loadProjectTests(Number(projectId));
+    }
+  });
+
+  // Sync project tests catalogue
+  document.getElementById('sync-project-tests-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('sync-project-tests-btn');
+    const projectId = btn?.getAttribute('data-project-id');
+    if (!projectId) {
+      alert('Please select a project first.');
+      return;
+    }
+    btn.disabled = true;
+    try {
+      await apiRequest(`/projects/${projectId}/tests/catalogue/sync`, { method: 'POST' });
+      await loadProjectTests(Number(projectId));
+      if (typeof window.loadProjectCoverageSummary === 'function') {
+        window.loadProjectCoverageSummary(Number(projectId));
+      }
+    } catch (err) {
+      alert('Error syncing tests: ' + (err.message || err));
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Clear project tests catalogue
+  document.getElementById('clear-project-tests-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('clear-project-tests-btn');
+    const projectId = btn?.getAttribute('data-project-id');
+    if (!projectId) {
+      alert('Please select a project first.');
+      return;
+    }
+    if (!confirm('Clear all tests from the Tests & Coverage list for this project? This only affects the catalogue, not historical runs.')) {
+      return;
+    }
+    btn.disabled = true;
+    try {
+      await apiRequest(`/projects/${projectId}/tests/catalogue`, { method: 'DELETE' });
+      await loadProjectTests(Number(projectId));
+      if (typeof window.loadProjectCoverageSummary === 'function') {
+        window.loadProjectCoverageSummary(Number(projectId));
+      }
+    } catch (err) {
+      alert('Error clearing tests: ' + (err.message || err));
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Export project tests & coverage as CSV
+  document.getElementById('export-project-tests-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('export-project-tests-btn');
+    const projectId = btn?.getAttribute('data-project-id');
+    if (!projectId) {
+      alert('Please select a project first.');
+      return;
+    }
+    // Simple navigation to download CSV (browser handles file download)
+    const url = `/api/projects/${projectId}/tests/catalogue/export`;
+    window.location.href = url;
   });
 });
 
@@ -226,6 +310,11 @@ window.viewProject = async (projectId) => {
       proxyEl.textContent = 'Proxy: Inferred from URL per run';
     }
 
+    // Load project-level coverage summary and chart
+    if (typeof window.loadProjectCoverageSummary === 'function') {
+      window.loadProjectCoverageSummary(projectId);
+    }
+
     const editBtn = document.getElementById('project-detail-edit-btn');
     if (editBtn) {
       editBtn.style.display = 'none';
@@ -253,6 +342,20 @@ window.viewProject = async (projectId) => {
     document.getElementById('run-soap-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('create-flow-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('create-schedule-btn')?.setAttribute('data-project-id', projectId);
+    document.getElementById('sync-project-tests-btn')?.setAttribute('data-project-id', projectId);
+    document.getElementById('clear-project-tests-btn')?.setAttribute('data-project-id', projectId);
+    document.getElementById('export-project-tests-btn')?.setAttribute('data-project-id', projectId);
+    const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
+    if (editModeBtn) {
+      editModeBtn.setAttribute('data-project-id', projectId);
+      // Ensure buttons reflect current edit mode on view load
+      const syncBtn = document.getElementById('sync-project-tests-btn');
+      const clearBtn = document.getElementById('clear-project-tests-btn');
+      const displayStyle = window.projectTestsEditMode ? 'inline-flex' : 'none';
+      if (syncBtn) syncBtn.style.display = displayStyle;
+      if (clearBtn) clearBtn.style.display = displayStyle;
+      editModeBtn.textContent = window.projectTestsEditMode ? 'Done editing' : 'Edit mode';
+    }
 
     // Load flows for project
     const flowsList = document.getElementById('project-flows-list');
@@ -373,11 +476,382 @@ window.viewProject = async (projectId) => {
         `;
       }).join('');
     }
-    
+
+    // Load tests & coverage for project
+    await loadProjectTests(projectId);
+
     showView('project-detail');
   } catch (error) {
     console.error('Error loading project:', error);
     alert('Error loading project: ' + error.message);
+  }
+};
+
+// Project-level tests & coverage summary (dashboard strip + chart)
+window.loadProjectCoverageSummary = async (projectId) => {
+  const statsEl = document.getElementById('project-coverage-stats');
+  const canvas = document.getElementById('project-coverage-chart-canvas');
+  if (!statsEl || !canvas) return;
+
+  // Clear existing UI
+  statsEl.innerHTML = '';
+  const ctx = canvas.getContext ? canvas.getContext('2d') : null;
+  if (ctx && window._projectCoverageChart) {
+    try {
+      window._projectCoverageChart.destroy();
+    } catch (e) {
+      // ignore
+    }
+    window._projectCoverageChart = null;
+  }
+
+  let data;
+  try {
+    data = await apiRequest(`/projects/${projectId}/tests/coverage-summary`);
+  } catch (error) {
+    statsEl.innerHTML = '<div class="empty-state"><p>Failed to load coverage summary.</p></div>';
+    return;
+  }
+
+  if (!data || !data.summary) {
+    statsEl.innerHTML = '<div class="empty-state"><p>No tests catalogue data yet. Sync from specs to get started.</p></div>';
+    return;
+  }
+
+  const summary = data.summary;
+  const last = summary.last_status_counts || {};
+  const totalTests = summary.total_tests || 0;
+  const testsEverRun = summary.tests_ever_run || 0;
+  const passed = last.passed || 0;
+  const failed = last.failed || 0;
+  const partial = last.partial_failed || 0;
+  const notRun = last.not_run || 0;
+  const coveredNow = passed + failed + partial;
+  const coveragePct = totalTests > 0 ? Math.round((coveredNow / totalTests) * 100) : 0;
+
+  statsEl.innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">Total tests in catalogue</div>
+      <div class="stat-value">${totalTests}</div>
+      <div class="stat-subtext">${summary.active_tests || 0} active</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Tests ever run</div>
+      <div class="stat-value">${testsEverRun}</div>
+      <div class="stat-subtext">${coveragePct}% coverage by last status</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Last status: passed</div>
+      <div class="stat-value stat-value-success">${passed}</div>
+      <div class="stat-subtext">${failed} failed, ${partial} partial</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Not yet run</div>
+      <div class="stat-value">${notRun}</div>
+      <div class="stat-subtext">Based on last execution status</div>
+    </div>
+  `;
+
+  if (!Array.isArray(data.timeseries) || !data.timeseries.length || !ctx || typeof Chart === 'undefined') {
+    return;
+  }
+
+  const labels = data.timeseries.map(p => p.day);
+  const totalValues = data.timeseries.map(p => p.total_tests || 0);
+  const passedValues = data.timeseries.map(p => p.passed_tests || 0);
+  const failedValues = data.timeseries.map(p => p.failed_tests || 0);
+
+  window._projectCoverageChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Passed',
+          data: passedValues,
+          backgroundColor: 'rgba(34, 197, 94, 0.7)',
+          borderColor: 'rgba(22, 163, 74, 1)',
+          borderWidth: 1,
+          borderRadius: 4,
+          stack: 'tests'
+        },
+        {
+          label: 'Failed',
+          data: failedValues,
+          backgroundColor: 'rgba(239, 68, 68, 0.8)',
+          borderColor: 'rgba(220, 38, 38, 1)',
+          borderWidth: 1,
+          borderRadius: 4,
+          stack: 'tests'
+        },
+        {
+          label: 'Other',
+          data: totalValues.map((v, i) => Math.max(v - (passedValues[i] + failedValues[i]), 0)),
+          backgroundColor: 'rgba(148, 163, 184, 0.8)',
+          borderColor: 'rgba(148, 163, 184, 1)',
+          borderWidth: 1,
+          borderRadius: 4,
+          stack: 'tests'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          stacked: true,
+          title: {
+            display: false
+          },
+          grid: {
+            display: false
+          }
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          title: {
+            display: false
+          },
+          ticks: {
+            precision: 0
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom'
+        },
+        tooltip: {
+          callbacks: {
+            label: function (context) {
+              return `${context.dataset.label}: ${context.parsed.y} tests`;
+            }
+          }
+        }
+      }
+    }
+  });
+};
+
+// Load project tests & coverage table
+async function loadProjectTests(projectId) {
+  const tableEl = document.getElementById('project-tests-table');
+  if (!tableEl) return;
+  try {
+    tableEl.innerHTML = '<p class="muted">Loading tests…</p>';
+    const tests = await apiRequest(`/projects/${projectId}/tests/catalogue`);
+    const inEditMode = !!window.projectTestsEditMode;
+
+    if (!tests || tests.length === 0) {
+      tableEl.innerHTML = `
+        <div class="empty-state">
+          <p>No tests discovered yet. Click <strong>Sync from specs</strong> to load tests from API specs, SOAP operations, and UI tests.</p>
+        </div>
+      `;
+      return;
+    }
+    const rows = tests.map(t => {
+      const stats = t.stats || {};
+      const lastStatus = stats.last_status || 'not_run';
+      const lastRunAt = stats.last_run_at ? formatDateTime(stats.last_run_at) : '—';
+      const totalRuns = stats.total_runs != null ? stats.total_runs : 0;
+      const typeLabel =
+        t.test_type === 'soap' ? 'SOAP' :
+        t.test_type === 'ui_builtin' ? 'UI (built-in)' :
+        t.test_type === 'ui_recorded' ? 'UI (recorded)' :
+        'API';
+      const activeLabel = t.is_active ? 'Yes' : 'No';
+      const statusClass =
+        lastStatus === 'passed'
+          ? 'passed'
+          : lastStatus === 'failed'
+            ? 'failed'
+            : lastStatus === 'partial_failed'
+              ? 'partial_failed'
+              : lastStatus === 'running'
+                ? 'running'
+                : lastStatus === 'cancelled'
+                  ? 'cancelled'
+                  : 'pending';
+      const activeCell = inEditMode
+        ? `<button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              onclick="window.toggleProjectTestActive(${projectId}, ${t.id}, ${t.is_active ? 'true' : 'false'})"
+           >${activeLabel}</button>`
+        : activeLabel;
+      const actionsCell = inEditMode
+        ? `<button type="button" class="btn btn-secondary btn-sm" onclick="window.editProjectTest(${projectId}, ${t.id})">Edit</button>
+           <button type="button" class="btn btn-secondary btn-sm" onclick="window.viewProjectTestNotes(${projectId}, ${t.id})">Notes</button>`
+        : '';
+      return `
+        <tr data-project-test-id="${t.id}">
+          <td>${escapeHtml(t.name || '')}</td>
+          <td>${typeLabel}</td>
+          <td>${escapeHtml(t.method || '')}</td>
+          <td><span class="status-badge ${statusClass}">${lastStatus}</span></td>
+          <td>${lastRunAt}</td>
+          <td>${totalRuns}</td>
+          <td>${activeCell}</td>
+          <td>${actionsCell}</td>
+        </tr>
+      `;
+    }).join('');
+    tableEl.innerHTML = `
+      <div class="table-responsive">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Method</th>
+              <th>Last status</th>
+              <th>Last run</th>
+              <th>Total runs</th>
+              <th>Active</th>
+              ${inEditMode ? '<th>Actions</th>' : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    console.error('Error loading project tests:', err);
+    tableEl.innerHTML = '<div class="empty-state"><p>Failed to load tests.</p></div>';
+  }
+}
+
+// Toggle active flag directly from the table
+window.toggleProjectTestActive = async (projectId, projectTestId, isActive) => {
+  const newValue = !isActive;
+  try {
+    await apiRequest(`/projects/${projectId}/tests/${projectTestId}`, {
+      method: 'PATCH',
+      body: { is_active: newValue }
+    });
+    await loadProjectTests(projectId);
+    if (typeof window.loadProjectCoverageSummary === 'function') {
+      window.loadProjectCoverageSummary(projectId);
+    }
+  } catch (err) {
+    alert('Error updating test active flag: ' + (err.message || err));
+  }
+};
+
+// Edit a single project test (name, description, active)
+window.editProjectTest = async (projectId, projectTestId) => {
+  try {
+    const tests = await apiRequest(`/projects/${projectId}/tests/catalogue`);
+    const test = (tests || []).find(t => t.id === projectTestId);
+    if (!test) {
+      alert('Test not found.');
+      return;
+    }
+    const content = `
+      <form id="edit-project-test-form">
+        <div class="form-group">
+          <label for="edit-project-test-name">Name</label>
+          <input type="text" id="edit-project-test-name" value="${escapeHtml(test.name || '')}">
+        </div>
+        <div class="form-group">
+          <label for="edit-project-test-description">Description</label>
+          <textarea id="edit-project-test-description" placeholder="Optional">${escapeHtml(test.description || '')}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="edit-project-test-active" ${test.is_active ? 'checked' : ''}>
+            Active in coverage
+          </label>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    `;
+    showModal('Edit test', content);
+    document.getElementById('edit-project-test-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('edit-project-test-name').value.trim();
+      const description = document.getElementById('edit-project-test-description').value;
+      const is_active = document.getElementById('edit-project-test-active').checked;
+      try {
+        await apiRequest(`/projects/${projectId}/tests/${projectTestId}`, {
+          method: 'PATCH',
+          body: { name, description, is_active }
+        });
+        hideModal();
+        await loadProjectTests(projectId);
+        if (typeof window.loadProjectCoverageSummary === 'function') {
+          window.loadProjectCoverageSummary(projectId);
+        }
+      } catch (err2) {
+        alert('Error saving test: ' + (err2.message || err2));
+      }
+    });
+  } catch (err) {
+    alert('Error loading test: ' + (err.message || err));
+  }
+};
+
+// View and add notes for a project test
+window.viewProjectTestNotes = async (projectId, projectTestId) => {
+  try {
+    const notes = await apiRequest(`/projects/${projectId}/tests/${projectTestId}/notes`);
+    const listHtml = (notes || []).length
+      ? notes.map(n => {
+          const when = n.created_at ? formatDateTime(n.created_at) : '';
+          return `<div class="note-item">
+            <div class="note-meta">${when}</div>
+            <div class="note-body">${escapeHtml(n.note || '')}</div>
+          </div>`;
+        }).join('')
+      : '<p class="muted">No notes yet. Add the first note for this test.</p>';
+    const content = `
+      <div class="project-test-notes">
+        <div class="project-test-notes-list">
+          ${listHtml}
+        </div>
+        <form id="add-project-test-note-form" style="margin-top: 16px;">
+          <div class="form-group">
+            <label for="project-test-note-text">Add note</label>
+            <textarea id="project-test-note-text" rows="3" placeholder="Notes about this test (e.g. why it is failing, dependencies, rollout decisions)"></textarea>
+          </div>
+          <div style="display: flex; gap: 10px; justify-content: flex-end;">
+            <button type="button" class="btn btn-secondary" onclick="hideModal()">Close</button>
+            <button type="submit" class="btn btn-primary">Add note</button>
+          </div>
+        </form>
+      </div>
+    `;
+    showModal('Test notes', content);
+    document.getElementById('add-project-test-note-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const note = document.getElementById('project-test-note-text').value.trim();
+      if (!note) {
+        alert('Please enter a note.');
+        return;
+      }
+      try {
+        await apiRequest(`/projects/${projectId}/tests/${projectTestId}/notes`, {
+          method: 'POST',
+          body: { note }
+        });
+        hideModal();
+        // Reopen to refresh notes list
+        window.viewProjectTestNotes(projectId, projectTestId);
+      } catch (err2) {
+        alert('Error adding note: ' + (err2.message || err2));
+      }
+    });
+  } catch (err) {
+    alert('Error loading notes: ' + (err.message || err));
   }
 };
 

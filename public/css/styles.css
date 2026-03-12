@@ -764,6 +764,24 @@ main {
     margin-bottom: var(--spacing-2xl);
 }
 
+/* Global Test Catalogue view layout refinements */
+#tests-catalogue-view .filters {
+    margin-top: var(--spacing-lg);
+    margin-bottom: var(--spacing-xl);
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    background: rgba(15, 23, 42, 0.85);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.tests-catalogue-metrics {
+    margin-bottom: var(--spacing-2xl);
+}
+
+#tests-catalogue-table {
+    margin-top: var(--spacing-xl);
+}
+
 /* Dashboard two-column grid below stats */
 .dashboard-grid {
     display: grid;
@@ -1237,6 +1255,13 @@ p.run-status-in-progress {
 }
 
 .project-flows-actions {
+    margin-bottom: var(--spacing-lg);
+}
+
+.project-tests-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
     margin-bottom: var(--spacing-lg);
 }
 

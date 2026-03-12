@@ -1,7 +1,7 @@
 const newman = require('newman');
 const fs = require('fs');
 const path = require('path');
-const { Collection, TestRun, TestResult, ApiSpec } = require('../models');
+const { Collection, TestRun, TestResult, ApiSpec, ProjectTest, ProjectTestStat } = require('../models');
 
 // In-memory set of test run IDs that have been requested to cancel (API runs only).
 // Runner checks this so it can stop after the current collection and mark run as cancelled.
@@ -222,6 +222,68 @@ function findCollectionForExecution(collections, executionItemName) {
     }
   }
   return { apiSpecId: null };
+}
+
+/**
+ * Ensure a ProjectTest and ProjectTestStat exist for a given API TestResult
+ * and update aggregated stats.
+ * Stable key for API tests: api:<method>:<test_name>
+ * @param {import('../models/TestRun')} testRun
+ * @param {import('../models/TestResult')} testResult
+ * @returns {Promise<void>}
+ */
+async function updateProjectTestStatsForApiResult(testRun, testResult) {
+  try {
+    if (!testRun || !testRun.project_id) return;
+    const method = (testResult.method || '').toString().trim() || 'GET';
+    const name = (testResult.test_name || '').toString().trim() || testResult.endpoint || 'Request';
+    const stableKey = `api:${method}:${name}`;
+
+    const [projectTest] = await ProjectTest.findOrCreate({
+      where: {
+        project_id: testRun.project_id,
+        stable_key: stableKey
+      },
+      defaults: {
+        test_type: 'api',
+        name,
+        endpoint: testResult.endpoint || null,
+        method,
+        source_id: null,
+        source_kind: 'postman_item',
+        is_active: true
+      }
+    });
+
+    // Keep basic fields up to date in case name/endpoint changed
+    await projectTest.update({
+      name,
+      endpoint: testResult.endpoint || projectTest.endpoint,
+      method,
+      is_active: true
+    });
+
+    const [stats] = await ProjectTestStat.findOrCreate({
+      where: { project_test_id: projectTest.id },
+      defaults: {
+        total_runs: 0,
+        last_status: 'not_run'
+      }
+    });
+
+    const newTotalRuns = (stats.total_runs || 0) + 1;
+    await stats.update({
+      total_runs: newTotalRuns,
+      last_status: testResult.status || stats.last_status || 'not_run',
+      last_run_at: new Date(),
+      last_run_source: 'api',
+      last_run_type: 'api',
+      last_run_id: testRun.id
+    });
+  } catch (err) {
+    // Do not break test execution if catalogue update fails
+    console.error('[testRunner] Failed to update project test stats for API result:', err.message || err);
+  }
 }
 
 /**
@@ -1115,7 +1177,8 @@ async function executeTests(projectId, testRunName, options = {}) {
             }
           }
           
-          // Update progress after each test completes
+          // Update catalogue stats and progress after each test completes
+          await updateProjectTestStatsForApiResult(testRun, testResult);
           // Count passed/failed based on saved test results, not execution results
           // This ensures we use the correct status determination logic
           const savedResults = await TestResult.findAll({
@@ -1367,7 +1430,8 @@ async function executeTests(projectId, testRunName, options = {}) {
 
       testResults.push(testResult);
       
-      // Update progress after each test completes
+      // Update catalogue stats and progress after each test completes
+      await updateProjectTestStatsForApiResult(testRun, testResult);
       const completedTests = testResults.length;
       const passedCount = testResults.filter(tr => tr.status === 'passed').length;
       const failedCount = testResults.filter(tr => tr.status === 'failed').length;

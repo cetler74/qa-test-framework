@@ -5,7 +5,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-const { Project, User, ProjectMember, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult } = require('../models');
+const { Project, User, ProjectMember, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult, ProjectTest, ProjectTestStat, ProjectTestNote } = require('../models');
 const { getAccessibleProjectIds, loadProjectAndCheckAccess, userCanAccessProjectId, userCanManageProjectId } = require('../middleware/projectAccess');
 const SequelizeLib = require('sequelize');
 const { Op, literal } = require('sequelize');
@@ -20,6 +20,7 @@ const { executeSoapTests } = require('../services/soapRunner');
 const { executeFuzz, cancelFuzzRun } = require('../services/fuzzRunner');
 const { generateFuzzReport, getStableReportPath } = require('../services/fuzzReportGenerator');
 const { generatePlaywrightReport } = require('../services/playwrightReportGenerator');
+const { syncProjectTests, getProjectTestCatalogue, getGlobalTestCatalogue } = require('../services/testCatalogue');
 const playwrightConfig = require('../config/playwright');
 const { validateSpecContent } = require('../services/recordedTestValidation');
 const codegenSessionManager = require('../services/codegenSessionManager');
@@ -320,6 +321,314 @@ router.delete('/projects/:id', (req, res, next) => {
       res.status(500).json({ error: error.message });
     }
   }, req.params.id, true);
+});
+
+// ==================== PROJECT TEST CATALOGUE ====================
+
+// Sync project test catalogue from API specs, SOAP operations, and UI tests (manage required)
+router.post('/projects/:id/tests/catalogue/sync', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const projectId = req.project.id;
+      const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, projectId);
+      if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+      const rows = await syncProjectTests(projectId);
+      res.json(rows);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.id, true);
+});
+
+// Get project test catalogue (access required)
+router.get('/projects/:id/tests/catalogue', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const rows = await getProjectTestCatalogue(req.project.id);
+      res.json(rows);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.id, false);
+});
+
+// Export project test catalogue (CSV, access required)
+router.get('/projects/:id/tests/catalogue/export', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const projectId = req.project.id;
+      const tests = await ProjectTest.findAll({
+        where: { project_id: projectId },
+        include: [{ model: ProjectTestStat, as: 'stats' }]
+      });
+
+      const header = [
+        'Name',
+        'Type',
+        'Last status',
+        'Last run',
+        'Total runs',
+        'Active',
+        'Description'
+      ];
+
+      const escapeCsv = (value) => {
+        if (value == null) return '';
+        const str = String(value);
+        if (/[",\n]/.test(str)) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      };
+
+      const lines = [];
+      lines.push(header.map(escapeCsv).join(','));
+
+      for (const t of tests) {
+        const stats = t.stats || {};
+        const lastStatus = stats.last_status || 'not_run';
+        const lastRunAt = stats.last_run_at ? new Date(stats.last_run_at).toISOString() : '';
+        const totalRuns = stats.total_runs != null ? stats.total_runs : 0;
+        const typeLabel =
+          t.test_type === 'soap' ? 'SOAP' :
+          t.test_type === 'ui_builtin' ? 'UI (built-in)' :
+          t.test_type === 'ui_recorded' ? 'UI (recorded)' :
+          'API';
+        const row = [
+          t.name || '',
+          typeLabel,
+          lastStatus,
+          lastRunAt,
+          totalRuns,
+          t.is_active ? 'Yes' : 'No',
+          t.description || ''
+        ];
+        lines.push(row.map(escapeCsv).join(','));
+      }
+
+      const csv = lines.join('\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="project_${projectId}_tests_coverage.csv"`);
+      res.send(csv);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.id, false);
+});
+
+// Per-project tests & coverage summary + time series (access required)
+router.get('/projects/:id/tests/coverage-summary', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const projectId = req.project.id;
+
+      // Load catalogue with stats
+      const allTests = await ProjectTest.findAll({
+        where: { project_id: projectId },
+        include: [{ model: ProjectTestStat, as: 'stats' }]
+      });
+
+      // Only active tests are counted towards current coverage totals
+      const tests = allTests.filter(t => t.is_active);
+
+      const summary = {
+        total_tests: tests.length,
+        active_tests: tests.length,
+        tests_ever_run: 0,
+        last_status_counts: {
+          passed: 0,
+          failed: 0,
+          partial_failed: 0,
+          not_run: 0,
+          other: 0
+        }
+      };
+
+      for (const t of tests) {
+        const stats = t.stats;
+        // If there are no stats yet or zero runs, treat as "not yet run"
+        if (!stats || !stats.total_runs || stats.total_runs <= 0 || !stats.last_status || stats.last_status === 'not_run') {
+          summary.last_status_counts.not_run += 1;
+          continue;
+        }
+
+        summary.tests_ever_run += 1;
+        const status = (stats.last_status || 'other').toLowerCase();
+        if (status === 'passed') summary.last_status_counts.passed += 1;
+        else if (status === 'failed') summary.last_status_counts.failed += 1;
+        else if (status === 'partial_failed') summary.last_status_counts.partial_failed += 1;
+        else if (status === 'not_run') summary.last_status_counts.not_run += 1;
+        else summary.last_status_counts.other += 1;
+      }
+
+      // Time series: total / passed / failed tests run per day from API/SOAP and UI runs
+      const sequelize = TestRun.sequelize;
+      const rows = await sequelize.query(
+        `
+          SELECT
+            day::date AS day,
+            SUM(total_tests) AS total_tests,
+            SUM(passed_tests) AS passed_tests,
+            SUM(failed_tests) AS failed_tests
+          FROM (
+            SELECT
+              date_trunc('day', created_at) AS day,
+              COALESCE(total_tests, 0) AS total_tests,
+              COALESCE(passed_tests, 0) AS passed_tests,
+              COALESCE(failed_tests, 0) AS failed_tests
+            FROM test_runs
+            WHERE project_id = :projectId
+            UNION ALL
+            SELECT
+              date_trunc('day', created_at) AS day,
+              COALESCE(total_tests, 0) AS total_tests,
+              COALESCE(passed_tests, 0) AS passed_tests,
+              COALESCE(failed_tests, 0) AS failed_tests
+            FROM playwright_runs
+            WHERE project_id = :projectId
+          ) AS combined
+          GROUP BY day
+          ORDER BY day ASC
+        `,
+        {
+          replacements: { projectId },
+          type: sequelize.QueryTypes.SELECT
+        }
+      );
+
+      const timeseries = Array.isArray(rows)
+        ? rows.map(r => ({
+            day: r.day instanceof Date ? r.day.toISOString().slice(0, 10) : String(r.day).slice(0, 10),
+            total_tests: Number(r.total_tests) || 0,
+            passed_tests: Number(r.passed_tests) || 0,
+            failed_tests: Number(r.failed_tests) || 0
+          }))
+        : [];
+
+      res.json({ summary, timeseries });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.id, false);
+});
+
+// Delete all catalogue entries for a project (manage required)
+router.delete('/projects/:id/tests/catalogue', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const projectId = req.project.id;
+      const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, projectId);
+      if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+      await ProjectTest.destroy({ where: { project_id: projectId } });
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.id, true);
+});
+
+// Update a single project test (name, description, is_active) (manage required)
+router.patch('/projects/:projectId/tests/:testId', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const projectId = req.project.id;
+      const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, projectId);
+      if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+      const testId = parseInt(req.params.testId, 10);
+      if (!testId) return res.status(400).json({ error: 'Invalid test id' });
+      const test = await ProjectTest.findOne({
+        where: { id: testId, project_id: projectId }
+      });
+      if (!test) return res.status(404).json({ error: 'Project test not found' });
+      const { name, description, is_active } = req.body || {};
+      const updates = {};
+      if (typeof name !== 'undefined') updates.name = name;
+      if (typeof description !== 'undefined') updates.description = description;
+      if (typeof is_active !== 'undefined') updates.is_active = !!is_active;
+      await test.update(updates);
+      const reloaded = await ProjectTest.findByPk(test.id, {
+        include: [{ model: ProjectTestStat, as: 'stats' }]
+      });
+      res.json(reloaded);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.projectId, true);
+});
+
+// Global test catalogue across projects (access-filtered)
+router.get('/tests/catalogue', async (req, res) => {
+  try {
+    const accessibleIds = await getAccessibleProjectIds(req.user.id, req.user.is_admin);
+    if (accessibleIds !== null && accessibleIds.length === 0) {
+      return res.json([]);
+    }
+    const { projectId, test_type, last_status } = req.query;
+    let projectIds = null;
+    if (projectId) {
+      const pid = parseInt(projectId, 10);
+      if (pid) projectIds = [pid];
+    } else if (accessibleIds !== null) {
+      projectIds = accessibleIds;
+    }
+    const rows = await getGlobalTestCatalogue({
+      projectIds,
+      test_type: test_type || undefined,
+      last_status: last_status || undefined
+    });
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Notes for a single project test (access required)
+router.get('/projects/:projectId/tests/:testId/notes', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const projectId = req.project.id;
+      const testId = parseInt(req.params.testId, 10);
+      if (!testId) return res.status(400).json({ error: 'Invalid test id' });
+      const test = await ProjectTest.findOne({
+        where: { id: testId, project_id: projectId }
+      });
+      if (!test) return res.status(404).json({ error: 'Project test not found' });
+      const notes = await ProjectTestNote.findAll({
+        where: { project_test_id: test.id },
+        order: [['created_at', 'DESC']]
+      });
+      res.json(notes);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.projectId, false);
+});
+
+// Add a note to a project test (access required)
+router.post('/projects/:projectId/tests/:testId/notes', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const projectId = req.project.id;
+      const testId = parseInt(req.params.testId, 10);
+      if (!testId) return res.status(400).json({ error: 'Invalid test id' });
+      const test = await ProjectTest.findOne({
+        where: { id: testId, project_id: projectId }
+      });
+      if (!test) return res.status(404).json({ error: 'Project test not found' });
+      const { note } = req.body || {};
+      if (!note || !String(note).trim()) {
+        return res.status(400).json({ error: 'note is required' });
+      }
+      const created = await ProjectTestNote.create({
+        project_test_id: test.id,
+        author_id: req.user && req.user.id ? req.user.id : null,
+        note: String(note).trim()
+      });
+      res.status(201).json(created);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.projectId, false);
 });
 
 // Add API spec to project (manage required)
