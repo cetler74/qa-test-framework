@@ -59,7 +59,8 @@ async function runScheduledJob(schedule) {
           total_tests: 0,
           passed_tests: 0,
           failed_tests: 0,
-          duration_ms: 0
+          duration_ms: 0,
+          run_by_user_id: null
         });
         executeTests(projectId, testRun.name, {
           testRunId: testRun.id,

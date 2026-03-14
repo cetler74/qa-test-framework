@@ -41,6 +41,14 @@ const ProjectTestStat = sequelize.define('ProjectTestStat', {
     type: DataTypes.INTEGER,
     allowNull: true
   },
+  last_run_by_user_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'users',
+      key: 'id'
+    }
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

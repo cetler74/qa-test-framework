@@ -81,6 +81,11 @@ TestRun.belongsTo(Project, {
   as: 'project'
 });
 
+TestRun.belongsTo(User, {
+  foreignKey: 'run_by_user_id',
+  as: 'runByUser'
+});
+
 TestRun.hasMany(TestResult, {
   foreignKey: 'test_run_id',
   as: 'testResults'
@@ -248,6 +253,11 @@ ProjectTest.hasOne(ProjectTestStat, {
 ProjectTestStat.belongsTo(ProjectTest, {
   foreignKey: 'project_test_id',
   as: 'projectTest'
+});
+
+ProjectTestStat.belongsTo(User, {
+  foreignKey: 'last_run_by_user_id',
+  as: 'lastRunByUser'
 });
 
 ProjectTest.hasMany(ProjectTestNote, {

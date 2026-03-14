@@ -715,30 +715,36 @@ async function loadGlobalTestsCatalogue() {
       return;
     }
 
-    // Compute simple coverage metrics
-    const total = tests.length;
-    const passed = tests.filter(t => t.stats && t.stats.last_status === 'passed').length;
-    const failed = tests.filter(t => t.stats && (t.stats.last_status === 'failed' || t.stats.last_status === 'partial_failed')).length;
-    const neverRun = tests.filter(t => !t.stats || t.stats.last_status === 'not_run').length;
-    const coveragePct = total > 0 ? Math.round(((total - neverRun) / total) * 100) : 0;
+    // Compute coverage metrics based only on ACTIVE tests to match per-project coverage logic
+    const activeTests = tests.filter(t => t.is_active);
+    const total = activeTests.length;
+    const passed = activeTests.filter(t => t.stats && t.stats.last_status === 'passed').length;
+    const failed = activeTests.filter(t => t.stats && (t.stats.last_status === 'failed' || t.stats.last_status === 'partial_failed')).length;
+    const coveredNow = passed + failed;
+    const neverRun = total > 0 ? Math.max(total - coveredNow, 0) : 0;
+    const coveragePct = total > 0 ? Math.round((coveredNow / total) * 100) : 0;
+    const successPct = total > 0 ? Math.round((passed / total) * 100) : 0;
 
     metricsEl.innerHTML = `
       <div class=\"dashboard-stats tests-catalogue-stats\">
         <div class=\"stat-card\">
           <div class=\"stat-value\">${total}</div>
-          <div class=\"stat-label\">Total tests</div>
+          <div class=\"stat-label\">Active tests in coverage</div>
         </div>
         <div class=\"stat-card\">
           <div class=\"stat-value\" style=\"color:#16a34a;\">${passed}</div>
-          <div class=\"stat-label\">Last status: passed</div>
+          <div class=\"stat-label\">Total tests passed</div>
+          <div class=\"stat-subtext\">${successPct}% of active tests</div>
         </div>
         <div class=\"stat-card\">
           <div class=\"stat-value\" style=\"color:#dc2626;\">${failed}</div>
-          <div class=\"stat-label\">Last status: failed / partial</div>
+          <div class=\"stat-label\">Total tests failed / partial</div>
+          <div class=\"stat-subtext\">${coveragePct}% coverage (passed / failed)</div>
         </div>
         <div class=\"stat-card\">
-          <div class=\"stat-value\">${coveragePct}%</div>
-          <div class=\"stat-label\">Ever run (coverage)</div>
+          <div class=\"stat-value\">${neverRun}</div>
+          <div class=\"stat-label\">Not yet run</div>
+          <div class=\"stat-subtext\">Active tests with no covered runs yet</div>
         </div>
       </div>
     `;
@@ -752,6 +758,7 @@ async function loadGlobalTestsCatalogue() {
         t.test_type === 'soap' ? 'SOAP' :
         t.test_type === 'ui_builtin' ? 'UI (built-in)' :
         t.test_type === 'ui_recorded' ? 'UI (recorded)' :
+        t.test_type === 'other' ? 'Other' :
         'API';
       const projectName = t.project && t.project.name ? t.project.name : (t.project_id || '');
       const statusClass =
@@ -771,8 +778,6 @@ async function loadGlobalTestsCatalogue() {
           <td>${escapeHtml(projectName)}</td>
           <td>${typeLabel}</td>
           <td>${escapeHtml(t.name || '')}</td>
-          <td>${escapeHtml(t.method || '')}</td>
-          <td>${escapeHtml(t.endpoint || '')}</td>
           <td><span class=\"status-badge ${statusClass}\">${lastStatus}</span></td>
           <td>${lastRunAt}</td>
           <td>${totalRuns}</td>
@@ -788,8 +793,6 @@ async function loadGlobalTestsCatalogue() {
               <th>Project</th>
               <th>Type</th>
               <th>Name</th>
-              <th>Method</th>
-              <th>Endpoint / Target</th>
               <th>Last status</th>
               <th>Last run</th>
               <th>Total runs</th>
@@ -1173,6 +1176,8 @@ async function loadTestRuns() {
           ? `<button type="button" class="btn btn-error btn-sm" onclick="event.stopPropagation(); cancelTestRun('${runType}', ${run.id})" title="Cancel this run">Cancel</button>`
           : '';
         const deleteBtn = `<button type="button" class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteTestRunFromList('${runType}', ${run.id})" title="Delete this run and all artifacts (reports, videos, traces)">Delete</button>`;
+        const runBy = run.runByUser ? (run.runByUser.display_name || run.runByUser.username || '') : null;
+        const runByLine = runBy ? `<p style="font-size: 12px; color: #666; margin-top: 4px;">Run by: ${runBy}</p>` : '';
         return `
         <div class="list-item" onclick="${onClick}" style="cursor: pointer;">
           <div class="list-item-info">
@@ -1181,6 +1186,7 @@ async function loadTestRuns() {
             <p style="font-size: 12px; color: #666; margin-top: 5px;">
               ${run.passed_tests != null ? run.passed_tests : 0} passed, ${run.failed_tests != null ? run.failed_tests : 0} failed of ${run.total_tests != null ? run.total_tests : 0} total
             </p>
+            ${runByLine}
             ${runningLine}
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
@@ -1218,6 +1224,8 @@ async function viewTestRun(testRunId) {
     const status = (testRun.status || 'pending').toLowerCase();
     const isRunning = status === 'running';
 
+    const runBy = testRun.runByUser ? (testRun.runByUser.display_name || testRun.runByUser.username || '') : null;
+    const runByLine = runBy ? `<div style="margin-bottom: 12px; font-size: inherit;"><span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Run by:</span><span style="margin-left: 8px;">${runBy}</span></div>` : '';
     // Set test run name, date, and status at the top
     const nameElement = document.getElementById('test-run-detail-name');
     nameElement.innerHTML = `
@@ -1229,6 +1237,7 @@ async function viewTestRun(testRunId) {
         <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Date:</span>
         <span style="margin-left: 8px;">${formatDateTime(testRun.created_at)}</span>
       </div>
+      ${runByLine}
       <div style="font-size: inherit;">
         <span style="font-weight: 600; color: var(--color-text-secondary, #6b7280);">Status:</span>
         <span class="status-badge ${testRun.status}" style="margin-left: 8px;">${testRun.status === 'partial_failed' ? 'Partial Failed' : testRun.status}</span>

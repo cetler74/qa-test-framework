@@ -72,9 +72,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Show/hide management buttons based on edit mode
     const syncBtn = document.getElementById('sync-project-tests-btn');
     const clearBtn = document.getElementById('clear-project-tests-btn');
+    const addBtn = document.getElementById('add-project-test-btn');
+    const uploadTestsBtn = document.getElementById('upload-project-tests-btn');
     const displayStyle = window.projectTestsEditMode ? 'inline-flex' : 'none';
     if (syncBtn) syncBtn.style.display = displayStyle;
     if (clearBtn) clearBtn.style.display = displayStyle;
+    if (addBtn) addBtn.style.display = displayStyle;
+    if (uploadTestsBtn) uploadTestsBtn.style.display = displayStyle;
 
     if (projectId) {
       loadProjectTests(Number(projectId));
@@ -139,6 +143,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // Simple navigation to download CSV (browser handles file download)
     const url = `/api/projects/${projectId}/tests/catalogue/export`;
     window.location.href = url;
+  });
+
+  // Add manual project test
+  document.getElementById('add-project-test-btn')?.addEventListener('click', () => {
+    const btn = document.getElementById('add-project-test-btn');
+    const projectId = btn?.getAttribute('data-project-id');
+    if (!projectId) {
+      alert('Please select a project first.');
+      return;
+    }
+    window.addProjectTest(Number(projectId));
+  });
+
+  // Upload project tests from file (edit mode only)
+  document.getElementById('upload-project-tests-btn')?.addEventListener('click', () => {
+    const btn = document.getElementById('upload-project-tests-btn');
+    const projectId = btn?.getAttribute('data-project-id');
+    if (!projectId) {
+      alert('Please select a project first.');
+      return;
+    }
+    window.showUploadProjectTestsModal(Number(projectId));
   });
 });
 
@@ -345,15 +371,21 @@ window.viewProject = async (projectId) => {
     document.getElementById('sync-project-tests-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('clear-project-tests-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('export-project-tests-btn')?.setAttribute('data-project-id', projectId);
+    document.getElementById('add-project-test-btn')?.setAttribute('data-project-id', projectId);
+    document.getElementById('upload-project-tests-btn')?.setAttribute('data-project-id', projectId);
     const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
     if (editModeBtn) {
       editModeBtn.setAttribute('data-project-id', projectId);
       // Ensure buttons reflect current edit mode on view load
       const syncBtn = document.getElementById('sync-project-tests-btn');
       const clearBtn = document.getElementById('clear-project-tests-btn');
+      const addBtn = document.getElementById('add-project-test-btn');
+      const uploadTestsBtn = document.getElementById('upload-project-tests-btn');
       const displayStyle = window.projectTestsEditMode ? 'inline-flex' : 'none';
       if (syncBtn) syncBtn.style.display = displayStyle;
       if (clearBtn) clearBtn.style.display = displayStyle;
+      if (addBtn) addBtn.style.display = displayStyle;
+      if (uploadTestsBtn) uploadTestsBtn.style.display = displayStyle;
       editModeBtn.textContent = window.projectTestsEditMode ? 'Done editing' : 'Edit mode';
     }
 
@@ -525,30 +557,31 @@ window.loadProjectCoverageSummary = async (projectId) => {
   const passed = last.passed || 0;
   const failed = last.failed || 0;
   const partial = last.partial_failed || 0;
-  const notRun = last.not_run || 0;
   const coveredNow = passed + failed + partial;
+  const notRun = totalTests > 0 ? Math.max(totalTests - coveredNow, 0) : 0;
   const coveragePct = totalTests > 0 ? Math.round((coveredNow / totalTests) * 100) : 0;
+  const successPct = totalTests > 0 ? Math.round((passed / totalTests) * 100) : 0;
 
   statsEl.innerHTML = `
     <div class="stat-card">
-      <div class="stat-label">Total tests in catalogue</div>
+      <div class="stat-label">Active tests in coverage</div>
       <div class="stat-value">${totalTests}</div>
-      <div class="stat-subtext">${summary.active_tests || 0} active</div>
+      <div class="stat-subtext">${testsEverRun} tests have been run at least once</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Tests ever run</div>
-      <div class="stat-value">${testsEverRun}</div>
-      <div class="stat-subtext">${coveragePct}% coverage by last status</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Last status: passed</div>
+      <div class="stat-label">Total tests passed</div>
       <div class="stat-value stat-value-success">${passed}</div>
-      <div class="stat-subtext">${failed} failed, ${partial} partial</div>
+      <div class="stat-subtext">${successPct}% of active tests</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total tests failed</div>
+      <div class="stat-value" style="color:#dc2626;">${failed + partial}</div>
+      <div class="stat-subtext">${coveragePct}% coverage (passed / failed / partial)</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Not yet run</div>
       <div class="stat-value">${notRun}</div>
-      <div class="stat-subtext">Based on last execution status</div>
+      <div class="stat-subtext">Active tests with no successful or failed runs yet</div>
     </div>
   `;
 
@@ -642,8 +675,13 @@ async function loadProjectTests(projectId) {
   if (!tableEl) return;
   try {
     tableEl.innerHTML = '<p class="muted">Loading tests…</p>';
-    const tests = await apiRequest(`/projects/${projectId}/tests/catalogue`);
+    let tests = await apiRequest(`/projects/${projectId}/tests/catalogue`);
     const inEditMode = !!window.projectTestsEditMode;
+
+    // In non-edit mode, only show active tests in the list
+    if (!inEditMode && Array.isArray(tests)) {
+      tests = tests.filter(t => t.is_active);
+    }
 
     if (!tests || tests.length === 0) {
       tableEl.innerHTML = `
@@ -656,12 +694,18 @@ async function loadProjectTests(projectId) {
     const rows = tests.map(t => {
       const stats = t.stats || {};
       const lastStatus = stats.last_status || 'not_run';
-      const lastRunAt = stats.last_run_at ? formatDateTime(stats.last_run_at) : '—';
+      const hasStatusSet = lastStatus && lastStatus !== 'not_run';
+      const lastRunAtRaw = stats.last_run_at || (hasStatusSet ? stats.updated_at : null);
+      const lastRunAt = lastRunAtRaw ? formatDateTime(lastRunAtRaw) : '—';
       const totalRuns = stats.total_runs != null ? stats.total_runs : 0;
+      const lastRunBy = stats.last_run_by_username ? escapeHtml(stats.last_run_by_username) : '—';
+      const ticketDisplay = t.ticket_url ? `<a class="ticket-link" href="${escapeHtml(t.ticket_url)}" target="_blank" rel="noopener" title="${escapeHtml(t.ticket_url)}">${escapeHtml(t.ticket_url)}</a>` : '—';
       const typeLabel =
         t.test_type === 'soap' ? 'SOAP' :
         t.test_type === 'ui_builtin' ? 'UI (built-in)' :
         t.test_type === 'ui_recorded' ? 'UI (recorded)' :
+        t.test_type === 'manual' ? 'Manual Test' :
+        t.test_type === 'other' ? 'Other' :
         'API';
       const activeLabel = t.is_active ? 'Yes' : 'No';
       const statusClass =
@@ -684,19 +728,22 @@ async function loadProjectTests(projectId) {
            >${activeLabel}</button>`
         : activeLabel;
       const actionsCell = inEditMode
-        ? `<button type="button" class="btn btn-secondary btn-sm" onclick="window.editProjectTest(${projectId}, ${t.id})">Edit</button>
-           <button type="button" class="btn btn-secondary btn-sm" onclick="window.viewProjectTestNotes(${projectId}, ${t.id})">Notes</button>`
+        ? `<button type="button" class="btn btn-danger btn-sm" onclick="window.deleteProjectTest(${projectId}, ${t.id})">Delete</button>`
         : '';
+      const activeCol = inEditMode ? `<td>${activeCell}</td>` : '';
+      const actionsCol = inEditMode ? `<td>${actionsCell}</td>` : '';
+      const nameCell = `<button type="button" class="link-button" onclick="window.viewProjectTestDetails(${projectId}, ${t.id})">${escapeHtml(t.name || '')}</button>`;
       return `
         <tr data-project-test-id="${t.id}">
-          <td>${escapeHtml(t.name || '')}</td>
+          <td>${nameCell}</td>
           <td>${typeLabel}</td>
-          <td>${escapeHtml(t.method || '')}</td>
           <td><span class="status-badge ${statusClass}">${lastStatus}</span></td>
           <td>${lastRunAt}</td>
           <td>${totalRuns}</td>
-          <td>${activeCell}</td>
-          <td>${actionsCell}</td>
+          <td>${lastRunBy}</td>
+          <td>${ticketDisplay}</td>
+          ${activeCol}
+          ${actionsCol}
         </tr>
       `;
     }).join('');
@@ -707,12 +754,12 @@ async function loadProjectTests(projectId) {
             <tr>
               <th>Name</th>
               <th>Type</th>
-              <th>Method</th>
               <th>Last status</th>
               <th>Last run</th>
               <th>Total runs</th>
-              <th>Active</th>
-              ${inEditMode ? '<th>Actions</th>' : ''}
+              <th>Last run by</th>
+              <th>Ticket ID</th>
+              ${inEditMode ? '<th>Active</th><th>Actions</th>' : ''}
             </tr>
           </thead>
           <tbody>
@@ -726,6 +773,215 @@ async function loadProjectTests(projectId) {
     tableEl.innerHTML = '<div class="empty-state"><p>Failed to load tests.</p></div>';
   }
 }
+
+// Manually add a project test in edit mode
+window.addProjectTest = (projectId) => {
+  const content = `
+    <form id="add-project-test-form">
+      <div class="form-group">
+        <label for="add-project-test-name">Name <span class="required">*</span></label>
+        <input type="text" id="add-project-test-name" required>
+      </div>
+      <div class="form-group">
+        <label for="add-project-test-type">Type</label>
+        <select id="add-project-test-type">
+          <option value="api">API</option>
+          <option value="soap">SOAP</option>
+          <option value="ui_recorded">UI (recorded)</option>
+          <option value="manual">Manual Test</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="add-project-test-method">Method</label>
+        <input type="text" id="add-project-test-method" placeholder="GET, POST, UI, SOAP...">
+      </div>
+      <div class="form-group">
+        <label for="add-project-test-endpoint">Endpoint / Target</label>
+        <input type="text" id="add-project-test-endpoint" placeholder="/path or URL (optional)">
+      </div>
+      <div class="form-group">
+        <label for="add-project-test-description">Description</label>
+        <textarea id="add-project-test-description" placeholder="Optional"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="add-project-test-ticket-url">Ticket URL</label>
+        <input type="url" id="add-project-test-ticket-url" placeholder="https://jira.example.com/browse/KEY-123">
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="add-project-test-active" checked>
+          Active in coverage
+        </label>
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create</button>
+      </div>
+    </form>
+  `;
+
+  showModal('Add test', content);
+  document.getElementById('add-project-test-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('add-project-test-name').value.trim();
+    if (!name) {
+      alert('Name is required.');
+      return;
+    }
+    const test_type = document.getElementById('add-project-test-type').value || 'api';
+    const method = document.getElementById('add-project-test-method').value.trim();
+    const endpoint = document.getElementById('add-project-test-endpoint').value.trim();
+    const description = document.getElementById('add-project-test-description').value;
+    const ticket_url = document.getElementById('add-project-test-ticket-url').value.trim();
+    const is_active = document.getElementById('add-project-test-active').checked;
+    try {
+      await apiRequest(`/projects/${projectId}/tests`, {
+        method: 'POST',
+        body: { name, test_type, method, endpoint, description, is_active, ticket_url }
+      });
+      hideModal();
+      await loadProjectTests(projectId);
+      if (typeof window.loadProjectCoverageSummary === 'function') {
+        window.loadProjectCoverageSummary(projectId);
+      }
+    } catch (err) {
+      alert('Error creating test: ' + (err.message || err));
+    }
+  });
+};
+
+// Upload project tests from CSV file (edit mode)
+window.showUploadProjectTestsModal = (projectId) => {
+  const content = `
+    <form id="upload-project-tests-form">
+      <div class="form-group">
+        <p style="margin-bottom: 12px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="download-project-tests-template-btn">
+            Download template
+          </button>
+          <span class="muted" style="margin-left: 8px;">Use the template to see the expected columns and format.</span>
+        </p>
+        <label>Upload CSV file</label>
+        <div class="file-upload-area" id="project-tests-file-upload-area">
+          <p id="project-tests-upload-prompt">Click to select or drag and drop</p>
+          <p class="file-upload-hint">CSV with columns: Name, Type, Method, Endpoint, Description, Ticket URL, Active</p>
+          <input type="file" id="project-tests-file" accept=".csv" style="display: none;">
+        </div>
+        <div id="project-tests-selected-file-card" class="selected-file-card" style="display: none;">
+          <div class="selected-file-card-inner">
+            <svg class="selected-file-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <div class="selected-file-info">
+              <span class="selected-file-label">File included</span>
+              <span id="project-tests-selected-file-name" class="selected-file-name"></span>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm selected-file-change" id="project-tests-change-file-btn">Change file</button>
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Upload</button>
+      </div>
+    </form>
+  `;
+
+  showModal('Upload tests from file', content);
+
+  document.getElementById('download-project-tests-template-btn')?.addEventListener('click', () => {
+    window.location.href = `/api/projects/${projectId}/tests/catalogue/template`;
+  });
+
+  const fileInput = document.getElementById('project-tests-file');
+  const fileUploadArea = document.getElementById('project-tests-file-upload-area');
+  const selectedCard = document.getElementById('project-tests-selected-file-card');
+  const selectedFileName = document.getElementById('project-tests-selected-file-name');
+  const uploadPrompt = document.getElementById('project-tests-upload-prompt');
+
+  function updateFileDisplay() {
+    const hasFile = fileInput.files && fileInput.files.length > 0;
+    if (hasFile) {
+      selectedFileName.textContent = fileInput.files[0].name;
+      selectedCard.style.display = 'block';
+      uploadPrompt.textContent = 'Drop a different file or click to replace';
+      fileUploadArea.classList.add('has-file');
+    } else {
+      selectedCard.style.display = 'none';
+      uploadPrompt.textContent = 'Click to select or drag and drop';
+      fileUploadArea.classList.remove('has-file');
+    }
+  }
+
+  fileUploadArea.addEventListener('click', (e) => {
+    if (!e.target.closest('#project-tests-change-file-btn')) fileInput.click();
+  });
+
+  document.getElementById('project-tests-change-file-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    fileInput.value = '';
+    updateFileDisplay();
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) updateFileDisplay();
+  });
+
+  fileUploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    fileUploadArea.classList.add('dragover');
+  });
+  fileUploadArea.addEventListener('dragleave', () => {
+    fileUploadArea.classList.remove('dragover');
+  });
+  fileUploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    fileUploadArea.classList.remove('dragover');
+    if (e.dataTransfer.files.length > 0) {
+      fileInput.files = e.dataTransfer.files;
+      updateFileDisplay();
+    }
+  });
+
+  document.getElementById('upload-project-tests-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!fileInput.files || fileInput.files.length === 0) {
+      alert('Please select a CSV file');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/tests/import`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include'
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      let message = `${data.created} test(s) created.`;
+      if (data.errors && data.errors.length > 0) {
+        message += ` ${data.errors.length} row(s) had errors: ${data.errors.map((x) => `row ${x.row}: ${x.message}`).join('; ')}`;
+      }
+      hideModal();
+      alert(message);
+      await loadProjectTests(projectId);
+      if (typeof window.loadProjectCoverageSummary === 'function') {
+        window.loadProjectCoverageSummary(projectId);
+      }
+    } catch (err) {
+      alert('Error uploading file: ' + (err.message || err));
+    }
+  });
+};
 
 // Toggle active flag directly from the table
 window.toggleProjectTestActive = async (projectId, projectTestId, isActive) => {
@@ -741,6 +997,24 @@ window.toggleProjectTestActive = async (projectId, projectTestId, isActive) => {
     }
   } catch (err) {
     alert('Error updating test active flag: ' + (err.message || err));
+  }
+};
+
+// Delete a single project test (with confirmation)
+window.deleteProjectTest = async (projectId, projectTestId) => {
+  if (!confirm('Delete this test from the Tests & Coverage list? This does not delete historical runs, only the catalogue entry.')) {
+    return;
+  }
+  try {
+    await apiRequest(`/projects/${projectId}/tests/${projectTestId}`, {
+      method: 'DELETE'
+    });
+    await loadProjectTests(projectId);
+    if (typeof window.loadProjectCoverageSummary === 'function') {
+      window.loadProjectCoverageSummary(projectId);
+    }
+  } catch (err) {
+    alert('Error deleting test: ' + (err.message || err));
   }
 };
 
@@ -760,9 +1034,31 @@ window.editProjectTest = async (projectId, projectTestId) => {
           <input type="text" id="edit-project-test-name" value="${escapeHtml(test.name || '')}">
         </div>
         <div class="form-group">
+          <label for="edit-project-test-type">Type</label>
+          <select id="edit-project-test-type">
+            <option value="api" ${test.test_type === 'api' ? 'selected' : ''}>API</option>
+            <option value="soap" ${test.test_type === 'soap' ? 'selected' : ''}>SOAP</option>
+            <option value="ui_recorded" ${test.test_type === 'ui_recorded' ? 'selected' : ''}>UI (recorded)</option>
+            <option value="manual" ${test.test_type === 'manual' ? 'selected' : ''}>Manual Test</option>
+            <option value="other" ${test.test_type && !['api','soap','ui_recorded','manual'].includes(test.test_type) ? 'selected' : ''}>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="edit-project-test-method">Method</label>
+          <input type="text" id="edit-project-test-method" value="${escapeHtml(test.method || '')}" placeholder="GET, POST, UI, SOAP...">
+        </div>
+        <div class="form-group">
+          <label for="edit-project-test-endpoint">Endpoint / Target</label>
+          <input type="text" id="edit-project-test-endpoint" value="${escapeHtml(test.endpoint || '')}" placeholder="/path or URL (optional)">
+        </div>
+        <div class="form-group">
           <label for="edit-project-test-description">Description</label>
           <textarea id="edit-project-test-description" placeholder="Optional">${escapeHtml(test.description || '')}</textarea>
         </div>
+      <div class="form-group">
+        <label for="edit-project-test-ticket-url">Ticket URL</label>
+        <input type="url" id="edit-project-test-ticket-url" value="${escapeHtml(test.ticket_url || '')}" placeholder="https://jira.example.com/browse/KEY-123">
+      </div>
         <div class="form-group">
           <label class="checkbox-label">
             <input type="checkbox" id="edit-project-test-active" ${test.is_active ? 'checked' : ''}>
@@ -779,12 +1075,16 @@ window.editProjectTest = async (projectId, projectTestId) => {
     document.getElementById('edit-project-test-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const name = document.getElementById('edit-project-test-name').value.trim();
+      const test_type = document.getElementById('edit-project-test-type').value || test.test_type || 'api';
+      const method = document.getElementById('edit-project-test-method').value.trim();
+      const endpoint = document.getElementById('edit-project-test-endpoint').value.trim();
       const description = document.getElementById('edit-project-test-description').value;
+      const ticket_url = document.getElementById('edit-project-test-ticket-url').value.trim();
       const is_active = document.getElementById('edit-project-test-active').checked;
       try {
         await apiRequest(`/projects/${projectId}/tests/${projectTestId}`, {
           method: 'PATCH',
-          body: { name, description, is_active }
+          body: { name, description, is_active, method, endpoint, test_type, ticket_url }
         });
         hideModal();
         await loadProjectTests(projectId);
@@ -800,10 +1100,19 @@ window.editProjectTest = async (projectId, projectTestId) => {
   }
 };
 
-// View and add notes for a project test
-window.viewProjectTestNotes = async (projectId, projectTestId) => {
+// View and add notes for a project test (with editable fields and Save)
+window.viewProjectTestDetails = async (projectId, projectTestId) => {
   try {
-    const notes = await apiRequest(`/projects/${projectId}/tests/${projectTestId}/notes`);
+    const [tests, notes, users] = await Promise.all([
+      apiRequest(`/projects/${projectId}/tests/catalogue`),
+      apiRequest(`/projects/${projectId}/tests/${projectTestId}/notes`),
+      apiRequest('/users')
+    ]);
+    const test = (tests || []).find(t => t.id === projectTestId);
+    if (!test) {
+      alert('Test not found.');
+      return;
+    }
     const listHtml = (notes || []).length
       ? notes.map(n => {
           const when = n.created_at ? formatDateTime(n.created_at) : '';
@@ -813,8 +1122,80 @@ window.viewProjectTestNotes = async (projectId, projectTestId) => {
           </div>`;
         }).join('')
       : '<p class="muted">No notes yet. Add the first note for this test.</p>';
+
+    const lastRunId = test.stats?.last_run_id;
+    const lastRunType = (test.stats?.last_run_type || test.stats?.last_run_source || '');
+    const viewLastRunHtml = lastRunId
+      ? `<p style="margin-bottom: 16px;"><button type="button" class="btn btn-secondary btn-sm" id="view-last-run-btn" data-last-run-id="${lastRunId}" data-last-run-type="${String(lastRunType).replace(/"/g, '&quot;')}">View last run</button></p>`
+      : '';
+
     const content = `
-      <div class="project-test-notes">
+      <div class="project-test-details">
+        <form id="edit-project-test-details-form">
+          <div class="form-group">
+            <label for="project-test-detail-name">Name</label>
+            <input type="text" id="project-test-detail-name" value="${escapeHtml(test.name || '')}">
+          </div>
+          <div class="form-group">
+            <label for="project-test-detail-type">Type</label>
+            <select id="project-test-detail-type">
+              <option value="api" ${test.test_type === 'api' ? 'selected' : ''}>API</option>
+              <option value="soap" ${test.test_type === 'soap' ? 'selected' : ''}>SOAP</option>
+              <option value="ui_recorded" ${test.test_type === 'ui_recorded' ? 'selected' : ''}>UI (recorded)</option>
+              <option value="manual" ${test.test_type === 'manual' ? 'selected' : ''}>Manual Test</option>
+              <option value="other" ${test.test_type && !['api','soap','ui_recorded','manual'].includes(test.test_type) ? 'selected' : ''}>Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="project-test-detail-method">Method</label>
+            <input type="text" id="project-test-detail-method" value="${escapeHtml(test.method || '')}" placeholder="GET, POST, UI, SOAP...">
+          </div>
+          <div class="form-group">
+            <label for="project-test-detail-endpoint">Endpoint / Target</label>
+            <input type="text" id="project-test-detail-endpoint" value="${escapeHtml(test.endpoint || '')}" placeholder="/path or URL (optional)">
+          </div>
+          <div class="form-group">
+            <label for="project-test-detail-description">Description</label>
+            <textarea id="project-test-detail-description" placeholder="Optional">${escapeHtml(test.description || '')}</textarea>
+          </div>
+          <div class="form-group">
+            <label for="project-test-detail-ticket-url">Ticket URL</label>
+            <input type="url" id="project-test-detail-ticket-url" value="${escapeHtml(test.ticket_url || '')}" placeholder="https://jira.example.com/browse/KEY-123">
+          </div>
+          <div class="form-group">
+            <label for="project-test-detail-status">Status</label>
+            <select id="project-test-detail-status">
+              <option value="not_run" ${(test.stats?.last_status || 'not_run') === 'not_run' ? 'selected' : ''}>Not run</option>
+              <option value="passed" ${test.stats?.last_status === 'passed' ? 'selected' : ''}>Passed</option>
+              <option value="failed" ${test.stats?.last_status === 'failed' ? 'selected' : ''}>Failed</option>
+              <option value="partial_failed" ${test.stats?.last_status === 'partial_failed' ? 'selected' : ''}>Partial failed</option>
+              <option value="running" ${test.stats?.last_status === 'running' ? 'selected' : ''}>Running</option>
+              <option value="cancelled" ${test.stats?.last_status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Last run by</label>
+            <p class="form-static" id="project-test-detail-last-run-by">${escapeHtml(test.stats?.last_run_by_username || '—')}</p>
+          </div>
+          <div class="form-group">
+            <label for="project-test-detail-run-by">Run by</label>
+            <select id="project-test-detail-run-by">
+              <option value="">—</option>
+              ${(users || []).map(u => `<option value="${u.id}" ${(test.stats?.last_run_by_user_id === u.id) ? 'selected' : ''}>${escapeHtml(u.display_name || u.username || '')}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="project-test-detail-active" ${test.is_active ? 'checked' : ''}>
+              Active in coverage
+            </label>
+          </div>
+          ${viewLastRunHtml}
+          <div style="display: flex; gap: 10px; justify-content: flex-end; margin-bottom: 16px;">
+            <button type="button" class="btn btn-secondary" onclick="hideModal()">Close</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
         <div class="project-test-notes-list">
           ${listHtml}
         </div>
@@ -824,13 +1205,47 @@ window.viewProjectTestNotes = async (projectId, projectTestId) => {
             <textarea id="project-test-note-text" rows="3" placeholder="Notes about this test (e.g. why it is failing, dependencies, rollout decisions)"></textarea>
           </div>
           <div style="display: flex; gap: 10px; justify-content: flex-end;">
-            <button type="button" class="btn btn-secondary" onclick="hideModal()">Close</button>
             <button type="submit" class="btn btn-primary">Add note</button>
           </div>
         </form>
       </div>
     `;
-    showModal('Test notes', content);
+    showModal('Test details & notes', content);
+    const viewLastRunBtn = document.getElementById('view-last-run-btn');
+    if (viewLastRunBtn) {
+      viewLastRunBtn.addEventListener('click', () => {
+        hideModal();
+        window.openLastRunForTest(Number(viewLastRunBtn.dataset.lastRunId), viewLastRunBtn.dataset.lastRunType || '');
+      });
+    }
+    document.getElementById('edit-project-test-details-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('project-test-detail-name').value.trim();
+      const test_type = document.getElementById('project-test-detail-type').value || test.test_type || 'api';
+      const method = document.getElementById('project-test-detail-method').value.trim();
+      const endpoint = document.getElementById('project-test-detail-endpoint').value.trim();
+      const description = document.getElementById('project-test-detail-description').value;
+      const ticket_url = document.getElementById('project-test-detail-ticket-url').value.trim();
+      const is_active = document.getElementById('project-test-detail-active').checked;
+      const last_status = document.getElementById('project-test-detail-status').value || 'not_run';
+      const runByEl = document.getElementById('project-test-detail-run-by');
+      const last_run_by_user_id = runByEl ? (runByEl.value === '' ? null : parseInt(runByEl.value, 10)) : undefined;
+      try {
+        const body = { name, description, is_active, method, endpoint, test_type, ticket_url, last_status };
+        if (last_run_by_user_id !== undefined) body.last_run_by_user_id = last_run_by_user_id;
+        await apiRequest(`/projects/${projectId}/tests/${projectTestId}`, {
+          method: 'PATCH',
+          body
+        });
+        hideModal();
+        await loadProjectTests(projectId);
+        if (typeof window.loadProjectCoverageSummary === 'function') {
+          window.loadProjectCoverageSummary(projectId);
+        }
+      } catch (err2) {
+        alert('Error saving test: ' + (err2.message || err2));
+      }
+    });
     document.getElementById('add-project-test-note-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const note = document.getElementById('project-test-note-text').value.trim();
@@ -844,14 +1259,25 @@ window.viewProjectTestNotes = async (projectId, projectTestId) => {
           body: { note }
         });
         hideModal();
-        // Reopen to refresh notes list
-        window.viewProjectTestNotes(projectId, projectTestId);
+        window.viewProjectTestDetails(projectId, projectTestId);
       } catch (err2) {
         alert('Error adding note: ' + (err2.message || err2));
       }
     });
   } catch (err) {
-    alert('Error loading notes: ' + (err.message || err));
+    alert('Error loading test details: ' + (err.message || err));
+  }
+};
+
+// Open last run (API/SOAP -> test-run-detail, UI -> playwright run detail)
+window.openLastRunForTest = (lastRunId, lastRunType) => {
+  const type = (lastRunType || '').toLowerCase();
+  if (type === 'ui' || type === 'ui_run') {
+    if (typeof window.showView === 'function') window.showView('test-runs');
+    if (typeof window.viewPlaywrightRun === 'function') window.viewPlaywrightRun(lastRunId);
+  } else {
+    if (typeof window.showView === 'function') window.showView('test-runs');
+    if (typeof window.viewTestRun === 'function') window.viewTestRun(lastRunId);
   }
 };
 

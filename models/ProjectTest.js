@@ -39,6 +39,10 @@ const ProjectTest = sequelize.define('ProjectTest', {
     type: DataTypes.TEXT,
     allowNull: true
   },
+  ticket_url: {
+    type: DataTypes.STRING(500),
+    allowNull: true
+  },
   endpoint: {
     type: DataTypes.STRING(500),
     allowNull: true
