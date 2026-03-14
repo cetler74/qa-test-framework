@@ -523,11 +523,12 @@ window.viewProject = async (projectId) => {
 window.loadProjectCoverageSummary = async (projectId) => {
   const statsEl = document.getElementById('project-coverage-stats');
   const canvas = document.getElementById('project-coverage-chart-canvas');
-  if (!statsEl || !canvas) return;
+  const chartContainer = (canvas && canvas.parentElement) || document.querySelector('.project-coverage-chart');
+  if (!statsEl) return;
 
   // Clear existing UI
   statsEl.innerHTML = '';
-  const ctx = canvas.getContext ? canvas.getContext('2d') : null;
+  const ctx = canvas?.getContext ? canvas.getContext('2d') : null;
   if (ctx && window._projectCoverageChart) {
     try {
       window._projectCoverageChart.destroy();
@@ -557,8 +558,9 @@ window.loadProjectCoverageSummary = async (projectId) => {
   const passed = last.passed || 0;
   const failed = last.failed || 0;
   const partial = last.partial_failed || 0;
+  const notRun = last.not_run || 0;
+  const other = last.other || 0;
   const coveredNow = passed + failed + partial;
-  const notRun = totalTests > 0 ? Math.max(totalTests - coveredNow, 0) : 0;
   const coveragePct = totalTests > 0 ? Math.round((coveredNow / totalTests) * 100) : 0;
   const successPct = totalTests > 0 ? Math.round((passed / totalTests) * 100) : 0;
 
@@ -585,16 +587,33 @@ window.loadProjectCoverageSummary = async (projectId) => {
     </div>
   `;
 
-  if (!Array.isArray(data.timeseries) || !data.timeseries.length || !ctx || typeof Chart === 'undefined') {
+  // When no active tests (e.g. after Clear tests), clear chart and show message so it doesn't show old run data
+  if (totalTests === 0) {
+    if (chartContainer) {
+      chartContainer.innerHTML = '<p class="muted empty-state" style="margin:0; padding: 1rem;">No active tests. Add or sync tests to see coverage.</p>';
+    }
     return;
   }
 
-  const labels = data.timeseries.map(p => p.day);
-  const totalValues = data.timeseries.map(p => p.total_tests || 0);
-  const passedValues = data.timeseries.map(p => p.passed_tests || 0);
-  const failedValues = data.timeseries.map(p => p.failed_tests || 0);
+  // Ensure canvas exists (may have been replaced when there were 0 tests)
+  if (!document.getElementById('project-coverage-chart-canvas') && chartContainer) {
+    chartContainer.innerHTML = '<canvas id="project-coverage-chart-canvas" height="120"></canvas>';
+  }
+  const canvasForChart = document.getElementById('project-coverage-chart-canvas');
+  const ctxForChart = canvasForChart?.getContext ? canvasForChart.getContext('2d') : null;
+  if (!ctxForChart || typeof Chart === 'undefined') return;
 
-  window._projectCoverageChart = new Chart(ctx, {
+  // Build chart: historical timeseries (Passed / Failed / Other) + "Current" bar from active list (all statuses)
+  const timeseries = Array.isArray(data.timeseries) ? data.timeseries : [];
+  const labels = [...timeseries.map(p => p.day instanceof Date ? p.day.toISOString().slice(0, 10) : String(p.day).slice(0, 10)), 'Current'];
+  const passedValues = [...timeseries.map(p => p.passed_tests || 0), passed];
+  const failedValues = [...timeseries.map(p => p.failed_tests || 0), failed];
+  const partialValues = [...timeseries.map(p => 0), partial];
+  const notRunValues = [...timeseries.map(p => 0), notRun];
+  const totalValues = [...timeseries.map(p => p.total_tests || 0), totalTests];
+  const otherValues = totalValues.map((v, i) => Math.max(v - (passedValues[i] + failedValues[i] + partialValues[i] + notRunValues[i]), 0));
+
+  window._projectCoverageChart = new Chart(ctxForChart, {
     type: 'bar',
     data: {
       labels,
@@ -618,10 +637,28 @@ window.loadProjectCoverageSummary = async (projectId) => {
           stack: 'tests'
         },
         {
+          label: 'Partial failed',
+          data: partialValues,
+          backgroundColor: 'rgba(245, 158, 11, 0.8)',
+          borderColor: 'rgba(217, 119, 6, 1)',
+          borderWidth: 1,
+          borderRadius: 4,
+          stack: 'tests'
+        },
+        {
+          label: 'Not run',
+          data: notRunValues,
+          backgroundColor: 'rgba(148, 163, 184, 0.7)',
+          borderColor: 'rgba(100, 116, 139, 1)',
+          borderWidth: 1,
+          borderRadius: 4,
+          stack: 'tests'
+        },
+        {
           label: 'Other',
-          data: totalValues.map((v, i) => Math.max(v - (passedValues[i] + failedValues[i]), 0)),
-          backgroundColor: 'rgba(148, 163, 184, 0.8)',
-          borderColor: 'rgba(148, 163, 184, 1)',
+          data: otherValues,
+          backgroundColor: 'rgba(107, 114, 128, 0.8)',
+          borderColor: 'rgba(75, 85, 99, 1)',
           borderWidth: 1,
           borderRadius: 4,
           stack: 'tests'
@@ -634,29 +671,18 @@ window.loadProjectCoverageSummary = async (projectId) => {
       scales: {
         x: {
           stacked: true,
-          title: {
-            display: false
-          },
-          grid: {
-            display: false
-          }
+          title: { display: false },
+          grid: { display: false }
         },
         y: {
           stacked: true,
           beginAtZero: true,
-          title: {
-            display: false
-          },
-          ticks: {
-            precision: 0
-          }
+          title: { display: false },
+          ticks: { precision: 0 }
         }
       },
       plugins: {
-        legend: {
-          display: true,
-          position: 'bottom'
-        },
+        legend: { display: true, position: 'bottom' },
         tooltip: {
           callbacks: {
             label: function (context) {
