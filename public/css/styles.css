@@ -800,8 +800,36 @@ main {
     margin-top: 0;
 }
 
+.dashboard-right {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2xl);
+}
+
 .dashboard-right .dashboard-card {
     margin-top: 0;
+}
+
+.stat-subtext {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    margin-top: var(--spacing-xs);
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.dashboard-activity-card h3 {
+    margin-bottom: var(--spacing-lg);
+    color: var(--color-text-primary);
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.dashboard-activity-chart-wrap {
+    height: 140px;
+    position: relative;
+    margin-top: var(--spacing-sm);
 }
 
 @media (max-width: 900px) {
@@ -2172,7 +2200,8 @@ p.run-status-in-progress {
 .dark-theme .ui-tests-record-section,
 .dark-theme .dashboard-card,
 .dark-theme .run-hub-card,
-.dark-theme .next-scheduled-runs {
+.dark-theme .next-scheduled-runs,
+.dark-theme .dashboard-activity-card {
     background: var(--color-bg-secondary) !important;
     border-color: var(--color-border) !important;
     color: var(--color-text-primary) !important;
@@ -2191,8 +2220,13 @@ p.run-status-in-progress {
 /* Dashboard: keep headings and labels readable on dark cards */
 .dark-theme .run-hub-card h3,
 .dark-theme .next-scheduled-runs h3,
-.dark-theme .recent-test-runs h3 {
+.dark-theme .recent-test-runs h3,
+.dark-theme .dashboard-activity-card h3 {
     color: var(--color-text-primary) !important;
+}
+
+.dark-theme .stat-subtext {
+    color: var(--color-text-secondary) !important;
 }
 .dark-theme .run-hub-desc {
     color: var(--color-text-secondary) !important;

@@ -120,7 +120,7 @@ function showView(viewId) {
   const navBtn = document.querySelector(`.main-nav .nav-btn[data-view="${viewId}"]`);
   if (navBtn) navBtn.classList.add('active');
   const settingsNavBtn = document.getElementById('settings-nav-btn');
-  if (settingsNavBtn && (viewId === 'api-specs' || viewId === 'ui-tests' || viewId === 'project-access' || viewId === 'user-management')) {
+  if (settingsNavBtn && (viewId === 'api-specs' || viewId === 'ui-tests' || viewId === 'project-access' || viewId === 'postman-to-openapi' || viewId === 'user-management')) {
     settingsNavBtn.classList.add('active');
   }
   closeSettingsDropdown();
@@ -348,6 +348,60 @@ document.addEventListener('DOMContentLoaded', async () => {
           errEl.textContent = err.message || 'Failed to create user.';
           errEl.style.display = 'block';
         }
+      }
+    });
+  }
+
+  // Postman to OpenAPI: convert and download
+  const postmanToOpenApiForm = document.getElementById('postman-to-openapi-form');
+  if (postmanToOpenApiForm) {
+    postmanToOpenApiForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fileInput = document.getElementById('postman-to-openapi-file');
+      const errEl = document.getElementById('postman-to-openapi-error');
+      const submitBtn = document.getElementById('postman-to-openapi-submit');
+      if (errEl) errEl.style.display = 'none';
+      if (!fileInput?.files?.length) {
+        if (errEl) { errEl.textContent = 'Please select a Postman collection file.'; errEl.style.display = 'block'; }
+        return;
+      }
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+      submitBtn.disabled = true;
+      try {
+        const res = await fetch(`${API_BASE}/convert/postman-to-openapi`, {
+          method: 'POST',
+          credentials: 'include',
+          body: formData,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          let msg = res.statusText;
+          try {
+            const data = JSON.parse(text);
+            if (data && data.error) msg = data.error;
+          } catch (_) {
+            if (text && text.length < 200) msg = text;
+          }
+          throw new Error(msg);
+        }
+        const blob = await res.blob();
+        const disp = res.headers.get('Content-Disposition');
+        const match = disp && disp.match(/filename="?([^";\n]+)"?/);
+        const filename = match ? match[1].trim() : 'converted.openapi.yaml';
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = err.message || 'Conversion failed.';
+          errEl.style.display = 'block';
+        }
+      } finally {
+        submitBtn.disabled = false;
       }
     });
   }
@@ -948,16 +1002,87 @@ async function loadUserManagement() {
 // Dashboard (unified recent runs: API + UI with type badge, Quick Run, Next scheduled)
 async function loadDashboard() {
   try {
-    const [projects, apiSpecs, testRuns, schedules] = await Promise.all([
+    const [projects, apiSpecs, testRunsCount, testRuns, schedules, summary] = await Promise.all([
       apiRequest('/projects'),
       apiRequest('/api-specs'),
+      apiRequest('/test-runs/count?type=all').then(r => r.total).catch(() => 0),
       apiRequest('/test-runs?limit=5&type=all'),
-      apiRequest('/schedules?nextWithin=24').catch(() => [])
+      apiRequest('/schedules?nextWithin=24').catch(() => []),
+      apiRequest('/dashboard/summary').catch(() => ({
+        coverage: { total_active: 0, covered: 0, coverage_pct: 0, passed: 0, failed: 0 },
+        activity: { timeseries: [], tests_today: 0, tests_last_7_days: 0 }
+      }))
     ]);
 
     document.getElementById('total-projects').textContent = projects.length;
     document.getElementById('total-api-specs').textContent = apiSpecs.length;
-    document.getElementById('total-test-runs').textContent = testRuns.length;
+    document.getElementById('total-test-runs').textContent = testRunsCount;
+
+    const coverageEl = document.getElementById('total-test-coverage');
+    const coverageSubEl = document.getElementById('total-test-coverage-subtext');
+    const tests7dEl = document.getElementById('tests-last-7-days');
+    if (coverageEl) coverageEl.textContent = (summary.coverage && summary.coverage.coverage_pct != null) ? summary.coverage.coverage_pct + '%' : '0%';
+    if (coverageSubEl) coverageSubEl.textContent = 'of active tests run';
+    if (tests7dEl) tests7dEl.textContent = (summary.activity && summary.activity.tests_last_7_days != null) ? summary.activity.tests_last_7_days : 0;
+
+    // Dashboard activity chart (last 7 days from timeseries)
+    const chartCanvas = document.getElementById('dashboard-activity-chart');
+    if (window._dashboardActivityChart) {
+      window._dashboardActivityChart.destroy();
+      window._dashboardActivityChart = null;
+    }
+    if (chartCanvas && typeof Chart !== 'undefined' && summary.activity && Array.isArray(summary.activity.timeseries)) {
+      const timeseries = summary.activity.timeseries;
+      const last7 = timeseries.slice(-7);
+      const labels = last7.map(p => (p.day instanceof Date ? p.day.toISOString().slice(0, 10) : String(p.day).slice(0, 10)));
+      const passedValues = last7.map(p => p.passed_tests || 0);
+      const failedValues = last7.map(p => p.failed_tests || 0);
+      const ctx = chartCanvas.getContext('2d');
+      window._dashboardActivityChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Passed',
+              data: passedValues,
+              backgroundColor: 'rgba(34, 197, 94, 0.7)',
+              borderColor: 'rgba(22, 163, 74, 1)',
+              borderWidth: 1,
+              borderRadius: 4,
+              stack: 'tests'
+            },
+            {
+              label: 'Failed',
+              data: failedValues,
+              backgroundColor: 'rgba(239, 68, 68, 0.8)',
+              borderColor: 'rgba(220, 38, 38, 1)',
+              borderWidth: 1,
+              borderRadius: 4,
+              stack: 'tests'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { stacked: true, title: { display: false }, grid: { display: false } },
+            y: { stacked: true, beginAtZero: true, title: { display: false }, ticks: { precision: 0 } }
+          },
+          plugins: {
+            legend: { display: true, position: 'bottom' },
+            tooltip: {
+              callbacks: {
+                label: function (context) {
+                  return context.dataset.label + ': ' + context.parsed.y + ' tests';
+                }
+              }
+            }
+          }
+        }
+      });
+    }
 
     const runHubProject = document.getElementById('run-hub-project');
     if (runHubProject) {

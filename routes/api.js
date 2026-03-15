@@ -28,6 +28,7 @@ const codegenSessionManager = require('../services/codegenSessionManager');
 const { loadProxyConfig, getProxyByName, getProxyForUrl, getProxyForUrlAsync } = require('../lib/proxyConfig');
 const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
 const { deleteTestRunArtifacts, deleteFuzzRunArtifacts, deletePlaywrightRunArtifacts } = require('../services/artifactCleanup');
+const { postmanToOpenApiYaml } = require('../services/postmanToOpenApi');
 
 /** Extract first soap:address location URL from a WSDL file for proxy inference. Returns '' if not found. */
 function getSoapServiceUrlFromWsdl(filePath) {
@@ -893,6 +894,128 @@ router.get('/tests/catalogue', async (req, res) => {
   }
 });
 
+// Dashboard summary: global coverage + daily activity (all accessible projects)
+router.get('/dashboard/summary', async (req, res) => {
+  try {
+    const accessibleIds = await getAccessibleProjectIds(req.user.id, req.user.is_admin);
+    const coverage = {
+      total_active: 0,
+      covered: 0,
+      coverage_pct: 0,
+      passed: 0,
+      failed: 0
+    };
+    const activity = {
+      timeseries: [],
+      tests_today: 0,
+      tests_last_7_days: 0
+    };
+
+    if (accessibleIds !== null && accessibleIds.length === 0) {
+      return res.json({ coverage, activity });
+    }
+
+    const projectIds = accessibleIds !== null ? accessibleIds : (await Project.findAll({ attributes: ['id'] })).map(p => p.id);
+    if (projectIds.length === 0) {
+      return res.json({ coverage, activity });
+    }
+
+    // Coverage: aggregate active tests and last_status across all accessible projects
+    const allTests = await ProjectTest.findAll({
+      where: { project_id: { [Op.in]: projectIds }, is_active: true },
+      include: [{ model: ProjectTestStat, as: 'stats' }]
+    });
+    for (const t of allTests) {
+      coverage.total_active += 1;
+      const stats = t.stats;
+      const lastStatus = (stats && stats.last_status) ? String(stats.last_status).toLowerCase() : 'not_run';
+      if (lastStatus === 'passed') {
+        coverage.passed += 1;
+        coverage.covered += 1;
+      } else if (lastStatus === 'failed' || lastStatus === 'partial_failed') {
+        coverage.failed += 1;
+        coverage.covered += 1;
+      }
+    }
+    coverage.coverage_pct = coverage.total_active > 0 ? Math.round((coverage.covered / coverage.total_active) * 100) : 0;
+
+    // Activity: time series from test_runs, playwright_runs, fuzz_runs (last 14 days)
+    const sequelize = TestRun.sequelize;
+    const daysBack = 14;
+    const placeholders = projectIds.map((_, i) => `:pid${i}`).join(', ');
+    const replacements = { daysBack };
+    projectIds.forEach((id, i) => { replacements[`pid${i}`] = id; });
+
+    const rows = await sequelize.query(
+      `
+      SELECT
+        day::date AS day,
+        SUM(total_tests) AS total_tests,
+        SUM(passed_tests) AS passed_tests,
+        SUM(failed_tests) AS failed_tests
+      FROM (
+        SELECT
+          date_trunc('day', created_at) AS day,
+          COALESCE(total_tests, 0) AS total_tests,
+          COALESCE(passed_tests, 0) AS passed_tests,
+          COALESCE(failed_tests, 0) AS failed_tests
+        FROM test_runs
+        WHERE project_id IN (${placeholders})
+          AND created_at >= (CURRENT_DATE - INTERVAL '1 day' * :daysBack)
+        UNION ALL
+        SELECT
+          date_trunc('day', created_at) AS day,
+          COALESCE(total_tests, 0) AS total_tests,
+          COALESCE(passed_tests, 0) AS passed_tests,
+          COALESCE(failed_tests, 0) AS failed_tests
+        FROM playwright_runs
+        WHERE project_id IN (${placeholders})
+          AND created_at >= (CURRENT_DATE - INTERVAL '1 day' * :daysBack)
+        UNION ALL
+        SELECT
+          date_trunc('day', created_at) AS day,
+          COALESCE(total_tests, 0) AS total_tests,
+          COALESCE(passed_tests, 0) AS passed_tests,
+          COALESCE(failed_tests, 0) AS failed_tests
+        FROM fuzz_runs
+        WHERE project_id IN (${placeholders})
+          AND created_at >= (CURRENT_DATE - INTERVAL '1 day' * :daysBack)
+      ) AS combined
+      GROUP BY day
+      ORDER BY day ASC
+      `,
+      {
+        replacements,
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+
+    const timeseries = Array.isArray(rows)
+      ? rows.map(r => ({
+          day: r.day instanceof Date ? r.day.toISOString().slice(0, 10) : String(r.day).slice(0, 10),
+          total_tests: Number(r.total_tests) || 0,
+          passed_tests: Number(r.passed_tests) || 0,
+          failed_tests: Number(r.failed_tests) || 0
+        }))
+      : [];
+    activity.timeseries = timeseries;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    for (const row of timeseries) {
+      if (row.day === today) activity.tests_today += row.total_tests;
+    }
+    activity.tests_last_7_days = timeseries
+      .filter(r => r.day >= sevenDaysAgo && r.day <= today)
+      .reduce((sum, r) => sum + r.total_tests, 0);
+
+    res.json({ coverage, activity });
+  } catch (error) {
+    console.error('Dashboard summary error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Notes for a single project test (access required)
 router.get('/projects/:projectId/tests/:testId/notes', (req, res, next) => {
   loadProjectAndCheckAccess(req, res, async () => {
@@ -1547,6 +1670,55 @@ router.get('/projects/:projectId/collections', (req, res, next) => {
   }, req.params.projectId, false);
 });
 
+// Convert Postman collection to OpenAPI YAML (in-memory; no storage)
+router.get('/convert/postman-to-openapi', (req, res) => {
+  res.status(405).json({ error: 'Use POST with a file (multipart/form-data, field "file") to convert a Postman collection to OpenAPI YAML' });
+});
+const convertPostmanUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const name = (file.originalname || '').toLowerCase();
+    if (ext === '.json' || name.endsWith('.postman_collection.json')) return cb(null, true);
+    cb(null, false);
+    req.fileRejected = true;
+    req.fileRejectReason = 'Only JSON files (Postman collection) are allowed';
+  },
+});
+router.post('/convert/postman-to-openapi', (req, res, next) => {
+  convertPostmanUpload.single('file')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
+    if (req.fileRejected) return res.status(400).json({ error: req.fileRejectReason || 'Invalid file type' });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: 'No file uploaded. Choose a Postman collection (JSON) file.' });
+    }
+    const raw = req.file.buffer.toString('utf8');
+    let collection;
+    try {
+      collection = JSON.parse(raw);
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid JSON: not a valid Postman collection file' });
+    }
+    if (!collection || typeof collection !== 'object') {
+      return res.status(400).json({ error: 'File does not look like a Postman collection (expected a JSON object)' });
+    }
+    const yamlStr = postmanToOpenApiYaml(collection);
+    const baseName = (req.file.originalname || 'collection').replace(/\.json$/i, '').replace(/\.postman_collection$/i, '');
+    const filename = `${baseName || 'converted'}.openapi.yaml`;
+    res.setHeader('Content-Type', 'application/x-yaml');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(yamlStr);
+  } catch (err) {
+    console.error('Postman to OpenAPI conversion error:', err);
+    res.status(400).json({ error: err.message || 'Conversion failed' });
+  }
+});
+
 // Upload Postman collection directly (optional projectId in body for project-specific collection)
 router.post('/collections/upload', upload.single('file'), async (req, res) => {
   try {
@@ -1653,6 +1825,43 @@ function toUnifiedRun(row, runType) {
     runByUser: runBy
   };
 }
+
+// Get total count of test runs (for dashboard stat) - same filters as GET /test-runs, no pagination
+router.get('/test-runs/count', async (req, res) => {
+  try {
+    const accessibleIds = await getAccessibleProjectIds(req.user.id, req.user.is_admin);
+    const { projectId, type = 'all' } = req.query;
+    const runType = type === 'all' || type === 'ui' || type === 'soap' || type === 'fuzz' ? type : 'api';
+    const projectFilter = accessibleIds === null ? {} : { project_id: { [Op.in]: accessibleIds } };
+
+    const baseWhere = projectId ? { ...projectFilter, project_id: parseInt(projectId, 10) } : projectFilter;
+
+    if (runType === 'api' || runType === 'soap') {
+      const where = { ...baseWhere };
+      if (runType === 'api') where[Op.or] = [{ run_type: null }, { run_type: 'api' }];
+      if (runType === 'soap') where.run_type = 'soap';
+      const total = await TestRun.count({ where });
+      return res.json({ total });
+    }
+    if (runType === 'ui') {
+      const total = await PlaywrightRun.count({ where: baseWhere });
+      return res.json({ total });
+    }
+    if (runType === 'fuzz') {
+      const total = await FuzzRun.count({ where: baseWhere });
+      return res.json({ total });
+    }
+    // type === 'all'
+    const [apiCount, uiCount, fuzzCount] = await Promise.all([
+      TestRun.count({ where: { ...baseWhere, [Op.or]: [{ run_type: null }, { run_type: 'api' }, { run_type: 'soap' }] } }),
+      PlaywrightRun.count({ where: baseWhere }),
+      FuzzRun.count({ where: baseWhere })
+    ]);
+    return res.json({ total: apiCount + uiCount + fuzzCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Get all test runs (optionally unified: type=api|ui|soap|fuzz|all) - filtered by project access
 router.get('/test-runs', async (req, res) => {

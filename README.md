@@ -309,6 +309,8 @@ Fuzz runs use [CATS](https://github.com/Endava/cats) (Contract API Testing Servi
 
 You can convert a Postman collection (JSON) to OpenAPI 3.0 YAML for use with CATS fuzzing, Swagger UI, or other OpenAPI-based tools.
 
+**Web UI:** In the app header go to **Settings → Postman to OpenAPI**. Upload a Postman collection (JSON) and click **Convert and download OpenAPI YAML** to get the OpenAPI file. You can also use the CLI below.
+
 **What the converter does:**
 
 - Walks all requests in the collection (including nested folders)

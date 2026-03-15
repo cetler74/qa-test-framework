@@ -106,6 +106,12 @@
                             </svg>
                             Project access
                         </button>
+                        <button type="button" class="settings-dropdown-item" data-view="postman-to-openapi" role="menuitem">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                            </svg>
+                            Postman to OpenAPI
+                        </button>
                         <button type="button" class="settings-dropdown-item" id="settings-item-user-management" data-view="user-management" role="menuitem" style="display: none;">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
@@ -172,6 +178,21 @@
                         <div class="stat-value" id="total-test-runs">0</div>
                         <div class="stat-label">Test Runs</div>
                     </div>
+                    <div class="stat-card">
+                        <svg class="stat-card-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m-6 0a2 2 0 00-2-2h2a2 2 0 00-2 2" />
+                        </svg>
+                        <div class="stat-value" id="total-test-coverage">0%</div>
+                        <div class="stat-label">Test coverage</div>
+                        <div class="stat-subtext" id="total-test-coverage-subtext">of active tests run</div>
+                    </div>
+                    <div class="stat-card">
+                        <svg class="stat-card-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <div class="stat-value" id="tests-last-7-days">0</div>
+                        <div class="stat-label">Tests (7 days)</div>
+                    </div>
                 </div>
                 <div class="dashboard-grid">
                     <div class="dashboard-left">
@@ -204,6 +225,12 @@
                         <div class="recent-test-runs dashboard-card">
                             <h3>Recent Test Runs</h3>
                             <div id="recent-runs-list"></div>
+                        </div>
+                        <div class="dashboard-activity-card dashboard-card">
+                            <h3>Tests executed (last 7 days)</h3>
+                            <div class="dashboard-activity-chart-wrap">
+                                <canvas id="dashboard-activity-chart" height="140"></canvas>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -364,6 +391,29 @@
                 </div>
                 <p class="view-description">Set visibility and shared users for projects you own. Admins see all projects.</p>
                 <div id="project-access-list"></div>
+            </div>
+
+            <!-- Postman to OpenAPI View (Settings) -->
+            <div id="postman-to-openapi-view" class="view">
+                <div class="view-header">
+                    <h2>Postman to OpenAPI</h2>
+                </div>
+                <p class="view-description">Upload a Postman collection (JSON) to convert it to OpenAPI 3.0 YAML. Use the result with CATS fuzzing, Swagger UI, or upload as an API spec in this app.</p>
+                <div class="postman-to-openapi-converter card">
+                    <form id="postman-to-openapi-form">
+                        <div class="form-group">
+                            <label for="postman-to-openapi-file">Postman collection (JSON)</label>
+                            <input type="file" id="postman-to-openapi-file" name="file" accept=".json" required />
+                            <p class="file-upload-hint">Supports Postman collection v2.0 / v2.1 (.json)</p>
+                        </div>
+                        <p id="postman-to-openapi-error" class="login-error" style="display: none;"></p>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary" id="postman-to-openapi-submit">
+                                Convert and download OpenAPI YAML
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
 
             <!-- User Management View (Settings, admin only) -->
