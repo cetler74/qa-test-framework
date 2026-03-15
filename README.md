@@ -13,6 +13,7 @@ A comprehensive API testing tool with Postman integration that allows you to man
 - **REST API Fuzzing (CATS)**: Run OpenAPI-based fuzz tests via CATS (Contract API Testing Service); view fuzz runs and HTML reports alongside API, UI, and SOAP runs
 - **Postman to OpenAPI**: Convert Postman collection JSON to OpenAPI 3.0 (Swagger) YAML for use with CATS, documentation, or other OpenAPI tools
 - **Test proxy (URL-based)**: Proxy is inferred from the URL or endpoint used for each run (API, UI, SOAP, Fuzz). Internal URLs (localhost, 127.0.0.1, 10.x.x.x) use no proxy; external URLs use the proxy set in `config/proxies.json` (`activeProxy`). No per-project proxy selection.
+- **Test Catalogue / Coverage**: Per-project and global catalogue of all runnable tests (API, SOAP, UI), auto-populated from specs and test definitions, showing last status, last run date, total run count, and per-test notes.
 
 ## Prerequisites and dependencies
 
@@ -121,6 +122,8 @@ This migration script will:
   - `016_users_suspended.sql` - adds `suspended` flag to users (suspended users cannot log in)
   - `017_project_proxy.sql` - adds `proxy_name` to projects (kept for backward compatibility; proxy is now inferred from URL per run)
   - `018_session_store.sql` - creates `session` table for production (express-session with PostgreSQL; avoids in-memory MemoryStore warning)
+  - `020_collections_project_id.sql` - makes collections project-specific by adding `project_id` and index to `collections`
+  - `021_project_tests_and_stats.sql` - creates `project_tests`, `project_test_stats`, and `project_test_notes` tables for the test catalogue/coverage feature
 
 ### Migration Files
 
@@ -145,6 +148,8 @@ The `migrations/` directory contains SQL migration files that are executed in al
 - **016_users_suspended.sql** - `suspended` column on `users` (suspended users cannot log in; used by Manage users)
 - **017_project_proxy.sql** - `proxy_name` column on `projects` (kept for compatibility; proxy is inferred from URL/endpoint per run, not from project)
 - **018_session_store.sql** - `session` table for production session storage (connect-pg-simple; used when `NODE_ENV=production` to avoid MemoryStore warning)
+- **020_collections_project_id.sql** - `project_id` column and index on `collections` so standalone Postman collections can belong to a single project
+- **021_project_tests_and_stats.sql** - `project_tests` (per-project master test catalogue), `project_test_stats` (aggregated per-test execution stats), `project_test_notes` (per-test notes)
 
 ### Manual Database Setup (Alternative)
 
@@ -298,6 +303,7 @@ Fuzz runs use [CATS](https://github.com/Endava/cats) (Contract API Testing Servi
 
 - `scripts/run-sample-execution-with-delay.js` — creates a small two-request collection and runs it with a configured `delayBetweenTests` to validate delay timing.
 - `scripts/create-test-run-fixture.js` — creates a synthetic test run (success + failure) and generates an HTML report for manual verification of report content (response bodies, errors).
+- `scripts/backfillProjectTests.js` — one-off/periodic script that syncs the test catalogue for all projects and backfills `project_test_stats` from historical API, SOAP, and UI runs so coverage views start with realistic counts and last-status values.
 
 ### Converting Postman collections to OpenAPI (Swagger) YAML
 
@@ -565,6 +571,15 @@ docker compose up --build -d
 - `DELETE /api/playwright-recorded-tests/:id` - Delete
 - `POST /api/playwright-recorded-tests/launch-codegen` - Launch Playwright Codegen (optional; requires display; body: optional `baseUrl`)
 
+### Test Catalogue / Coverage
+
+- `GET /api/projects/:projectId/tests/catalogue` - Get the per-project test catalogue for a project, including aggregated stats for each test.
+- `POST /api/projects/:projectId/tests/catalogue/sync` - Re-scan API specs, Postman/OpenAPI collections, WSDL SOAP operations, and UI tests (built-in + recorded) to refresh the project’s test catalogue baseline.
+- `PATCH /api/projects/:projectId/tests/:projectTestId` - Update a single catalogue entry (name, description, active flag).
+- `GET /api/projects/:projectId/tests/:projectTestId/notes` - List notes for a single catalogue test (most recent first).
+- `POST /api/projects/:projectId/tests/:projectTestId/notes` - Add a new note to a test (body: `note`).
+- `GET /api/tests/catalogue` - Global catalogue across all projects, with filters by `projectId`, `test_type`, and `last_status`; used by the Test Catalogue UI for coverage metrics.
+
 ## Database Schema
 
 The application uses PostgreSQL with the following main tables:
@@ -598,6 +613,12 @@ The application uses PostgreSQL with the following main tables:
   - `id`, `name`, `status`, `project_id`, `api_spec_id`, `flow_id`, `total_tests`, `passed_tests`, `failed_tests`, `duration_ms`, `report_path`, `created_at`
 - **fuzz_results** - Individual fuzz test results (migration 009)
   - `id`, `fuzz_run_id`, `test_name`, `endpoint`, `method`, `status`, `duration_ms`, `request_body`, `response_body`, `response_code`, `fuzzer_name`, `error_message`, `execution_order`, `created_at`
+- **project_tests** - Per-project master test catalogue (migration 021)
+  - `id`, `project_id`, `test_type` (`api`, `soap`, `ui_builtin`, `ui_recorded`), `source_id`, `source_kind`, `stable_key`, `name`, `description`, `endpoint`, `method`, `is_active`, `created_at`, `updated_at`
+- **project_test_stats** - Aggregated execution stats per catalogue entry (migration 021)
+  - `id`, `project_test_id`, `total_runs`, `last_status`, `last_run_at`, `last_run_source`, `last_run_type`, `last_run_id`, `created_at`, `updated_at`
+- **project_test_notes** - Free-form notes/comments per catalogue test (migration 021)
+  - `id`, `project_test_id`, `author_id`, `note`, `created_at`
 
 ## Environment Variables
 

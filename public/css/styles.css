@@ -764,6 +764,24 @@ main {
     margin-bottom: var(--spacing-2xl);
 }
 
+/* Global Test Catalogue view layout refinements */
+#tests-catalogue-view .filters {
+    margin-top: var(--spacing-lg);
+    margin-bottom: var(--spacing-xl);
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    background: rgba(15, 23, 42, 0.85);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.tests-catalogue-metrics {
+    margin-bottom: var(--spacing-2xl);
+}
+
+#tests-catalogue-table {
+    margin-top: var(--spacing-xl);
+}
+
 /* Dashboard two-column grid below stats */
 .dashboard-grid {
     display: grid;
@@ -1240,6 +1258,70 @@ p.run-status-in-progress {
     margin-bottom: var(--spacing-lg);
 }
 
+.project-tests-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.project-tests-actions .btn {
+    min-width: 130px;
+    justify-content: center;
+}
+
+/* Row-level action buttons in Tests & Coverage table */
+#project-tests-table .btn-sm {
+    border-radius: 999px;
+    padding-inline: var(--spacing-md);
+}
+
+#project-tests-table .btn-sm + .btn-sm {
+    margin-left: var(--spacing-xs);
+}
+
+/* Ticket ID / URL links in Tests & Coverage table - align with design system */
+#project-tests-table .ticket-link {
+    color: var(--color-primary);
+    text-decoration: none;
+    font-size: 14px;
+    max-width: 200px;
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+    transition: color var(--transition-fast);
+}
+
+#project-tests-table .ticket-link:hover {
+    color: var(--color-primary-dark);
+    text-decoration: underline;
+}
+
+.dark-theme #project-tests-table .ticket-link {
+    color: var(--color-primary-light);
+}
+
+.dark-theme #project-tests-table .ticket-link:hover {
+    color: var(--color-primary);
+}
+
+.link-button {
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    color: var(--color-primary);
+    font: inherit;
+    cursor: pointer;
+    text-align: left;
+}
+
+.link-button:hover {
+    text-decoration: underline;
+}
+
 #project-flows-list {
     display: grid;
     gap: var(--spacing-lg);
@@ -1709,6 +1791,13 @@ p.run-status-in-progress {
     font-weight: 600;
     font-size: 15px;
     line-height: 1.5;
+}
+
+.form-group .form-static {
+    margin: 0;
+    padding: var(--spacing-md) 0;
+    color: var(--color-text-secondary);
+    font-size: 14px;
 }
 
 .form-group input,

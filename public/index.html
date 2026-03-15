@@ -73,6 +73,12 @@
                     </svg>
                     Test Runs
                 </button>
+                <button class="nav-btn" data-view="tests-catalogue">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18M3 12h18M3 17h18M6 3v2m6-2v2m6-2v2" />
+                    </svg>
+                    Test Catalogue
+                </button>
                 <div class="settings-dropdown">
                     <button type="button" class="nav-btn" id="settings-nav-btn" title="Settings" aria-haspopup="true" aria-expanded="false">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -229,6 +235,13 @@
                     <h2 id="project-detail-name"></h2>
                     <button type="button" class="btn btn-secondary" id="project-detail-edit-btn" title="Edit project name, description, and access" style="display: none;">Edit project</button>
                 </div>
+                <div class="project-coverage-summary project-section-box project-section-3d">
+                    <h3>Tests &amp; Coverage summary</h3>
+                    <div id="project-coverage-stats" class="dashboard-stats"></div>
+                    <div class="project-coverage-chart">
+                        <canvas id="project-coverage-chart-canvas" height="120"></canvas>
+                    </div>
+                </div>
                 <div class="project-detail-content">
                     <div class="project-info">
                         <p id="project-detail-description"></p>
@@ -298,6 +311,48 @@
                             </button>
                         </div>
                         <div id="project-schedules-list"></div>
+                    </div>
+                    <div class="project-tests project-section-box project-section-3d">
+                        <h3>Tests &amp; Coverage</h3>
+                        <div class="project-tests-actions">
+                            <button class="btn btn-secondary" id="toggle-project-tests-edit-mode-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                </svg>
+                                Edit mode
+                            </button>
+                            <button class="btn btn-secondary" id="add-project-test-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                </svg>
+                                Add test
+                            </button>
+                            <button class="btn btn-secondary" id="upload-project-tests-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                </svg>
+                                Upload tests
+                            </button>
+                            <button class="btn btn-secondary" id="sync-project-tests-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0013.9-3M19 5a9 9 0 00-13.9 3" />
+                                </svg>
+                                Sync from specs
+                            </button>
+                            <button class="btn btn-danger" id="clear-project-tests-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                                Clear tests
+                            </button>
+                            <button class="btn btn-secondary" id="export-project-tests-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v4h4M4 4l6 6m6-6h4v4m-4-4l-6 6M4 14v6h6m-6 0l6-6m4 6h6v-6m-6 6l6-6" />
+                                </svg>
+                                Download CSV
+                            </button>
+                        </div>
+                        <div id="project-tests-table" class="project-tests-table"></div>
                     </div>
                 </div>
             </div>
@@ -400,6 +455,37 @@
                     </div>
                 </div>
                 <div id="test-runs-list"></div>
+            </div>
+
+            <!-- Global Test Catalogue / Coverage View -->
+            <div id="tests-catalogue-view" class="view">
+                <div class="view-header">
+                    <h2>Test Catalogue / Coverage</h2>
+                </div>
+                <p class="view-description">Unified view of all tests across projects, with their latest status and execution counts. Use filters to focus on specific projects or test types.</p>
+                <div class="filters">
+                    <select id="tests-catalogue-project-filter">
+                        <option value="">All Projects</option>
+                    </select>
+                    <select id="tests-catalogue-type-filter">
+                        <option value="">All Types</option>
+                        <option value="api">API</option>
+                        <option value="soap">SOAP</option>
+                        <option value="ui_builtin">UI (built-in)</option>
+                        <option value="ui_recorded">UI (recorded)</option>
+                    </select>
+                    <select id="tests-catalogue-status-filter">
+                        <option value="">All Statuses</option>
+                        <option value="passed">Passed</option>
+                        <option value="failed">Failed</option>
+                        <option value="partial_failed">Partial Failed</option>
+                        <option value="not_run">Not run</option>
+                    </select>
+                    <button class="btn" id="tests-catalogue-apply-btn">Apply</button>
+                    <button class="btn btn-secondary" id="tests-catalogue-clear-btn">Clear</button>
+                </div>
+                <div id="tests-catalogue-metrics" class="tests-catalogue-metrics"></div>
+                <div id="tests-catalogue-table"></div>
             </div>
 
             <!-- UI Tests View -->
@@ -755,6 +841,7 @@ test('test', async ({ page }) => {
 
     <script src="/js/app.js"></script>
     <script src="/js/projectManager.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/js/testRunner.js"></script>
     <script src="/js/reportViewer.js"></script>
     <script src="/js/uiTests.js"></script>

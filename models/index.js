@@ -17,6 +17,9 @@ const Schedule = require('./Schedule');
 const SoapOperation = require('./SoapOperation');
 const FuzzRun = require('./FuzzRun');
 const FuzzResult = require('./FuzzResult');
+const ProjectTest = require('./ProjectTest');
+const ProjectTestStat = require('./ProjectTestStat');
+const ProjectTestNote = require('./ProjectTestNote');
 
 // Define associations
 Project.belongsTo(User, { foreignKey: 'owner_id', as: 'owner' });
@@ -76,6 +79,11 @@ Project.hasMany(TestRun, {
 TestRun.belongsTo(Project, {
   foreignKey: 'project_id',
   as: 'project'
+});
+
+TestRun.belongsTo(User, {
+  foreignKey: 'run_by_user_id',
+  as: 'runByUser'
 });
 
 TestRun.hasMany(TestResult, {
@@ -227,6 +235,41 @@ FuzzRun.belongsTo(Flow, {
   as: 'flow'
 });
 
+Project.hasMany(ProjectTest, {
+  foreignKey: 'project_id',
+  as: 'tests'
+});
+
+ProjectTest.belongsTo(Project, {
+  foreignKey: 'project_id',
+  as: 'project'
+});
+
+ProjectTest.hasOne(ProjectTestStat, {
+  foreignKey: 'project_test_id',
+  as: 'stats'
+});
+
+ProjectTestStat.belongsTo(ProjectTest, {
+  foreignKey: 'project_test_id',
+  as: 'projectTest'
+});
+
+ProjectTestStat.belongsTo(User, {
+  foreignKey: 'last_run_by_user_id',
+  as: 'lastRunByUser'
+});
+
+ProjectTest.hasMany(ProjectTestNote, {
+  foreignKey: 'project_test_id',
+  as: 'notes'
+});
+
+ProjectTestNote.belongsTo(ProjectTest, {
+  foreignKey: 'project_test_id',
+  as: 'projectTest'
+});
+
 module.exports = {
   sequelize,
   Project,
@@ -246,6 +289,9 @@ module.exports = {
   Schedule,
   SoapOperation,
   FuzzRun,
-  FuzzResult
+  FuzzResult,
+  ProjectTest,
+  ProjectTestStat,
+  ProjectTestNote
 };
 

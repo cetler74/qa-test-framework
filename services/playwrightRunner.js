@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { Op } = require('sequelize');
-const { PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest } = require('../models');
+const { PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, ProjectTest, ProjectTestStat } = require('../models');
 const playwrightConfig = require('../config/playwright');
 const uiTestsConfig = require('../e2e/ui-tests.config');
 
@@ -1050,7 +1050,7 @@ function flattenPlaywrightJsonReport(report) {
 }
 
 async function recordResult(runId, order, testName, status, durationMs, endpoint, errorMessage, assertions, screenshotPath = null) {
-  await PlaywrightResult.create({
+  const uiResult = await PlaywrightResult.create({
     playwright_run_id: runId,
     test_name: testName,
     status,
@@ -1061,6 +1061,10 @@ async function recordResult(runId, order, testName, status, durationMs, endpoint
     execution_order: order,
     screenshot_path: screenshotPath || null
   });
+
+  // Update per-test catalogue stats for this UI result
+  const run = await PlaywrightRun.findByPk(runId);
+  await updateProjectTestStatsForUiResult(run, uiResult);
 }
 
 async function updateRunSummary(runId, totalTests, passedTests, failedTests, durationMs, status) {
@@ -1082,6 +1086,95 @@ async function updateRunArtifacts(runId, updates = {}) {
   if (updates.browser_name !== undefined) set.browser_name = updates.browser_name || null;
   if (Object.keys(set).length === 0) return;
   await PlaywrightRun.update(set, { where: { id: runId } });
+}
+
+/**
+ * Ensure a ProjectTest and ProjectTestStat exist for a given UI PlaywrightResult
+ * and update aggregated stats.
+ * Stable keys:
+ *  - Built-in UI tests: ui_builtin:<id>
+ *  - Recorded tests: ui_recorded:<recordedId>
+ * For recorded tests we prefer assertions.recorded_test_id; for built-in tests we
+ * fall back to the test_name to maintain stability.
+ * @param {import('../models/PlaywrightRun')} run
+ * @param {import('../models/PlaywrightResult')} result
+ * @returns {Promise<void>}
+ */
+async function updateProjectTestStatsForUiResult(run, result) {
+  try {
+    if (!run || !run.project_id) return;
+
+    const testName = (result.test_name || '').toString();
+    const assertions = result.assertions || {};
+    let stableKey;
+    let testType;
+    let sourceId = null;
+    let sourceKind = null;
+
+    if (assertions && assertions.source === 'recorded' && assertions.recorded_test_id) {
+      // Recorded UI test with explicit recorded_test_id
+      const recordedId = String(assertions.recorded_test_id);
+      stableKey = `ui_recorded:${recordedId}`;
+      testType = 'ui_recorded';
+      sourceId = parseInt(recordedId, 10) || null;
+      sourceKind = 'ui_recorded';
+    } else if (testName.startsWith('Recorded:')) {
+      // Fallback: treat as recorded by name
+      stableKey = `ui_recorded:${testName.replace(/^Recorded:\s*/, '')}`;
+      testType = 'ui_recorded';
+      sourceKind = 'ui_recorded';
+    } else {
+      // Built-in UI test: we do not include these in the project_tests catalogue anymore
+      // to avoid polluting coverage with global UI checks.
+      return;
+    }
+
+    const name = testName || 'UI Test';
+
+    const [projectTest] = await ProjectTest.findOrCreate({
+      where: {
+        project_id: run.project_id,
+        stable_key: stableKey
+      },
+      defaults: {
+        test_type: testType,
+        name,
+        endpoint: result.endpoint || null,
+        method: 'UI',
+        source_id: sourceId,
+        source_kind: sourceKind,
+        is_active: true
+      }
+    });
+
+    await projectTest.update({
+      name,
+      endpoint: result.endpoint || projectTest.endpoint,
+      method: 'UI',
+      is_active: true
+    });
+
+    const [stats] = await ProjectTestStat.findOrCreate({
+      where: { project_test_id: projectTest.id },
+      defaults: {
+        total_runs: 0,
+        last_status: 'not_run'
+      }
+    });
+
+    const newTotalRuns = (stats.total_runs || 0) + 1;
+    await stats.update({
+      total_runs: newTotalRuns,
+      last_status: result.status || stats.last_status || 'not_run',
+      last_run_at: new Date(),
+      last_run_source: 'ui_run',
+      last_run_type: 'ui',
+      last_run_id: run.id
+    });
+  } catch (err) {
+    // Never break UI execution because catalogue updates failed
+    console.error('[playwrightRunner] Failed to update project test stats for UI result:', err.message || err);
+  }
 }
 
 /**

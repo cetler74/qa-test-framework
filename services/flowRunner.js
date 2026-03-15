@@ -59,7 +59,8 @@ async function executeFlow(flowId, options = {}) {
         total_tests: 0,
         passed_tests: 0,
         failed_tests: 0,
-        duration_ms: 0
+        duration_ms: 0,
+        run_by_user_id: options?.runByUserId ?? null
       });
       apiRunIds.push(testRun.id);
 

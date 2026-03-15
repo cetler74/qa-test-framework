@@ -3,7 +3,7 @@
  */
 const path = require('path');
 const soap = require('soap');
-const { ApiSpec, SoapOperation, TestRun, TestResult } = require('../models');
+const { ApiSpec, SoapOperation, TestRun, TestResult, ProjectTest, ProjectTestStat } = require('../models');
 const { isTestRunCancelled, clearCancelTestRun } = require('./testRunner');
 
 /**
@@ -90,7 +90,8 @@ async function executeSoapTests(projectId, apiSpecId, operationIds, runName, tes
       total_tests: operations.length,
       passed_tests: 0,
       failed_tests: 0,
-      duration_ms: 0
+      duration_ms: 0,
+      run_by_user_id: options?.runByUserId ?? null
     });
   }
 
@@ -166,17 +167,75 @@ async function executeSoapTests(projectId, apiSpecId, operationIds, runName, tes
           const duration = Date.now() - opStart;
           const status = err ? 'failed' : 'passed';
           if (err) failed++; else passed++;
-          await TestResult.create({
-            test_run_id: testRun.id,
-            test_name: op.name,
-            endpoint: methodName,
-            method: 'SOAP',
-            status,
-            duration_ms: duration,
-            response_code: err ? null : 200,
-            error_message: err ? (err.message || String(err)) : null,
-            response_body: result ? safeJsonStringify(result) : null
-          });
+          let testResult;
+          try {
+            testResult = await TestResult.create({
+              test_run_id: testRun.id,
+              test_name: op.name,
+              endpoint: methodName,
+              method: 'SOAP',
+              status,
+              duration_ms: duration,
+              response_code: err ? null : 200,
+              error_message: err ? (err.message || String(err)) : null,
+              response_body: result ? safeJsonStringify(result) : null
+            });
+          } catch (createError) {
+            // If something unexpected happens while saving the result, log and continue.
+            console.error('[soapRunner] Failed to save SOAP TestResult:', createError.message || createError);
+          }
+
+          // Update project test catalogue / stats for this SOAP operation
+          try {
+            if (testResult && testRun && testRun.project_id) {
+              const name = op.name || op.operation_name || methodName || `SOAP Operation ${op.id}`;
+              const methodLabel = 'SOAP';
+              const stableKey = `soap:${op.operation_name || methodLabel}:${name}`;
+
+              const [projectTest] = await ProjectTest.findOrCreate({
+                where: {
+                  project_id: testRun.project_id,
+                  stable_key: stableKey
+                },
+                defaults: {
+                  test_type: 'soap',
+                  name,
+                  endpoint: methodName,
+                  method: methodLabel,
+                  source_id: op.id,
+                  source_kind: 'soap_operation',
+                  is_active: true
+                }
+              });
+
+              await projectTest.update({
+                name,
+                endpoint: methodName,
+                method: methodLabel,
+                is_active: true
+              });
+
+              const [stats] = await ProjectTestStat.findOrCreate({
+                where: { project_test_id: projectTest.id },
+                defaults: {
+                  total_runs: 0,
+                  last_status: 'not_run'
+                }
+              });
+
+              const newTotalRuns = (stats.total_runs || 0) + 1;
+              await stats.update({
+                total_runs: newTotalRuns,
+                last_status: status,
+                last_run_at: new Date(),
+                last_run_source: 'soap',
+                last_run_type: 'soap',
+                last_run_id: testRun.id
+              });
+            }
+          } catch (statsError) {
+            console.error('[soapRunner] Failed to update project test stats for SOAP result:', statsError.message || statsError);
+          }
           checkDone();
         });
       });

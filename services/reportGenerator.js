@@ -426,6 +426,12 @@ const reportTemplate = `
                     <div class="metadata-label">Duration</div>
                     <div class="metadata-value">{{formatDuration testRun.duration_ms}}ms</div>
                 </div>
+                {{#if runByUsername}}
+                <div class="metadata-item">
+                    <div class="metadata-label">Run by</div>
+                    <div class="metadata-value">{{runByUsername}}</div>
+                </div>
+                {{/if}}
             </div>
         </header>
 
@@ -568,6 +574,7 @@ const compiledReportTemplate = handlebars.compile(reportTemplate);
  */
 async function generateReport(testRunId, options = {}) {
   try {
+    const { User } = require('../models');
     // Fetch test run with related data (include project's API specs for fallback when result has no api_spec_id)
     const testRun = await TestRun.findByPk(testRunId, {
       include: [
@@ -581,6 +588,12 @@ async function generateReport(testRunId, options = {}) {
             through: { attributes: [] },
             attributes: ['id', 'name']
           }]
+        },
+        {
+          model: User,
+          as: 'runByUser',
+          attributes: ['id', 'username', 'display_name'],
+          required: false
         }
       ]
     });
@@ -714,10 +727,13 @@ async function generateReport(testRunId, options = {}) {
     });
 
     // Prepare data for template
+    const runByUser = testRun.runByUser;
+    const runByUsername = runByUser ? (runByUser.display_name || runByUser.username || '') : null;
     const templateData = {
       testRun: testRun.toJSON(),
       project: testRun.project.toJSON(),
-      testResultsBySpec: testResultsBySpec
+      testResultsBySpec: testResultsBySpec,
+      runByUsername
     };
 
     // Render template (compiled once at load)
