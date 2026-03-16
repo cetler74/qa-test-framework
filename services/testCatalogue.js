@@ -287,7 +287,7 @@ async function getGlobalTestCatalogue(filters = {}) {
       {
         model: ProjectTestStat,
         as: 'stats',
-        required: false,
+        required: Object.keys(statWhere).length ? true : false,
         where: Object.keys(statWhere).length ? statWhere : undefined
       },
       {

@@ -313,31 +313,49 @@
                         <h3>Available Collections</h3>
                         <div id="project-collections-list" class="project-collections-list"></div>
                     </div>
-                    <div class="project-flows project-section-box project-section-3d">
-                        <h3>Flows</h3>
-                        <p class="project-flows-desc">Ordered sequences of API and UI tests. Create a flow, add tasks, then run it.</p>
-                        <div class="project-flows-actions">
-                            <button class="btn btn-primary" id="create-flow-btn">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    <div class="project-flows project-section-box project-section-3d collapsible-section collapsed" id="project-flows-section">
+                        <button type="button" class="collapsible-header" id="project-flows-toggle" aria-expanded="false" aria-controls="project-flows-body">
+                            <h3>Flows</h3>
+                            <span class="collapsible-chevron" aria-hidden="true">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                                 </svg>
-                                Create flow
-                            </button>
+                            </span>
+                        </button>
+                        <div class="collapsible-body" id="project-flows-body">
+                            <p class="project-flows-desc">Ordered sequences of API and UI tests. Create a flow, add tasks, then run it.</p>
+                            <div class="project-flows-actions">
+                                <button class="btn btn-primary" id="create-flow-btn">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                    </svg>
+                                    Create flow
+                                </button>
+                            </div>
+                            <div id="project-flows-list"></div>
                         </div>
-                        <div id="project-flows-list"></div>
                     </div>
-                    <div class="project-schedules project-section-box project-section-3d">
-                        <h3>Schedules</h3>
-                        <p class="project-schedules-desc">Run a flow or the whole project on a schedule (cron or repeat interval).</p>
-                        <div class="project-schedules-actions">
-                            <button class="btn btn-primary" id="create-schedule-btn">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    <div class="project-schedules project-section-box project-section-3d collapsible-section collapsed" id="project-schedules-section">
+                        <button type="button" class="collapsible-header" id="project-schedules-toggle" aria-expanded="false" aria-controls="project-schedules-body">
+                            <h3>Schedules</h3>
+                            <span class="collapsible-chevron" aria-hidden="true">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20" height="20">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                                 </svg>
-                                Create schedule
-                            </button>
+                            </span>
+                        </button>
+                        <div class="collapsible-body" id="project-schedules-body">
+                            <p class="project-schedules-desc">Run a flow or the whole project on a schedule (cron or repeat interval).</p>
+                            <div class="project-schedules-actions">
+                                <button class="btn btn-primary" id="create-schedule-btn">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                    </svg>
+                                    Create schedule
+                                </button>
+                            </div>
+                            <div id="project-schedules-list"></div>
                         </div>
-                        <div id="project-schedules-list"></div>
                     </div>
                     <div class="project-tests project-section-box project-section-3d">
                         <h3>Tests &amp; Coverage</h3>
@@ -378,6 +396,49 @@
                                 </svg>
                                 Download CSV
                             </button>
+                            <button class="btn btn-secondary" id="download-project-tests-report-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6h6v6m-7 4h8a2 2 0 002-2v-8a2 2 0 00-2-2h-1V7a3 3 0 10-6 0v2H9a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                                Download report
+                            </button>
+                        </div>
+                        <div class="filters project-tests-filters">
+                            <input type="text" id="project-tests-search" placeholder="Search by name or ticket..." />
+                            <select id="project-tests-type-filter" title="Filter by test type">
+                                <option value="">All Types</option>
+                                <option value="api">API</option>
+                                <option value="soap">SOAP</option>
+                                <option value="ui_builtin">UI (built-in)</option>
+                                <option value="ui_recorded">UI (recorded)</option>
+                                <option value="manual">Manual Test</option>
+                                <option value="other">Other</option>
+                            </select>
+                            <div class="multi-select project-tests-status-multiselect" id="project-tests-status-filter-wrap">
+                                <button type="button" class="multi-select-trigger" id="project-tests-status-trigger">
+                                    <span class="multi-select-label">Last status</span>
+                                    <span class="multi-select-value" id="project-tests-status-label">All statuses</span>
+                                    <span class="multi-select-caret">&#9662;</span>
+                                </button>
+                                <div class="multi-select-menu" id="project-tests-status-menu">
+                                    <label><input type="checkbox" value="passed" /> Passed</label>
+                                    <label><input type="checkbox" value="failed" /> Failed</label>
+                                    <label><input type="checkbox" value="partial_failed" /> Partial Failed</label>
+                                    <label><input type="checkbox" value="running" /> Running</label>
+                                    <label><input type="checkbox" value="cancelled" /> Cancelled</label>
+                                    <label><input type="checkbox" value="not_run" /> Not run</label>
+                                </div>
+                            </div>
+                            <select id="project-tests-status-filter" title="Filter by last status" multiple style="display:none;">
+                                <option value="passed">Passed</option>
+                                <option value="failed">Failed</option>
+                                <option value="partial_failed">Partial Failed</option>
+                                <option value="running">Running</option>
+                                <option value="cancelled">Cancelled</option>
+                                <option value="not_run">Not run</option>
+                            </select>
+                            <button class="btn" id="project-tests-apply-btn">Apply</button>
+                            <button class="btn btn-secondary" id="project-tests-clear-btn">Clear</button>
                         </div>
                         <div id="project-tests-table" class="project-tests-table"></div>
                     </div>
@@ -502,6 +563,21 @@
                         </select>
                         <button class="btn" id="apply-filters-btn">Apply</button>
                         <button class="btn btn-secondary" id="clear-filters-btn">Clear</button>
+                    </div>
+                </div>
+                <div class="test-runs-pagination-bar">
+                    <div class="test-runs-page-size">
+                        <label for="test-runs-page-size">Rows per page</label>
+                        <select id="test-runs-page-size">
+                            <option value="10">10</option>
+                            <option value="50" selected>50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                    <div class="test-runs-page-controls">
+                        <button type="button" class="btn btn-secondary btn-sm" id="test-runs-prev-page">&laquo; Prev</button>
+                        <span id="test-runs-page-info"></span>
+                        <button type="button" class="btn btn-secondary btn-sm" id="test-runs-next-page">Next &raquo;</button>
                     </div>
                 </div>
                 <div id="test-runs-list"></div>
@@ -872,6 +948,27 @@ test('test', async ({ page }) => {
                 </div>
             </div>
         </main>
+        <footer class="app-footer" id="app-footer">
+            <div class="app-footer-inner">
+                <button type="button" class="app-footer-toggle" id="app-footer-toggle" aria-expanded="true" aria-controls="app-footer-body" title="Collapse footer">
+                    <span class="app-footer-toggle-chevron" aria-hidden="true">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </span>
+                </button>
+                <div class="app-footer-body" id="app-footer-body">
+                    <div class="app-footer-contact">
+                        <span>Contact:</span>
+                        <a href="mailto:carlos.e.larramba@meo.pt">carlos.e.larramba@meo.pt</a>
+                    </div>
+                    <div class="app-footer-brand" aria-label="Powered by CL">
+                        <span class="app-footer-powered">Powered by</span>
+                        <span class="app-footer-signature">CL</span>
+                    </div>
+                </div>
+            </div>
+        </footer>
     </div>
 
     <!-- Modals -->

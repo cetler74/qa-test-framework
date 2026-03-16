@@ -679,6 +679,130 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // Project Tests & Coverage filters
+  const projectTestsApply = document.getElementById('project-tests-apply-btn');
+  const projectTestsClear = document.getElementById('project-tests-clear-btn');
+  const projectTestsStatusTrigger = document.getElementById('project-tests-status-trigger');
+  const projectTestsStatusMenu = document.getElementById('project-tests-status-menu');
+  const projectTestsStatusLabel = document.getElementById('project-tests-status-label');
+  const projectTestsStatusHidden = document.getElementById('project-tests-status-filter');
+
+  function syncProjectStatusHiddenFromMenu() {
+    if (!projectTestsStatusMenu || !projectTestsStatusHidden) return;
+    const checkboxes = Array.from(projectTestsStatusMenu.querySelectorAll('input[type="checkbox"]'));
+    const selectedValues = checkboxes.filter(cb => cb.checked).map(cb => cb.value);
+    Array.from(projectTestsStatusHidden.options || []).forEach(opt => {
+      opt.selected = selectedValues.includes(opt.value);
+    });
+    if (projectTestsStatusLabel) {
+      if (selectedValues.length === 0) {
+        projectTestsStatusLabel.textContent = 'All statuses';
+      } else if (selectedValues.length === 1) {
+        const single = checkboxes.find(cb => cb.checked);
+        projectTestsStatusLabel.textContent = single ? single.parentElement.textContent.trim() : '1 selected';
+      } else {
+        projectTestsStatusLabel.textContent = `${selectedValues.length} selected`;
+      }
+    }
+  }
+
+  if (projectTestsStatusTrigger && projectTestsStatusMenu) {
+    projectTestsStatusTrigger.addEventListener('click', () => {
+      projectTestsStatusMenu.classList.toggle('open');
+    });
+    projectTestsStatusMenu.addEventListener('change', () => {
+      syncProjectStatusHiddenFromMenu();
+    });
+    document.addEventListener('click', (e) => {
+      if (!projectTestsStatusMenu.classList.contains('open')) return;
+      const target = e.target;
+      if (target instanceof Node) {
+        if (!projectTestsStatusMenu.contains(target) && !projectTestsStatusTrigger.contains(target)) {
+          projectTestsStatusMenu.classList.remove('open');
+        }
+      }
+    });
+    // initialise label
+    syncProjectStatusHiddenFromMenu();
+  }
+
+  if (projectTestsApply) {
+    projectTestsApply.addEventListener('click', () => {
+      const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
+      const projectId = editModeBtn?.getAttribute('data-project-id');
+      if (projectId && typeof renderProjectTestsTable === 'function') {
+        renderProjectTestsTable(Number(projectId));
+      }
+    });
+  }
+  if (projectTestsClear) {
+    projectTestsClear.addEventListener('click', () => {
+      const search = document.getElementById('project-tests-search');
+      const type = document.getElementById('project-tests-type-filter');
+      const status = document.getElementById('project-tests-status-filter');
+      if (search) search.value = '';
+      if (type) type.value = '';
+      if (status) {
+        Array.from(status.options || []).forEach(o => { o.selected = false; });
+      }
+      if (projectTestsStatusMenu) {
+        Array.from(projectTestsStatusMenu.querySelectorAll('input[type="checkbox"]')).forEach(cb => {
+          cb.checked = false;
+        });
+      }
+      if (projectTestsStatusLabel) {
+        projectTestsStatusLabel.textContent = 'All statuses';
+      }
+      const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
+      const projectId = editModeBtn?.getAttribute('data-project-id');
+      if (projectId && typeof renderProjectTestsTable === 'function') {
+        renderProjectTestsTable(Number(projectId));
+      }
+    });
+  }
+
+  // Test Runs pagination controls
+  const testRunsPageSize = document.getElementById('test-runs-page-size');
+  const testRunsPrev = document.getElementById('test-runs-prev-page');
+  const testRunsNext = document.getElementById('test-runs-next-page');
+  if (testRunsPageSize) {
+    testRunsPageSize.addEventListener('change', () => {
+      window.testRunsCurrentPage = 1;
+      if (Array.isArray(window.testRunsData)) {
+        renderTestRunsList(window.testRunsData);
+      }
+    });
+  }
+  if (testRunsPrev) {
+    testRunsPrev.addEventListener('click', () => {
+      if (!Array.isArray(window.testRunsData) || !window.testRunsData.length) return;
+      window.testRunsCurrentPage = Math.max((window.testRunsCurrentPage || 1) - 1, 1);
+      renderTestRunsList(window.testRunsData);
+    });
+  }
+  if (testRunsNext) {
+    testRunsNext.addEventListener('click', () => {
+      if (!Array.isArray(window.testRunsData) || !window.testRunsData.length) return;
+      const pageSizeSelect = document.getElementById('test-runs-page-size');
+      const pageSize = pageSizeSelect ? parseInt(pageSizeSelect.value, 10) || 50 : 50;
+      const total = window.testRunsData.length;
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      window.testRunsCurrentPage = Math.min((window.testRunsCurrentPage || 1) + 1, totalPages);
+      renderTestRunsList(window.testRunsData);
+    });
+  }
+
+  // Footer collapsible toggle
+  const appFooterToggle = document.getElementById('app-footer-toggle');
+  const appFooter = document.getElementById('app-footer');
+  if (appFooterToggle && appFooter) {
+    appFooterToggle.addEventListener('click', () => {
+      const isCollapsed = appFooter.classList.toggle('collapsed');
+      appFooterToggle.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+      appFooterToggle.setAttribute('title', isCollapsed ? 'Expand footer' : 'Collapse footer');
+    });
+  }
+
   // Dashboard: click or Enter/Space on a next-scheduled item opens edit schedule modal
   document.getElementById('app-container')?.addEventListener('click', (e) => {
     const item = e.target.closest('#next-scheduled-list .next-scheduled-item');
@@ -1243,6 +1367,78 @@ function getRunTypeBadgeHtml(runType) {
   return `<span class="run-type-badge run-type-${type}">${icon}${label}</span>`;
 }
 
+function renderTestRunsList(allRuns) {
+  const testRunsList = document.getElementById('test-runs-list');
+  const pageSizeSelect = document.getElementById('test-runs-page-size');
+  const pageInfo = document.getElementById('test-runs-page-info');
+  const pageSize = pageSizeSelect ? parseInt(pageSizeSelect.value, 10) || 50 : 50;
+  const total = Array.isArray(allRuns) ? allRuns.length : 0;
+  const totalPages = total === 0 ? 1 : Math.ceil(total / pageSize);
+  const currentPage = Math.min(Math.max(window.testRunsCurrentPage || 1, 1), totalPages);
+  window.testRunsCurrentPage = currentPage;
+
+  if (!testRunsList) return;
+
+  if (total === 0) {
+    testRunsList.innerHTML = `
+      <div class="empty-state">
+        <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+        </svg>
+        <h3>No test runs yet</h3>
+        <p>Run your first test to see results here</p>
+      </div>
+    `;
+    if (pageInfo) pageInfo.textContent = '0–0 of 0';
+    return;
+  }
+
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, total);
+  const pageRuns = allRuns.slice(startIndex, endIndex);
+
+  testRunsList.innerHTML = pageRuns.map(run => {
+    const runType = run.runType || 'api';
+    const projectName = run.project?.name || (run.project_id ? 'Unknown' : 'No project');
+    const onClick = runType === 'ui' ? `viewPlaywrightRun(${run.id})` : runType === 'fuzz' ? `viewFuzzRun(${run.id})` : `viewTestRun(${run.id})`;
+    const typeBadge = getRunTypeBadgeHtml(runType);
+    const flowLabel = run.flow?.name ? ` • Flow: ${run.flow.name}` : '';
+    const isRunning = (run.status || '').toLowerCase() === 'running';
+    const progressMsg = (run.progress_message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const runningLine = isRunning
+      ? '<p class="run-status-in-progress">Run in progress — results will update when complete</p>' + (progressMsg ? `<p class="fuzz-progress-output" title="Live CATS output">${progressMsg}</p>` : '')
+      : '';
+    const cancelBtn = isRunning
+      ? `<button type="button" class="btn btn-error btn-sm" onclick="event.stopPropagation(); cancelTestRun('${runType}', ${run.id})" title="Cancel this run">Cancel</button>`
+      : '';
+    const deleteBtn = `<button type="button" class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteTestRunFromList('${runType}', ${run.id})" title="Delete this run and all artifacts (reports, videos, traces)">Delete</button>`;
+    const runBy = run.runByUser ? (run.runByUser.display_name || run.runByUser.username || '') : null;
+    const runByLine = runBy ? `<p style="font-size: 12px; color: #666; margin-top: 4px;">Run by: ${runBy}</p>` : '';
+    return `
+    <div class="list-item" onclick="${onClick}" style="cursor: pointer;">
+      <div class="list-item-info">
+        <h3>${typeBadge} ${run.name}</h3>
+        <p>Project: ${projectName}${flowLabel} • ${formatDateTime(run.created_at)}</p>
+        <p style="font-size: 12px; color: #666; margin-top: 5px;">
+          ${run.passed_tests != null ? run.passed_tests : 0} passed, ${run.failed_tests != null ? run.failed_tests : 0} failed of ${run.total_tests != null ? run.total_tests : 0} total
+        </p>
+        ${runByLine}
+        ${runningLine}
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        ${cancelBtn}
+        ${deleteBtn}
+        <span class="status-badge ${run.status || 'pending'}">${run.status === 'partial_failed' ? 'Partial Failed' : (run.status || 'pending')}</span>
+      </div>
+    </div>
+  `;
+  }).join('');
+
+  if (pageInfo) {
+    pageInfo.textContent = `${startIndex + 1}–${endIndex} of ${total}`;
+  }
+}
+
 // Test Runs (unified API + UI; type filter and runType badge)
 async function loadTestRuns() {
   try {
@@ -1269,60 +1465,13 @@ async function loadTestRuns() {
     if (name) params.append('name', name);
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
-    params.append('limit', '50');
+    // Fetch a comfortable upper bound and paginate client-side
+    params.append('limit', '500');
 
     const endpoint = `/test-runs?${params.toString()}`;
     const testRuns = await apiRequest(endpoint);
-    const testRunsList = document.getElementById('test-runs-list');
-
-    if (testRuns.length === 0) {
-      testRunsList.innerHTML = `
-        <div class="empty-state">
-          <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-          </svg>
-          <h3>No test runs yet</h3>
-          <p>Run your first test to see results here</p>
-        </div>
-      `;
-    } else {
-      testRunsList.innerHTML = testRuns.map(run => {
-        const runType = run.runType || 'api';
-        const projectName = run.project?.name || (run.project_id ? 'Unknown' : 'No project');
-        const onClick = runType === 'ui' ? `viewPlaywrightRun(${run.id})` : runType === 'fuzz' ? `viewFuzzRun(${run.id})` : `viewTestRun(${run.id})`;
-        const typeBadge = getRunTypeBadgeHtml(runType);
-        const flowLabel = run.flow?.name ? ` • Flow: ${run.flow.name}` : '';
-        const isRunning = (run.status || '').toLowerCase() === 'running';
-        const progressMsg = (run.progress_message || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const runningLine = isRunning
-          ? '<p class="run-status-in-progress">Run in progress — results will update when complete</p>' + (progressMsg ? `<p class="fuzz-progress-output" title="Live CATS output">${progressMsg}</p>` : '')
-          : '';
-        const cancelBtn = isRunning
-          ? `<button type="button" class="btn btn-error btn-sm" onclick="event.stopPropagation(); cancelTestRun('${runType}', ${run.id})" title="Cancel this run">Cancel</button>`
-          : '';
-        const deleteBtn = `<button type="button" class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteTestRunFromList('${runType}', ${run.id})" title="Delete this run and all artifacts (reports, videos, traces)">Delete</button>`;
-        const runBy = run.runByUser ? (run.runByUser.display_name || run.runByUser.username || '') : null;
-        const runByLine = runBy ? `<p style="font-size: 12px; color: #666; margin-top: 4px;">Run by: ${runBy}</p>` : '';
-        return `
-        <div class="list-item" onclick="${onClick}" style="cursor: pointer;">
-          <div class="list-item-info">
-            <h3>${typeBadge} ${run.name}</h3>
-            <p>Project: ${projectName}${flowLabel} • ${formatDateTime(run.created_at)}</p>
-            <p style="font-size: 12px; color: #666; margin-top: 5px;">
-              ${run.passed_tests != null ? run.passed_tests : 0} passed, ${run.failed_tests != null ? run.failed_tests : 0} failed of ${run.total_tests != null ? run.total_tests : 0} total
-            </p>
-            ${runByLine}
-            ${runningLine}
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            ${cancelBtn}
-            ${deleteBtn}
-            <span class="status-badge ${run.status || 'pending'}">${run.status === 'partial_failed' ? 'Partial Failed' : (run.status || 'pending')}</span>
-          </div>
-        </div>
-      `;
-      }).join('');
-    }
+    window.testRunsData = Array.isArray(testRuns) ? testRuns : [];
+    renderTestRunsList(window.testRunsData);
     const hasRunning = Array.isArray(testRuns) && testRuns.some(r => (r.status || '').toLowerCase() === 'running');
     if (hasRunning) {
       clearInterval(window._testRunsRefreshInterval);

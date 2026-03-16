@@ -60,6 +60,24 @@ document.addEventListener('DOMContentLoaded', () => {
     showCreateScheduleModal(Number(projectId));
   });
 
+  // Collapsible Flows and Schedules sections
+  document.getElementById('project-flows-toggle')?.addEventListener('click', () => {
+    const section = document.getElementById('project-flows-section');
+    const btn = document.getElementById('project-flows-toggle');
+    if (section && btn) {
+      section.classList.toggle('collapsed');
+      btn.setAttribute('aria-expanded', section.classList.contains('collapsed') ? 'false' : 'true');
+    }
+  });
+  document.getElementById('project-schedules-toggle')?.addEventListener('click', () => {
+    const section = document.getElementById('project-schedules-section');
+    const btn = document.getElementById('project-schedules-toggle');
+    if (section && btn) {
+      section.classList.toggle('collapsed');
+      btn.setAttribute('aria-expanded', section.classList.contains('collapsed') ? 'false' : 'true');
+    }
+  });
+
   // Toggle Tests & Coverage edit mode
   const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
   editModeBtn?.addEventListener('click', () => {
@@ -143,6 +161,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Simple navigation to download CSV (browser handles file download)
     const url = `/api/projects/${projectId}/tests/catalogue/export`;
     window.location.href = url;
+  });
+
+  // Download Tests & Coverage report (filters + coverage summary)
+  document.getElementById('download-project-tests-report-btn')?.addEventListener('click', () => {
+    if (typeof window.downloadProjectTestsReport === 'function') {
+      window.downloadProjectTestsReport();
+    }
   });
 
   // Add manual project test
@@ -564,6 +589,24 @@ window.loadProjectCoverageSummary = async (projectId) => {
   const coveragePct = totalTests > 0 ? Math.round((coveredNow / totalTests) * 100) : 0;
   const successPct = totalTests > 0 ? Math.round((passed / totalTests) * 100) : 0;
 
+  // Cache latest summary on window for report downloads
+  window.currentProjectCoverageSummary = {
+    summary,
+    last_status_counts: last,
+    computed: {
+      totalTests,
+      testsEverRun,
+      passed,
+      failed,
+      partial,
+      notRun,
+      other,
+      coveredNow,
+      coveragePct,
+      successPct
+    }
+  };
+
   statsEl.innerHTML = `
     <div class="stat-card">
       <div class="stat-label">Active tests in coverage</div>
@@ -695,29 +738,71 @@ window.loadProjectCoverageSummary = async (projectId) => {
   });
 };
 
-// Load project tests & coverage table
-async function loadProjectTests(projectId) {
+function getProjectTestsFilters() {
+  const searchEl = document.getElementById('project-tests-search');
+  const typeEl = document.getElementById('project-tests-type-filter');
+  const statusEl = document.getElementById('project-tests-status-filter');
+  return {
+    search: (searchEl?.value || '').trim().toLowerCase(),
+    type: typeEl?.value || '',
+    statuses: statusEl
+      ? Array.from(statusEl.selectedOptions || []).map(o => o.value).filter(Boolean)
+      : []
+  };
+}
+
+function applyProjectTestsFilters(tests, inEditMode) {
+  if (!Array.isArray(tests)) return [];
+  const { search, type, statuses } = getProjectTestsFilters();
+
+  let result = tests.slice();
+
+  // In non-edit mode, only show active tests
+  if (!inEditMode) {
+    result = result.filter(t => t.is_active);
+  }
+
+  if (search) {
+    result = result.filter(t => {
+      const name = (t.name || '').toLowerCase();
+      const ticket = (t.ticket_url || '').toLowerCase();
+      return name.includes(search) || ticket.includes(search);
+    });
+  }
+
+  if (type) {
+    result = result.filter(t => t.test_type === type);
+  }
+
+  if (statuses && statuses.length > 0) {
+    result = result.filter(t => {
+      const stats = t.stats || {};
+      const lastStatus = stats.last_status || 'not_run';
+      return statuses.includes(lastStatus);
+    });
+  }
+
+  return result;
+}
+
+function renderProjectTestsTable(projectId) {
   const tableEl = document.getElementById('project-tests-table');
   if (!tableEl) return;
-  try {
-    tableEl.innerHTML = '<p class="muted">Loading tests…</p>';
-    let tests = await apiRequest(`/projects/${projectId}/tests/catalogue`);
-    const inEditMode = !!window.projectTestsEditMode;
 
-    // In non-edit mode, only show active tests in the list
-    if (!inEditMode && Array.isArray(tests)) {
-      tests = tests.filter(t => t.is_active);
-    }
+  const allTests = window.currentProjectTests || [];
+  const inEditMode = !!window.projectTestsEditMode;
+  const tests = applyProjectTestsFilters(allTests, inEditMode);
 
-    if (!tests || tests.length === 0) {
-      tableEl.innerHTML = `
-        <div class="empty-state">
-          <p>No tests discovered yet. Click <strong>Sync from specs</strong> to load tests from API specs, SOAP operations, and UI tests.</p>
-        </div>
-      `;
-      return;
-    }
-    const rows = tests.map(t => {
+  if (!tests || tests.length === 0) {
+    tableEl.innerHTML = `
+      <div class="empty-state">
+        <p>No tests match the current filters. Adjust filters or click <strong>Sync from specs</strong> to load tests from API specs, SOAP operations, and UI tests.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const rows = tests.map(t => {
       const stats = t.stats || {};
       const lastStatus = stats.last_status || 'not_run';
       const hasStatusSet = lastStatus && lastStatus !== 'not_run';
@@ -773,7 +858,8 @@ async function loadProjectTests(projectId) {
         </tr>
       `;
     }).join('');
-    tableEl.innerHTML = `
+
+  tableEl.innerHTML = `
       <div class="table-responsive">
         <table class="table">
           <thead>
@@ -794,11 +880,486 @@ async function loadProjectTests(projectId) {
         </table>
       </div>
     `;
+}
+
+// Load project tests & coverage table
+async function loadProjectTests(projectId) {
+  const tableEl = document.getElementById('project-tests-table');
+  if (!tableEl) return;
+  try {
+    tableEl.innerHTML = '<p class="muted">Loading tests…</p>';
+    const tests = await apiRequest(`/projects/${projectId}/tests/catalogue`);
+    window.currentProjectTests = Array.isArray(tests) ? tests : [];
+    renderProjectTestsTable(projectId);
   } catch (err) {
     console.error('Error loading project tests:', err);
     tableEl.innerHTML = '<div class="empty-state"><p>Failed to load tests.</p></div>';
   }
 }
+
+// Download Tests & Coverage report (HTML file with interactive filtering, no edit)
+window.downloadProjectTestsReport = () => {
+  const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
+  const projectId = editModeBtn?.getAttribute('data-project-id');
+  if (!projectId) {
+    alert('Please select a project first.');
+    return;
+  }
+
+  const projectNameEl = document.getElementById('project-detail-name');
+  const projectName = (projectNameEl?.textContent || '').trim() || `Project ${projectId}`;
+
+  const inEditMode = !!window.projectTestsEditMode;
+  const allTests = window.currentProjectTests || [];
+  const filtered = applyProjectTestsFilters(allTests, inEditMode);
+  const coverage = window.currentProjectCoverageSummary || null;
+
+  const now = new Date();
+  const iso = now.toISOString();
+  const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+
+  const { search, type, statuses } = getProjectTestsFilters();
+
+  const safeHtml = (str) => String(str || '').replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  const coverageSection = (() => {
+    if (!coverage || !coverage.computed) return '<p>No coverage summary data.</p>';
+    const c = coverage.computed;
+    return `
+      <div class="cards">
+        <div class="card">
+          <div class="card-label">Active tests in coverage</div>
+          <div class="card-value">${c.totalTests}</div>
+          <div class="card-subtext">${c.testsEverRun} tests have been run at least once</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Total tests passed</div>
+          <div class="card-value success">${c.passed}</div>
+          <div class="card-subtext">${c.successPct}% of active tests</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Total tests failed</div>
+          <div class="card-value error">${c.failed + c.partial}</div>
+          <div class="card-subtext">${c.coveragePct}% coverage (passed / failed / partial)</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Not yet run</div>
+          <div class="card-value">${c.notRun}</div>
+          <div class="card-subtext">Active tests with no successful or failed runs yet</div>
+        </div>
+      </div>
+    `;
+  })();
+
+  const rowsHtml = filtered.map((t) => {
+    const stats = t.stats || {};
+    const lastStatus = stats.last_status || 'not_run';
+    const hasStatusSet = lastStatus && lastStatus !== 'not_run';
+    const lastRunAtRaw = stats.last_run_at || (hasStatusSet ? stats.updated_at : null);
+    const lastRunAt = lastRunAtRaw ? formatDateTime(lastRunAtRaw) : '—';
+    const totalRuns = stats.total_runs != null ? stats.total_runs : 0;
+    const lastRunBy = stats.last_run_by_username || '—';
+    const typeLabel =
+      t.test_type === 'soap' ? 'SOAP' :
+      t.test_type === 'ui_builtin' ? 'UI (built-in)' :
+      t.test_type === 'ui_recorded' ? 'UI (recorded)' :
+      t.test_type === 'manual' ? 'Manual Test' :
+      t.test_type === 'other' ? 'Other' :
+      'API';
+    const ticket = t.ticket_url || '';
+    const statusClass =
+      lastStatus === 'passed' ? 'passed' :
+      lastStatus === 'failed' ? 'failed' :
+      lastStatus === 'partial_failed' ? 'partial_failed' :
+      lastStatus === 'running' ? 'running' :
+      lastStatus === 'cancelled' ? 'cancelled' : 'pending';
+    const statusLabel = (lastStatus || 'not_run').toUpperCase().replace(/_/g, ' ');
+
+    return `
+      <tr
+        data-name="${safeHtml(t.name || '')}"
+        data-type="${safeHtml(t.test_type || '')}"
+        data-status="${safeHtml(lastStatus)}"
+        data-ticket="${safeHtml(ticket)}"
+      >
+        <td>${safeHtml(t.name || '')}</td>
+        <td>${safeHtml(typeLabel)}</td>
+        <td><span class="status-badge ${statusClass}">${safeHtml(statusLabel)}</span></td>
+        <td>${safeHtml(lastRunAt)}</td>
+        <td>${safeHtml(String(totalRuns))}</td>
+        <td>${safeHtml(lastRunBy)}</td>
+        <td>${ticket ? `<a href="${safeHtml(ticket)}" target="_blank" rel="noopener">${safeHtml(ticket)}</a>` : '—'}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tests &amp; Coverage report – ${safeHtml(projectName)}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --color-primary: #14b8a6;
+      --color-primary-dark: #0d9488;
+      --color-gray-50: #f9fafb;
+      --color-gray-100: #f3f4f6;
+      --color-gray-200: #e5e7eb;
+      --color-gray-300: #d1d5db;
+      --color-gray-500: #6b7280;
+      --color-gray-700: #374151;
+      --color-white: #ffffff;
+      --color-text-inverse: #ffffff;
+      --color-success: #10b981;
+      --color-error: #ef4444;
+      --color-warning: #f59e0b;
+      --color-text-muted: #6b7280;
+      --spacing-xs: 4px;
+      --spacing-md: 12px;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      margin: 0;
+      background: var(--color-gray-100);
+      color: #111827;
+    }
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: var(--color-white);
+      min-height: 100vh;
+      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+    }
+    .page-header {
+      background: #00474F;
+      color: #ffffff;
+      padding: 20px 24px;
+    }
+    .page-header h1 {
+      font-size: 22px;
+      margin: 0 0 4px 0;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .page-header .meta {
+      font-size: 13px;
+      color: rgba(249,250,251,0.8);
+    }
+    .page-body {
+      padding: 24px;
+      background: var(--color-gray-100);
+    }
+    h2 {
+      font-size: 18px;
+      margin-top: 0;
+      margin-bottom: 8px;
+      color: #111827;
+    }
+    .section {
+      background: var(--color-white);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+      margin-bottom: 20px;
+      border: 1px solid var(--color-gray-200);
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-top: 12px;
+    }
+    .card {
+      background: var(--color-white);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+      position: relative;
+      overflow: hidden;
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--color-primary), #5eead4);
+    }
+    .card-label {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--color-gray-500);
+      margin-bottom: 6px;
+    }
+    .card-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--color-primary);
+    }
+    .card-value.success {
+      color: #10b981;
+    }
+    .card-value.error {
+      color: #ef4444;
+    }
+    .card-subtext {
+      font-size: 12px;
+      color: var(--color-gray-500);
+      margin-top: 4px;
+    }
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+      margin-bottom: 12px;
+    }
+    .filters input[type="text"],
+    .filters select {
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 2px solid var(--color-primary);
+      font-size: 13px;
+      background: var(--color-white);
+    }
+    .filters button {
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-primary {
+      background: var(--color-primary);
+      color: #fff;
+    }
+    .btn-secondary {
+      background: var(--color-gray-200);
+      color: #111827;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      background: var(--color-white);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    thead {
+      background: var(--color-gray-50);
+    }
+    th,
+    td {
+      padding: 8px 10px;
+      font-size: 13px;
+      text-align: left;
+      border-bottom: 1px solid var(--color-gray-200);
+    }
+    th {
+      font-weight: 600;
+      color: #4b5563;
+    }
+    tr:last-child td {
+      border-bottom: none;
+    }
+    tbody tr:nth-child(even) {
+      background: var(--color-gray-50);
+    }
+    a {
+      color: #2563eb;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    .count {
+      font-size: 13px;
+      color: var(--color-gray-500);
+      margin-top: 4px;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: var(--spacing-xs) var(--spacing-md);
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      box-shadow: var(--shadow-sm);
+      white-space: nowrap;
+    }
+    #tests-table td:nth-child(3) {
+      white-space: nowrap;
+    }
+    .status-badge.passed {
+      background: var(--color-success);
+      color: var(--color-text-inverse);
+    }
+    .status-badge.failed {
+      background: var(--color-error);
+      color: var(--color-text-inverse);
+    }
+    .status-badge.partial_failed {
+      background: var(--color-warning);
+      color: var(--color-text-inverse);
+    }
+    .status-badge.running {
+      background: var(--color-warning);
+      color: var(--color-text-inverse);
+    }
+    .status-badge.cancelled {
+      background: #94a3b8;
+      color: var(--color-text-inverse);
+    }
+    .status-badge.pending {
+      background: var(--color-text-muted);
+      color: var(--color-text-inverse);
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="page-header">
+      <h1>Tests &amp; Coverage report</h1>
+      <div class="meta">
+        Project: <strong>${safeHtml(projectName)}</strong> (ID: ${safeHtml(projectId)})<br>
+        Generated at: ${safeHtml(iso)}
+      </div>
+    </div>
+    <div class="page-body">
+      <div class="section">
+        <h2>Coverage summary</h2>
+        ${coverageSection}
+      </div>
+
+      <div class="section">
+        <h2>Tests (filtered snapshot)</h2>
+        <div class="filters">
+          <input type="text" id="filter-search" placeholder="Search by name or ticket..." />
+          <select id="filter-type">
+            <option value="">All Types</option>
+            <option value="api">API</option>
+            <option value="soap">SOAP</option>
+            <option value="ui_builtin">UI (built-in)</option>
+            <option value="ui_recorded">UI (recorded)</option>
+            <option value="manual">Manual Test</option>
+            <option value="other">Other</option>
+          </select>
+          <select id="filter-status">
+            <option value="">All Statuses</option>
+            <option value="passed">passed</option>
+            <option value="failed">failed</option>
+            <option value="partial_failed">partial_failed</option>
+            <option value="running">running</option>
+            <option value="cancelled">cancelled</option>
+            <option value="not_run">not_run</option>
+          </select>
+          <button class="btn-primary" id="filter-apply">Apply</button>
+          <button class="btn-secondary" id="filter-clear">Clear</button>
+        </div>
+        <div class="count" id="filtered-count"></div>
+
+        <table id="tests-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Last status</th>
+              <th>Last run</th>
+              <th>Total runs</th>
+              <th>Last run by</th>
+              <th>Ticket ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const searchInput = document.getElementById('filter-search');
+      const typeSelect = document.getElementById('filter-type');
+      const statusSelect = document.getElementById('filter-status');
+      const applyBtn = document.getElementById('filter-apply');
+      const clearBtn = document.getElementById('filter-clear');
+      const tbody = document.querySelector('#tests-table tbody');
+      const countEl = document.getElementById('filtered-count');
+
+      function applyFilters() {
+        const search = (searchInput.value || '').toLowerCase();
+        const type = typeSelect.value;
+        const status = statusSelect.value;
+        let visible = 0;
+
+        Array.from(tbody.querySelectorAll('tr')).forEach((row) => {
+          const name = (row.getAttribute('data-name') || '').toLowerCase();
+          const ticket = (row.getAttribute('data-ticket') || '').toLowerCase();
+          const rowType = row.getAttribute('data-type') || '';
+          const rowStatus = row.getAttribute('data-status') || '';
+
+          let ok = true;
+          if (search) {
+            ok = name.includes(search) || ticket.includes(search);
+          }
+          if (ok && type) {
+            ok = rowType === type;
+          }
+          if (ok && status) {
+            ok = rowStatus === status;
+          }
+
+          row.style.display = ok ? '' : 'none';
+          if (ok) visible++;
+        });
+
+        if (countEl) {
+          countEl.textContent = visible + ' test' + (visible === 1 ? '' : 's') + ' shown in table';
+        }
+      }
+
+      if (applyBtn) applyBtn.addEventListener('click', applyFilters);
+      if (clearBtn) clearBtn.addEventListener('click', () => {
+        if (searchInput) searchInput.value = '';
+        if (typeSelect) typeSelect.value = '';
+        if (statusSelect) statusSelect.value = '';
+        applyFilters();
+      });
+
+      applyFilters();
+    })();
+  </script>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const safeProjectSlug = projectName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || `project-${projectId}`;
+  a.download = `${safeProjectSlug}-tests-coverage-report-${datePart}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
 
 // Manually add a project test in edit mode
 window.addProjectTest = (projectId) => {
