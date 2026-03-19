@@ -739,9 +739,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     projectTestsClear.addEventListener('click', () => {
       const search = document.getElementById('project-tests-search');
       const type = document.getElementById('project-tests-type-filter');
+      const folder = document.getElementById('project-tests-folder-filter');
       const status = document.getElementById('project-tests-status-filter');
       if (search) search.value = '';
       if (type) type.value = '';
+      if (folder) folder.value = '';
       if (status) {
         Array.from(status.options || []).forEach(o => { o.selected = false; });
       }

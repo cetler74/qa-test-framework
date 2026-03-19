@@ -1,4 +1,4 @@
-const { Op } = require('sequelize');
+const { Op, literal } = require('sequelize');
 const {
   Project,
   ApiSpec,
@@ -44,8 +44,20 @@ async function discoverApiTestsForProject(projectId) {
   collections.push(...standaloneCollections);
 
   const results = [];
+  let sourceOrder = 0;
 
-  const walkItems = (items, collectionId, parentPath = []) => {
+  const normalizeFolderSegment = (value) => String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[\\/]+/g, '-')
+    .slice(0, 120);
+
+  const buildFolderPath = (segments) => {
+    const cleaned = (segments || []).map(normalizeFolderSegment).filter(Boolean);
+    return cleaned.length ? cleaned.join('/') : null;
+  };
+
+  const walkItems = (items, collectionId, parentPath = [], parentFolders = []) => {
     if (!items || !Array.isArray(items)) return;
     items.forEach((item, index) => {
       const path = [...parentPath, index];
@@ -66,10 +78,14 @@ async function discoverApiTestsForProject(projectId) {
           endpoint: url,
           method,
           source_id: collectionId,
-          source_kind: 'postman_item'
+          source_kind: 'postman_item',
+          source_order: sourceOrder++,
+          source_path: pathString,
+          default_folder_path: buildFolderPath(parentFolders)
         });
       } else if (item.item && Array.isArray(item.item)) {
-        walkItems(item.item, collectionId, path);
+        const nextFolders = item.name ? [...parentFolders, item.name] : parentFolders;
+        walkItems(item.item, collectionId, path, nextFolders);
       }
     });
   };
@@ -78,7 +94,7 @@ async function discoverApiTestsForProject(projectId) {
     const collectionId = coll.id;
     const collectionJson = coll.collection_json || {};
     const items = collectionJson.item || [];
-    walkItems(items, collectionId, []);
+    walkItems(items, collectionId, [], []);
   });
 
   return results;
@@ -118,7 +134,10 @@ async function discoverSoapTestsForProject(projectId) {
     endpoint: op.operation_name || null,
     method: 'SOAP',
     source_id: op.id,
-    source_kind: 'soap_operation'
+    source_kind: 'soap_operation',
+    source_order: null,
+    source_path: null,
+    default_folder_path: null
   }));
 }
 
@@ -148,7 +167,10 @@ async function discoverUiTestsForProject(projectId) {
       endpoint: t.base_url || null,
       method: 'UI',
       source_id: numericId ? parseInt(numericId, 10) || null : null,
-      source_kind: 'ui_recorded'
+      source_kind: 'ui_recorded',
+      source_order: null,
+      source_path: null,
+      default_folder_path: null
     });
   });
 
@@ -198,6 +220,9 @@ async function syncProjectTests(projectId) {
         method: t.method,
         source_id: t.source_id,
         source_kind: t.source_kind,
+        source_order: t.source_order ?? null,
+        source_path: t.source_path ?? null,
+        default_folder_path: t.default_folder_path ?? null,
         is_active: true
       };
       await existingRow.update(updates);
@@ -211,6 +236,10 @@ async function syncProjectTests(projectId) {
         method: t.method,
         source_id: t.source_id,
         source_kind: t.source_kind,
+        source_order: t.source_order ?? null,
+        source_path: t.source_path ?? null,
+        default_folder_path: t.default_folder_path ?? null,
+        folder_path_override: null,
         is_active: true
       });
       // Make sure subsequent duplicates of this stable_key in the same sync
@@ -228,7 +257,11 @@ async function syncProjectTests(projectId) {
   }
 
   // Mark tests that are no longer discovered as inactive (but keep history)
-  const toDeactivate = existing.filter((row) => !discoveredKeys.has(row.stable_key) && row.is_active);
+  const toDeactivate = existing.filter((row) => (
+    !discoveredKeys.has(row.stable_key)
+    && row.is_active
+    && row.source_kind !== 'manual'
+  ));
   for (const row of toDeactivate) {
     await row.update({ is_active: false });
   }
@@ -253,8 +286,19 @@ async function getProjectTestCatalogue(projectId) {
       as: 'stats'
     }],
     order: [
-      ['test_type', 'ASC'],
-      ['name', 'ASC']
+      [
+        literal(`CASE WHEN "ProjectTest"."test_type" = 'api' AND "ProjectTest"."source_order" IS NOT NULL THEN 0 ELSE 1 END`),
+        'ASC'
+      ],
+      [
+        literal(`CASE WHEN "ProjectTest"."test_type" = 'api' AND "ProjectTest"."source_order" IS NOT NULL THEN "ProjectTest"."source_order" ELSE 2147483647 END`),
+        'ASC'
+      ],
+      [
+        literal(`CASE WHEN ("ProjectTest"."test_type" = 'api' AND "ProjectTest"."source_order" IS NOT NULL) THEN NULL ELSE "ProjectTest"."created_at" END`),
+        'ASC'
+      ],
+      ['id', 'ASC']
     ]
   });
 

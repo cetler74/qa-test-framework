@@ -128,9 +128,16 @@ function extractCollectionVariables(collection) {
   const scriptSetVariables = new Set();
   const collectionJson = collection?.collection_json || {};
 
+  function addVariableName(name) {
+    if (!name || typeof name !== 'string') return;
+    const cleaned = name.trim().replace(/^\{\{\s*/, '').replace(/\s*\}\}$/, '');
+    if (!cleaned) return;
+    allVariables.add(cleaned);
+  }
+
   if (collectionJson.variable && Array.isArray(collectionJson.variable)) {
     collectionJson.variable.forEach(v => {
-      if (v.key) allVariables.add(v.key);
+      if (v.key) addVariableName(v.key);
     });
   }
 
@@ -140,7 +147,7 @@ function extractCollectionVariables(collection) {
     if (matches) {
       matches.forEach(match => {
         const varName = match.replace(/\{\{|\}\}/g, '');
-        allVariables.add(varName);
+        addVariableName(varName);
       });
     }
   }
@@ -159,6 +166,13 @@ function extractCollectionVariables(collection) {
                   genericMatches.forEach(match => {
                     const varName = match.match(/["']([^"']+)["']/)[1];
                     scriptSetVariables.add(varName);
+                  });
+                }
+                const getterMatches = line.match(/pm\.(?:collectionVariables|environment|variables|globals)\.get\(["']([^"']+)["']/g);
+                if (getterMatches) {
+                  getterMatches.forEach(match => {
+                    const varName = match.match(/["']([^"']+)["']/)[1];
+                    addVariableName(varName);
                   });
                 }
                 const altMatches = line.match(/pm\.collectionVariables\.set\([^,\n\r]+/g);
@@ -191,16 +205,56 @@ function extractCollectionVariables(collection) {
           if (item.request.url.path && Array.isArray(item.request.url.path)) {
             item.request.url.path.forEach(p => extractVariablesFromString(p));
           }
+          if (item.request.url.query && Array.isArray(item.request.url.query)) {
+            item.request.url.query.forEach(q => {
+              if (q && q.key) extractVariablesFromString(q.key);
+              if (q && q.value) extractVariablesFromString(q.value);
+            });
+          }
+          if (item.request.url.variable && Array.isArray(item.request.url.variable)) {
+            item.request.url.variable.forEach(v => {
+              if (v && v.key) addVariableName(v.key);
+              if (v && v.value) extractVariablesFromString(v.value);
+            });
+          }
         }
         if (item.request.header && Array.isArray(item.request.header)) {
-          item.request.header.forEach(h => { if (h.value) extractVariablesFromString(h.value); });
+          item.request.header.forEach(h => {
+            if (h && h.key) extractVariablesFromString(h.key);
+            if (h && h.value) extractVariablesFromString(h.value);
+          });
         }
         if (item.request.body) {
           if (typeof item.request.body === 'string') extractVariablesFromString(item.request.body);
           else if (item.request.body.raw) extractVariablesFromString(item.request.body.raw);
+          if (item.request.body.urlencoded && Array.isArray(item.request.body.urlencoded)) {
+            item.request.body.urlencoded.forEach(f => {
+              if (f && f.key) extractVariablesFromString(f.key);
+              if (f && f.value) extractVariablesFromString(f.value);
+            });
+          }
+          if (item.request.body.formdata && Array.isArray(item.request.body.formdata)) {
+            item.request.body.formdata.forEach(f => {
+              if (f && f.key) extractVariablesFromString(f.key);
+              if (f && f.value) extractVariablesFromString(f.value);
+            });
+          }
+          if (item.request.body.graphql && item.request.body.graphql.variables) {
+            if (typeof item.request.body.graphql.variables === 'string') {
+              extractVariablesFromString(item.request.body.graphql.variables);
+            }
+          }
         }
-        if (item.request.auth && item.request.auth.bearer && Array.isArray(item.request.auth.bearer)) {
-          item.request.auth.bearer.forEach(b => { if (b.value) extractVariablesFromString(b.value); });
+        if (item.request.auth && typeof item.request.auth === 'object') {
+          Object.keys(item.request.auth).forEach(authType => {
+            const authEntries = item.request.auth[authType];
+            if (Array.isArray(authEntries)) {
+              authEntries.forEach(entry => {
+                if (entry && entry.key) extractVariablesFromString(entry.key);
+                if (entry && entry.value) extractVariablesFromString(entry.value);
+              });
+            }
+          });
         }
       }
       if (item.item && Array.isArray(item.item)) searchItems(item.item);

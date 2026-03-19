@@ -1399,6 +1399,186 @@ p.run-status-in-progress {
     margin-left: var(--spacing-xs);
 }
 
+/* Keep table stretched even when only collapsed folder rows are visible */
+#project-tests-table .table-responsive {
+    width: 100%;
+}
+
+#project-tests-table .table {
+    width: 100%;
+    min-width: 100%;
+}
+
+#project-tests-table .folder-group-row td {
+    background: linear-gradient(90deg, rgba(20, 184, 166, 0.12), rgba(20, 184, 166, 0.04));
+    border-top: 1px solid var(--color-gray-200);
+    border-bottom: 1px solid var(--color-gray-200);
+    padding: 0;
+}
+
+#project-tests-table .folder-group-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: 10px 12px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--color-text-primary);
+    font-weight: 600;
+    text-align: left;
+}
+
+#project-tests-table .folder-group-toggle:hover {
+    background: rgba(20, 184, 166, 0.08);
+}
+
+#project-tests-table .folder-group-chevron {
+    width: 16px;
+    color: var(--color-primary-dark);
+}
+
+#project-tests-table .folder-group-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.project-folder-coverage-table-wrap {
+    margin-top: var(--spacing-md);
+    border: 1px solid var(--color-gray-200);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: var(--color-white);
+}
+
+.project-folder-coverage-section {
+    grid-column: 1 / -1;
+    margin-top: var(--spacing-md);
+    background: var(--color-white);
+    border: 1px solid var(--color-gray-200);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.project-folder-coverage-title {
+    margin: 0 0 var(--spacing-sm);
+    color: var(--color-text-primary);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.project-folder-coverage-table {
+    margin-top: 0;
+    width: 100%;
+    table-layout: fixed;
+}
+
+.project-folder-coverage-table thead {
+    background: var(--color-gray-100);
+}
+
+.project-folder-coverage-table th {
+    color: var(--color-text-secondary);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.project-folder-coverage-table th,
+.project-folder-coverage-table td {
+    vertical-align: middle;
+}
+
+/* Use full row width with predictable column distribution */
+.project-folder-coverage-table th:nth-child(1),
+.project-folder-coverage-table td:nth-child(1) {
+    width: 32%;
+}
+
+.project-folder-coverage-table th:nth-child(2),
+.project-folder-coverage-table td:nth-child(2),
+.project-folder-coverage-table th:nth-child(3),
+.project-folder-coverage-table td:nth-child(3),
+.project-folder-coverage-table th:nth-child(4),
+.project-folder-coverage-table td:nth-child(4),
+.project-folder-coverage-table th:nth-child(5),
+.project-folder-coverage-table td:nth-child(5),
+.project-folder-coverage-table th:nth-child(6),
+.project-folder-coverage-table td:nth-child(6),
+.project-folder-coverage-table th:nth-child(7),
+.project-folder-coverage-table td:nth-child(7) {
+    width: 8.5%;
+    text-align: center;
+}
+
+.project-folder-coverage-table th:nth-child(8),
+.project-folder-coverage-table td:nth-child(8) {
+    width: 17%;
+}
+
+.project-folder-coverage-table tbody tr:hover {
+    background: rgba(20, 184, 166, 0.06);
+}
+
+.project-folder-coverage-empty {
+    margin-top: var(--spacing-md);
+}
+
+.folder-metric-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.folder-metric-badge.metric-passed {
+    background: rgba(16, 185, 129, 0.18);
+    color: #065f46;
+}
+
+.folder-metric-badge.metric-failed {
+    background: rgba(239, 68, 68, 0.18);
+    color: #991b1b;
+}
+
+.folder-metric-badge.metric-partial {
+    background: rgba(245, 158, 11, 0.2);
+    color: #92400e;
+}
+
+.folder-metric-badge.metric-notrun {
+    background: rgba(100, 116, 139, 0.2);
+    color: #334155;
+}
+
+.folder-coverage-meter {
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--color-gray-200);
+    overflow: hidden;
+}
+
+.folder-coverage-meter-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--color-primary-dark), var(--color-primary));
+}
+
+.folder-coverage-meter-label {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    font-weight: 600;
+}
+
 /* Ticket ID / URL links in Tests & Coverage table - align with design system */
 #project-tests-table .ticket-link {
     color: var(--color-primary);
@@ -1424,6 +1604,54 @@ p.run-status-in-progress {
 
 .dark-theme #project-tests-table .ticket-link:hover {
     color: var(--color-primary);
+}
+
+.dark-theme #project-tests-table .folder-group-row td {
+    background: linear-gradient(90deg, rgba(45, 212, 191, 0.2), rgba(45, 212, 191, 0.06));
+    border-top-color: var(--color-gray-700);
+    border-bottom-color: var(--color-gray-700);
+}
+
+.dark-theme #project-tests-table .folder-group-toggle:hover {
+    background: rgba(45, 212, 191, 0.14);
+}
+
+.dark-theme .project-folder-coverage-table-wrap {
+    border-color: var(--color-gray-700);
+    background: var(--color-gray-900);
+}
+
+.dark-theme .project-folder-coverage-table thead {
+    background: rgba(45, 212, 191, 0.12);
+}
+
+.dark-theme .project-folder-coverage-section {
+    background: var(--color-gray-900);
+    border-color: var(--color-gray-700);
+}
+
+.dark-theme .folder-metric-badge.metric-passed {
+    background: rgba(16, 185, 129, 0.24);
+    color: #a7f3d0;
+}
+
+.dark-theme .folder-metric-badge.metric-failed {
+    background: rgba(239, 68, 68, 0.24);
+    color: #fecaca;
+}
+
+.dark-theme .folder-metric-badge.metric-partial {
+    background: rgba(245, 158, 11, 0.26);
+    color: #fde68a;
+}
+
+.dark-theme .folder-metric-badge.metric-notrun {
+    background: rgba(100, 116, 139, 0.28);
+    color: #cbd5e1;
+}
+
+.dark-theme .folder-coverage-meter {
+    background: rgba(100, 116, 139, 0.35);
 }
 
 .link-button {
