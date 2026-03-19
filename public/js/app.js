@@ -897,6 +897,15 @@ async function loadGlobalTestsCatalogue() {
 
     // Compute coverage metrics based only on ACTIVE tests to match per-project coverage logic
     const activeTests = tests.filter(t => t.is_active);
+    if (activeTests.length === 0) {
+      tableEl.innerHTML = `
+        <div class=\"empty-state\">
+          <p>No active tests match the current filters.</p>
+        </div>
+      `;
+      metricsEl.innerHTML = '';
+      return;
+    }
     const total = activeTests.length;
     const passed = activeTests.filter(t => t.stats && t.stats.last_status === 'passed').length;
     const failed = activeTests.filter(t => t.stats && (t.stats.last_status === 'failed' || t.stats.last_status === 'partial_failed')).length;
@@ -929,7 +938,7 @@ async function loadGlobalTestsCatalogue() {
       </div>
     `;
 
-    const rows = tests.map(t => {
+    const rows = activeTests.map(t => {
       const stats = t.stats || {};
       const lastStatus = stats.last_status || 'not_run';
       const lastRunAt = stats.last_run_at ? formatDateTime(stats.last_run_at) : '—';
