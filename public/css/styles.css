@@ -1405,6 +1405,95 @@ p.run-status-in-progress {
     min-width: auto;
 }
 
+/* Tests & Coverage — filter toolbar + row actions (portal design language) */
+.project-tests-filters-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.project-tests-filters-left {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.project-tests-filters-right {
+    flex: 0 0 auto;
+}
+
+.project-tests-run-selected-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.btn-outline {
+    background: var(--color-white, #fff);
+    border: 1px solid var(--color-gray-300, #d1d5db);
+    color: var(--color-text-primary, #111827);
+}
+
+.btn-outline:hover:not(:disabled) {
+    border-color: var(--color-primary, #14b8a6);
+    color: var(--color-primary-dark, #0d9488);
+    background: rgba(20, 184, 166, 0.06);
+}
+
+.btn-outline:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.project-test-row-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.project-test-col-check {
+    width: 40px;
+    text-align: center;
+    vertical-align: middle;
+}
+
+#project-tests-select-all {
+    cursor: pointer;
+}
+
+.folder-group-toggle .folder-group-icon {
+    flex-shrink: 0;
+    color: var(--color-primary-dark, #0d9488);
+}
+
+.tests-catalogue-filters-toolbar {
+    margin-bottom: var(--spacing-md);
+}
+
+.tests-catalogue-stats .stat-value-success {
+    color: var(--color-success, #10b981);
+}
+
+.tests-catalogue-stats .stat-value-error {
+    color: var(--color-error, #ef4444);
+}
+
+.dark-theme .btn-outline {
+    background: var(--color-bg-secondary, #1f2937);
+    border-color: var(--color-gray-600, #4b5563);
+    color: var(--color-text-primary, #f3f4f6);
+}
+
+.dark-theme .btn-outline:hover:not(:disabled) {
+    border-color: var(--color-primary, #14b8a6);
+    color: var(--color-primary, #5eead4);
+    background: rgba(20, 184, 166, 0.12);
+}
+
 #project-tests-table .btn-sm + .btn-sm {
     margin-left: var(--spacing-xs);
 }

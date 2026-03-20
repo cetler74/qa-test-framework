@@ -191,6 +191,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     window.showUploadProjectTestsModal(Number(projectId));
   });
+
+  document.getElementById('project-tests-run-selected-btn')?.addEventListener('click', () => {
+    const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
+    const projectId = editModeBtn?.getAttribute('data-project-id');
+    if (!projectId) {
+      alert('Please open a project first.');
+      return;
+    }
+    if (typeof window.runBatchProjectCatalogueTests === 'function') {
+      window.runBatchProjectCatalogueTests(Number(projectId));
+    }
+  });
 });
 
 // Create Project
@@ -399,6 +411,7 @@ window.viewProject = async (projectId) => {
     document.getElementById('add-project-test-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('upload-project-tests-btn')?.setAttribute('data-project-id', projectId);
     const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
+    document.getElementById('project-tests-run-selected-btn')?.setAttribute('data-project-id', projectId);
     if (editModeBtn) {
       editModeBtn.setAttribute('data-project-id', projectId);
       // Ensure buttons reflect current edit mode on view load
@@ -821,6 +834,7 @@ function getCatalogueTestRunKind(t) {
   if (t.test_type === 'ui_recorded' && t.source_kind === 'ui_recorded' && t.source_id) return 'ui_recorded';
   return null;
 }
+window.getCatalogueTestRunKind = getCatalogueTestRunKind;
 
 function updateProjectTestsFolderFilterOptions(tests) {
   const folderEl = document.getElementById('project-tests-folder-filter');
@@ -917,7 +931,7 @@ function renderProjectTestsTable(projectId) {
       if (folderLabel !== lastFolderLabel) {
         groupedRows.push(`
           <tr class="folder-group-row">
-            <td colspan="${inEditMode ? '11' : '9'}">
+            <td colspan="${inEditMode ? '12' : '10'}">
               <button
                 type="button"
                 class="folder-group-toggle"
@@ -926,6 +940,7 @@ function renderProjectTestsTable(projectId) {
                 title="${isCollapsed ? 'Expand folder' : 'Collapse folder'}"
               >
                 <span class="folder-group-chevron">${isCollapsed ? '&#9656;' : '&#9662;'}</span>
+                <svg class="folder-group-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                 <span class="folder-group-label">Folder: ${escapeHtml(folderLabel)}</span>
               </button>
             </td>
@@ -978,9 +993,17 @@ function renderProjectTestsTable(projectId) {
       const activeCol = inEditMode ? `<td>${activeCell}</td>` : '';
       const actionsCol = inEditMode ? `<td>${actionsCell}</td>` : '';
       const runKind = getCatalogueTestRunKind(t);
-      const runCell = runKind
-        ? `<td class="project-test-run-cell"><button type="button" class="btn btn-secondary btn-sm project-test-run-btn" onclick="window.runProjectCatalogueTest(${projectId}, ${t.id}, '${runKind}')" title="Run this test only">Run</button></td>`
-        : '<td class="project-test-run-cell"><span class="muted" title="Run is only available for tests synced from API collections (Sync from specs) or linked UI recordings—not for manual-only catalogue rows.">—</span></td>';
+      const lastRunId = stats.last_run_id;
+      const lastRunType = stats.last_run_type || stats.last_run_source || '';
+      const historyTitle = lastRunId ? 'Open last test run' : 'No run yet';
+      const historyBtn = lastRunId
+        ? `<button type="button" class="btn btn-outline btn-sm" onclick='window.openLastRunForTest(${lastRunId}, ${JSON.stringify(String(lastRunType))})' title="${historyTitle}">History</button>`
+        : `<button type="button" class="btn btn-outline btn-sm" disabled title="${historyTitle}">History</button>`;
+      const runBtn = runKind
+        ? `<button type="button" class="btn btn-outline btn-sm" onclick="window.runProjectCatalogueTest(${projectId}, ${t.id}, '${runKind}')" title="Run this test only">Run</button>`
+        : `<span class="project-test-actions-placeholder muted" title="Run is only available for tests synced from API collections (Sync from specs) or linked UI recordings—not for manual-only catalogue rows.">—</span>`;
+      const actionsCell = `<td class="project-test-actions-cell"><div class="project-test-row-actions">${runBtn} ${historyBtn}</div></td>`;
+      const checkCell = `<td class="project-test-col-check"><input type="checkbox" class="project-test-row-check" data-project-test-id="${t.id}" aria-label="Select row" /></td>`;
       const nameCell = `<button type="button" class="link-button" onclick="window.viewProjectTestDetails(${projectId}, ${t.id})">${escapeHtml(t.name || '')}</button>`;
       const folderOrigin = t.folder_path_override
         ? '<span class="muted" title="User override"> (override)</span>'
@@ -990,6 +1013,7 @@ function renderProjectTestsTable(projectId) {
         : '<span class="muted">—</span>';
       groupedRows.push(`
         <tr data-project-test-id="${t.id}">
+          ${checkCell}
           <td>${nameCell}</td>
           <td>${folderCell}</td>
           <td>${typeLabel}</td>
@@ -998,7 +1022,7 @@ function renderProjectTestsTable(projectId) {
           <td>${totalRuns}</td>
           <td>${lastRunBy}</td>
           <td>${ticketDisplay}</td>
-          ${runCell}
+          ${actionsCell}
           ${activeCol}
           ${actionsCol}
         </tr>
@@ -1010,6 +1034,7 @@ function renderProjectTestsTable(projectId) {
         <table class="table">
           <thead>
             <tr>
+              <th class="project-test-col-check"><input type="checkbox" id="project-tests-select-all" title="Select all visible tests" aria-label="Select all visible tests" /></th>
               <th>Name</th>
               <th>Folder</th>
               <th>Type</th>
@@ -1018,8 +1043,8 @@ function renderProjectTestsTable(projectId) {
               <th>Total runs</th>
               <th>Last run by</th>
               <th>Ticket ID</th>
-              <th>Run</th>
-              ${inEditMode ? '<th>Active</th><th>Actions</th>' : ''}
+              <th>Actions</th>
+              ${inEditMode ? '<th>Active</th><th>Delete</th>' : ''}
             </tr>
           </thead>
           <tbody>
@@ -1028,6 +1053,14 @@ function renderProjectTestsTable(projectId) {
         </table>
       </div>
     `;
+  const selectAll = document.getElementById('project-tests-select-all');
+  if (selectAll) {
+    selectAll.addEventListener('change', () => {
+      document.querySelectorAll('#project-tests-table .project-test-row-check').forEach((cb) => {
+        cb.checked = selectAll.checked;
+      });
+    });
+  }
 }
 
 // Load project tests & coverage table
@@ -1046,8 +1079,8 @@ async function loadProjectTests(projectId) {
   }
 }
 
-window.runProjectCatalogueTest = (projectId, projectTestId, kind) => {
-  const test = (window.currentProjectTests || []).find((x) => x.id === projectTestId);
+window.runProjectCatalogueTest = (projectId, projectTestId, kind, testSnapshot) => {
+  const test = testSnapshot || (window.currentProjectTests || []).find((x) => x.id === projectTestId);
   const defaultName = test ? `[Single] ${test.name || 'test'}` : '[Single] test';
 
   if (kind === 'api') {
@@ -1130,6 +1163,116 @@ window.runProjectCatalogueTest = (projectId, projectTestId, kind) => {
       }
     });
   }
+};
+
+window.runProjectCatalogueTestFromGlobal = (projectId, projectTestId, kind, testSnapshot) => {
+  window.runProjectCatalogueTest(projectId, projectTestId, kind, testSnapshot);
+};
+
+window.runBatchProjectCatalogueTests = async (projectId) => {
+  const checked = document.querySelectorAll('#project-tests-table .project-test-row-check:checked');
+  const ids = [...checked].map((cb) => parseInt(cb.getAttribute('data-project-test-id'), 10));
+  if (ids.length === 0) {
+    alert('Select at least one test using the checkboxes.');
+    return;
+  }
+  const tests = (window.currentProjectTests || []).filter((t) => ids.includes(t.id));
+  const runnable = tests.filter((t) => getCatalogueTestRunKind(t));
+  if (runnable.length === 0) {
+    alert('None of the selected rows can be run individually. Sync from specs for API tests or link UI recordings.');
+    return;
+  }
+  const hasApi = runnable.some((t) => getCatalogueTestRunKind(t) === 'api');
+  const hasUi = runnable.some((t) => getCatalogueTestRunKind(t) === 'ui_recorded');
+  if (hasApi && hasUi) {
+    alert('Run all selected cannot mix API and UI tests. Select only API rows or only UI (recorded) rows.');
+    return;
+  }
+  if (hasApi) {
+    const envs = typeof window.getProjectSavedEnvironments === 'function'
+      ? window.getProjectSavedEnvironments(projectId)
+      : [];
+    const options = envs.map((e) => `<option value="${escapeHtml(String(e.id))}">${escapeHtml(e.name || '')}</option>`).join('');
+    const content = `
+      <form id="batch-test-run-form">
+        <p class="muted" style="margin-bottom:12px;">${runnable.length} API test(s) will run with the same environment.</p>
+        <div class="form-group">
+          <label for="batch-test-env-select">Environment</label>
+          <select id="batch-test-env-select" class="form-control" style="width:100%;">
+            <option value="">None (collection defaults only)</option>
+            ${options}
+          </select>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Run all</button>
+        </div>
+      </form>
+    `;
+    showModal('Run all selected API tests', content);
+    document.getElementById('batch-test-run-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const envId = document.getElementById('batch-test-env-select').value;
+      let envVars = {};
+      if (typeof window.mergeSavedEnvironmentIntoEnvVars === 'function') {
+        envVars = window.mergeSavedEnvironmentIntoEnvVars(projectId, envId, {});
+      }
+      hideModal();
+      let started = 0;
+      for (const t of runnable) {
+        try {
+          const body = { name: `[Batch] ${t.name || 'test'}` };
+          if (Object.keys(envVars).length > 0) body.envVars = envVars;
+          await apiRequest(`/projects/${projectId}/tests/${t.id}/run`, { method: 'POST', body });
+          started++;
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      alert(`${started} run(s) queued. View Test Runs for progress.`);
+      await loadProjectTests(projectId);
+      if (typeof window.loadProjectCoverageSummary === 'function') {
+        window.loadProjectCoverageSummary(projectId);
+      }
+    });
+    return;
+  }
+  const content = `
+    <form id="batch-ui-test-run-form">
+      <p class="muted" style="margin-bottom:12px;">${runnable.length} UI test(s) will run sequentially.</p>
+      <div class="form-group">
+        <label for="batch-ui-base-url">Base URL (optional, applies to all if set)</label>
+        <input type="url" id="batch-ui-base-url" class="form-control" placeholder="Leave empty to use each test’s URL">
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Run all</button>
+      </div>
+    </form>
+  `;
+  showModal('Run all selected UI tests', content);
+  document.getElementById('batch-ui-test-run-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const raw = document.getElementById('batch-ui-base-url').value.trim();
+    hideModal();
+    let started = 0;
+    for (const t of runnable) {
+      try {
+        const body = { name: `[Batch] ${t.name || 'test'}` };
+        if (raw) body.baseUrl = raw;
+        else if (t.endpoint && String(t.endpoint).trim()) body.baseUrl = String(t.endpoint).trim();
+        await apiRequest(`/projects/${projectId}/tests/${t.id}/run`, { method: 'POST', body });
+        started++;
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    alert(`${started} run(s) queued. View Test Runs for progress.`);
+    await loadProjectTests(projectId);
+    if (typeof window.loadProjectCoverageSummary === 'function') {
+      window.loadProjectCoverageSummary(projectId);
+    }
+  });
 };
 
 // Download Tests & Coverage report (HTML file with interactive filtering, no edit)

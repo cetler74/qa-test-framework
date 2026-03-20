@@ -21,7 +21,7 @@ const { executeSoapTests } = require('../services/soapRunner');
 const { executeFuzz, cancelFuzzRun } = require('../services/fuzzRunner');
 const { generateFuzzReport, getStableReportPath } = require('../services/fuzzReportGenerator');
 const { generatePlaywrightReport } = require('../services/playwrightReportGenerator');
-const { syncProjectTests, getProjectTestCatalogue, getGlobalTestCatalogue, enrichCatalogueRowsWithSingleRun, resolvePostmanSourcePathIfNeeded } = require('../services/testCatalogue');
+const { syncProjectTests, getProjectTestCatalogue, getGlobalTestCatalogue, enrichCatalogueRowsWithSingleRun, enrichGlobalCatalogueRowsWithSingleRun, resolvePostmanSourcePathIfNeeded } = require('../services/testCatalogue');
 const playwrightConfig = require('../config/playwright');
 const { validateSpecContent } = require('../services/recordedTestValidation');
 const codegenSessionManager = require('../services/codegenSessionManager');
@@ -1130,7 +1130,18 @@ router.get('/tests/catalogue', async (req, res) => {
       test_type: test_type || undefined,
       last_status: last_status || undefined
     });
-    res.json(rows);
+    const singleRunMeta = await enrichGlobalCatalogueRowsWithSingleRun(rows);
+    const out = rows.map((r, idx) => {
+      const plain = r.get ? r.get({ plain: true }) : r;
+      const meta = singleRunMeta[idx] || { effective_source_path: plain.source_path, single_run_kind: null };
+      return {
+        ...plain,
+        effective_folder_path: effectiveFolderPathForTest(plain),
+        effective_source_path: meta.effective_source_path,
+        single_run_kind: meta.single_run_kind
+      };
+    });
+    res.json(out);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

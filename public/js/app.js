@@ -921,12 +921,12 @@ async function loadGlobalTestsCatalogue() {
           <div class=\"stat-label\">Active tests in coverage</div>
         </div>
         <div class=\"stat-card\">
-          <div class=\"stat-value\" style=\"color:#16a34a;\">${passed}</div>
+          <div class=\"stat-value stat-value-success\">${passed}</div>
           <div class=\"stat-label\">Total tests passed</div>
           <div class=\"stat-subtext\">${successPct}% of active tests</div>
         </div>
         <div class=\"stat-card\">
-          <div class=\"stat-value\" style=\"color:#dc2626;\">${failed}</div>
+          <div class=\"stat-value stat-value-error\">${failed}</div>
           <div class=\"stat-label\">Total tests failed / partial</div>
           <div class=\"stat-subtext\">${coveragePct}% coverage (passed / failed)</div>
         </div>
@@ -938,18 +938,28 @@ async function loadGlobalTestsCatalogue() {
       </div>
     `;
 
+    const globalRunKind = (t) => {
+      if (typeof window.getCatalogueTestRunKind === 'function') return window.getCatalogueTestRunKind(t);
+      if (t.single_run_kind === 'api' || t.single_run_kind === 'ui_recorded') return t.single_run_kind;
+      if (t.test_type === 'api' && t.source_kind === 'postman_item' && t.source_id && (t.source_path || t.effective_source_path)) return 'api';
+      if (t.test_type === 'ui_recorded' && t.source_kind === 'ui_recorded' && t.source_id) return 'ui_recorded';
+      return null;
+    };
+
     const rows = activeTests.map(t => {
       const stats = t.stats || {};
       const lastStatus = stats.last_status || 'not_run';
       const lastRunAt = stats.last_run_at ? formatDateTime(stats.last_run_at) : '—';
       const totalRuns = stats.total_runs != null ? stats.total_runs : 0;
       const typeLabel =
+        t.source_kind === 'manual' ? 'Manual Test' :
         t.test_type === 'soap' ? 'SOAP' :
         t.test_type === 'ui_builtin' ? 'UI (built-in)' :
         t.test_type === 'ui_recorded' ? 'UI (recorded)' :
         t.test_type === 'other' ? 'Other' :
         'API';
       const projectName = t.project && t.project.name ? t.project.name : (t.project_id || '');
+      const pid = t.project_id;
       const statusClass =
         lastStatus === 'passed'
           ? 'passed'
@@ -962,6 +972,17 @@ async function loadGlobalTestsCatalogue() {
                 : lastStatus === 'cancelled'
                   ? 'cancelled'
                   : 'pending';
+      const runKind = globalRunKind(t);
+      const lastRunId = stats.last_run_id;
+      const lastRunType = stats.last_run_type || stats.last_run_source || '';
+      const historyBtn = lastRunId
+        ? `<button type="button" class="btn btn-outline btn-sm" onclick='window.openLastRunForTest(${lastRunId}, ${JSON.stringify(String(lastRunType))})'>History</button>`
+        : `<button type="button" class="btn btn-outline btn-sm" disabled title="No run yet">History</button>`;
+      const runSnap = JSON.stringify({ id: t.id, name: t.name || '', endpoint: t.endpoint || null });
+      const runBtn = runKind
+        ? `<button type="button" class="btn btn-outline btn-sm" onclick="window.runProjectCatalogueTestFromGlobal(${pid}, ${t.id}, '${runKind}', ${runSnap})">Run</button>`
+        : `<span class="muted">—</span>`;
+      const actions = `<div class="project-test-row-actions">${runBtn} ${historyBtn}</div>`;
       return `
         <tr>
           <td>${escapeHtml(projectName)}</td>
@@ -970,13 +991,14 @@ async function loadGlobalTestsCatalogue() {
           <td><span class=\"status-badge ${statusClass}\">${lastStatus}</span></td>
           <td>${lastRunAt}</td>
           <td>${totalRuns}</td>
+          <td class="project-test-actions-cell">${actions}</td>
         </tr>
       `;
     }).join('');
 
     tableEl.innerHTML = `
       <div class=\"table-responsive\">
-        <table class=\"table\">
+        <table class=\"table tests-catalogue-table\">
           <thead>
             <tr>
               <th>Project</th>
@@ -985,6 +1007,7 @@ async function loadGlobalTestsCatalogue() {
               <th>Last status</th>
               <th>Last run</th>
               <th>Total runs</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>

@@ -478,6 +478,32 @@ async function enrichCatalogueRowsWithSingleRun(rows, projectId) {
   });
 }
 
+/**
+ * Same single-run enrichment as enrichCatalogueRowsWithSingleRun, for rows from multiple projects.
+ * @param {Array} rows - Sequelize ProjectTest rows from getGlobalTestCatalogue
+ * @returns {Promise<Array<{ effective_source_path: string|null, single_run_kind: 'api'|'ui_recorded'|null }>>}
+ */
+async function enrichGlobalCatalogueRowsWithSingleRun(rows) {
+  const byProject = new Map();
+  rows.forEach((r, idx) => {
+    const p = r.get ? r.get({ plain: true }) : r;
+    const pid = p.project_id;
+    if (!byProject.has(pid)) byProject.set(pid, []);
+    byProject.get(pid).push({ row: r, idx });
+  });
+  const metaByIdx = new Array(rows.length);
+  await Promise.all(
+    [...byProject.entries()].map(async ([pid, items]) => {
+      const onlyRows = items.map((i) => i.row);
+      const meta = await enrichCatalogueRowsWithSingleRun(onlyRows, pid);
+      items.forEach((item, j) => {
+        metaByIdx[item.idx] = meta[j];
+      });
+    })
+  );
+  return metaByIdx;
+}
+
 module.exports = {
   syncProjectTests,
   getProjectTestCatalogue,
@@ -486,6 +512,7 @@ module.exports = {
   discoverSoapTestsForProject,
   discoverUiTestsForProject,
   enrichCatalogueRowsWithSingleRun,
+  enrichGlobalCatalogueRowsWithSingleRun,
   resolvePostmanSourcePathIfNeeded,
   findPostmanItemPathInCollection
 };
