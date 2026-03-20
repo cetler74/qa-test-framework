@@ -6,30 +6,33 @@
 
 FROM node:20-bookworm
 
-# ---- System dependencies + CA certificates + CATS ----
+# ---- System dependencies ----
+# Virtual display, VNC, noVNC, Java for CATS; Playwright browser deps installed via install-deps below
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Virtual display & VNC
     xvfb x11vnc \
-    # noVNC and websockify
+    # noVNC (browser-based VNC client) and websockify (WebSocket-to-TCP bridge)
     novnc websockify \
-    # Java for CATS
+    # Java for CATS fuzz runner (JAR fallback; native CATS binary used when available)
     default-jre-headless \
-    # Curl and CA certificates (CRITICAL)
-    curl ca-certificates \
+    # Download CATS and curl for fetching releases
+    curl \
     # Misc utilities
     procps \
-    # Update CA certificates BEFORE any HTTPS downloads
-    && update-ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    # NOW download CATS in same layer
-    && curl -k -sL -o /tmp/cats.tar.gz "https://github.com/Endava/cats/releases/download/cats-13.7.0/cats_linux_amd64_13.7.0.tar.gz" \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- CATS (Contract API Testing Service) ----
+# Install CATS Linux native binary so "Run Fuzz" works without CATS_CMD.
+# Optional: override with CATS_CMD=java -jar /path/to/cats-runner.jar at runtime.
+ARG CATS_VERSION=13.7.0
+RUN set -eux \
+    && curl -sL -o /tmp/cats.tar.gz "https://github.com/Endava/cats/releases/download/cats-${CATS_VERSION}/cats_linux_amd64_${CATS_VERSION}.tar.gz" \
     && tar xzf /tmp/cats.tar.gz -C /tmp \
     && CATS_BIN=$(find /tmp -type f -executable \( -name 'cats' -o -name 'cats-*' \) 2>/dev/null | head -1) \
     && mv "$CATS_BIN" /usr/local/bin/cats \
     && chmod +x /usr/local/bin/cats \
     && rm -rf /tmp/cats.tar.gz /tmp/cats* \
     && cats --version
-
 
 # Verify Java (for docs and optional CATS JAR usage)
 RUN java -version

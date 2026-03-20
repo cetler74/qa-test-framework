@@ -1,5 +1,7 @@
 const sequelize = require('../config/database');
 const Project = require('./Project');
+const User = require('./User');
+const ProjectMember = require('./ProjectMember');
 const ApiSpec = require('./ApiSpec');
 const Collection = require('./Collection');
 const TestRun = require('./TestRun');
@@ -15,8 +17,26 @@ const Schedule = require('./Schedule');
 const SoapOperation = require('./SoapOperation');
 const FuzzRun = require('./FuzzRun');
 const FuzzResult = require('./FuzzResult');
+const ProjectTest = require('./ProjectTest');
+const ProjectTestStat = require('./ProjectTestStat');
+const ProjectTestNote = require('./ProjectTestNote');
 
 // Define associations
+Project.belongsTo(User, { foreignKey: 'owner_id', as: 'owner' });
+User.hasMany(Project, { foreignKey: 'owner_id', as: 'ownedProjects' });
+Project.belongsToMany(User, {
+  through: ProjectMember,
+  foreignKey: 'project_id',
+  otherKey: 'user_id',
+  as: 'members'
+});
+User.belongsToMany(Project, {
+  through: ProjectMember,
+  foreignKey: 'user_id',
+  otherKey: 'project_id',
+  as: 'memberProjects'
+});
+
 Project.belongsToMany(ApiSpec, {
   through: ProjectApiSpec,
   foreignKey: 'project_id',
@@ -41,6 +61,16 @@ Collection.belongsTo(ApiSpec, {
   as: 'apiSpec'
 });
 
+Project.hasMany(Collection, {
+  foreignKey: 'project_id',
+  as: 'standaloneCollections'
+});
+
+Collection.belongsTo(Project, {
+  foreignKey: 'project_id',
+  as: 'project'
+});
+
 Project.hasMany(TestRun, {
   foreignKey: 'project_id',
   as: 'testRuns'
@@ -49,6 +79,11 @@ Project.hasMany(TestRun, {
 TestRun.belongsTo(Project, {
   foreignKey: 'project_id',
   as: 'project'
+});
+
+TestRun.belongsTo(User, {
+  foreignKey: 'run_by_user_id',
+  as: 'runByUser'
 });
 
 TestRun.hasMany(TestResult, {
@@ -200,9 +235,46 @@ FuzzRun.belongsTo(Flow, {
   as: 'flow'
 });
 
+Project.hasMany(ProjectTest, {
+  foreignKey: 'project_id',
+  as: 'tests'
+});
+
+ProjectTest.belongsTo(Project, {
+  foreignKey: 'project_id',
+  as: 'project'
+});
+
+ProjectTest.hasOne(ProjectTestStat, {
+  foreignKey: 'project_test_id',
+  as: 'stats'
+});
+
+ProjectTestStat.belongsTo(ProjectTest, {
+  foreignKey: 'project_test_id',
+  as: 'projectTest'
+});
+
+ProjectTestStat.belongsTo(User, {
+  foreignKey: 'last_run_by_user_id',
+  as: 'lastRunByUser'
+});
+
+ProjectTest.hasMany(ProjectTestNote, {
+  foreignKey: 'project_test_id',
+  as: 'notes'
+});
+
+ProjectTestNote.belongsTo(ProjectTest, {
+  foreignKey: 'project_test_id',
+  as: 'projectTest'
+});
+
 module.exports = {
   sequelize,
   Project,
+  User,
+  ProjectMember,
   ApiSpec,
   Collection,
   TestRun,
@@ -217,6 +289,9 @@ module.exports = {
   Schedule,
   SoapOperation,
   FuzzRun,
-  FuzzResult
+  FuzzResult,
+  ProjectTest,
+  ProjectTestStat,
+  ProjectTestNote
 };
 

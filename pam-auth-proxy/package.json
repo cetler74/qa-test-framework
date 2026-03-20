@@ -1,0 +1,16 @@
+{
+  "name": "pam-auth-proxy",
+  "version": "1.0.0",
+  "description": "PAM authentication proxy for QA Test Hub (Linux host); app in Docker calls this to verify OS credentials.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "authenticate-pam": "^1.0.5",
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=14"
+  }
+}

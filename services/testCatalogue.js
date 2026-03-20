@@ -1,0 +1,519 @@
+const { Op, literal } = require('sequelize');
+const {
+  Project,
+  ApiSpec,
+  Collection,
+  SoapOperation,
+  ProjectTest,
+  ProjectTestStat,
+  PlaywrightRun,
+  ProjectRecordedTest
+} = require('../models');
+const { getPlaywrightTestList, getPlaywrightTestListWithRecorded } = require('./playwrightRunner');
+
+/**
+ * Discover API tests for a project from its collections.
+ * Stable key format: api:<collectionId>:<pathString>
+ * @param {number} projectId
+ * @returns {Promise<Array<{ test_type, stable_key, name, endpoint, method, source_id, source_kind }>>}
+ */
+async function discoverApiTestsForProject(projectId) {
+  const project = await Project.findByPk(projectId, {
+    include: [{
+      model: ApiSpec,
+      as: 'apiSpecs',
+      include: [{ model: Collection, as: 'collections' }]
+    }]
+  });
+  if (!project) {
+    return [];
+  }
+
+  const collections = [];
+  // Collections from API specs linked to this project
+  (project.apiSpecs || []).forEach((apiSpec) => {
+    if (apiSpec.collections) {
+      collections.push(...apiSpec.collections);
+    }
+  });
+
+  // Standalone collections belonging directly to this project
+  const standaloneCollections = await Collection.findAll({
+    where: { project_id: projectId }
+  });
+  collections.push(...standaloneCollections);
+
+  const results = [];
+  let sourceOrder = 0;
+
+  const normalizeFolderSegment = (value) => String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[\\/]+/g, '-')
+    .slice(0, 120);
+
+  const buildFolderPath = (segments) => {
+    const cleaned = (segments || []).map(normalizeFolderSegment).filter(Boolean);
+    return cleaned.length ? cleaned.join('/') : null;
+  };
+
+  const walkItems = (items, collectionId, parentPath = [], parentFolders = []) => {
+    if (!items || !Array.isArray(items)) return;
+    items.forEach((item, index) => {
+      const path = [...parentPath, index];
+      const pathString = path.join('.');
+      if (item.request) {
+        const method = item.request?.method || 'GET';
+        const url = item.request?.url
+          ? (typeof item.request.url === 'string'
+            ? item.request.url
+            : item.request.url.raw || '')
+          : '';
+        const baseName = item.name || url || pathString;
+        results.push({
+          test_type: 'api',
+          // Stable key derived only from method + name so it can be recomputed from TestResult rows.
+          stable_key: `api:${method}:${baseName}`,
+          name: baseName,
+          endpoint: url,
+          method,
+          source_id: collectionId,
+          source_kind: 'postman_item',
+          source_order: sourceOrder++,
+          source_path: pathString,
+          default_folder_path: buildFolderPath(parentFolders)
+        });
+      } else if (item.item && Array.isArray(item.item)) {
+        const nextFolders = item.name ? [...parentFolders, item.name] : parentFolders;
+        walkItems(item.item, collectionId, path, nextFolders);
+      }
+    });
+  };
+
+  collections.forEach((coll) => {
+    const collectionId = coll.id;
+    const collectionJson = coll.collection_json || {};
+    const items = collectionJson.item || [];
+    walkItems(items, collectionId, [], []);
+  });
+
+  return results;
+}
+
+/**
+ * Discover SOAP tests for a project from its WSDL ApiSpecs and SoapOperation rows.
+ * Stable key format: soap:<apiSpecId>:<operationId>
+ * @param {number} projectId
+ * @returns {Promise<Array<{ test_type, stable_key, name, endpoint, method, source_id, source_kind }>>}
+ */
+async function discoverSoapTestsForProject(projectId) {
+  // Find all WSDL specs linked to this project
+  const project = await Project.findByPk(projectId, {
+    include: [{
+      model: ApiSpec,
+      as: 'apiSpecs',
+      where: { format: 'wsdl' },
+      required: false
+    }]
+  });
+  if (!project) return [];
+
+  const wsdlSpecs = (project.apiSpecs || []).filter((s) => s.format === 'wsdl');
+  if (wsdlSpecs.length === 0) return [];
+
+  const specIds = wsdlSpecs.map((s) => s.id);
+  const operations = await SoapOperation.findAll({
+    where: { api_spec_id: { [Op.in]: specIds } }
+  });
+
+  return operations.map((op) => ({
+    test_type: 'soap',
+    // Stable key derived from method (operation_name) + name so it can be recomputed from TestResult rows.
+    stable_key: `soap:${op.operation_name || 'SOAP'}:${op.name || op.id}`,
+    name: op.name || op.operation_name || `SOAP Operation ${op.id}`,
+    endpoint: op.operation_name || null,
+    method: 'SOAP',
+    source_id: op.id,
+    source_kind: 'soap_operation',
+    source_order: null,
+    source_path: null,
+    default_folder_path: null
+  }));
+}
+
+/**
+ * Discover UI tests for a project (built-in + recorded).
+ * Built-in stable key: ui_builtin:<id>
+ * Recorded stable key: ui_recorded:<numericRecordedId>
+ * @param {number} projectId
+ * @returns {Promise<Array<{ test_type, stable_key, name, endpoint, method, source_id, source_kind }>>}
+ */
+async function discoverUiTestsForProject(projectId) {
+  const results = [];
+
+  // NOTE: We no longer include built-in UI tests in the catalogue at all.
+  // Only recorded UI tests that are explicitly linked to the project are tracked.
+
+  // Recorded tests linked to this project
+  const recorded = await getPlaywrightTestListWithRecorded(projectId);
+  recorded.forEach((t) => {
+    const numericId = String(t.id || '').startsWith('recorded-')
+      ? String(t.id).replace('recorded-', '')
+      : String(t.id || '');
+    results.push({
+      test_type: 'ui_recorded',
+      stable_key: `ui_recorded:${numericId}`,
+      name: t.name || `Recorded ${numericId}`,
+      endpoint: t.base_url || null,
+      method: 'UI',
+      source_id: numericId ? parseInt(numericId, 10) || null : null,
+      source_kind: 'ui_recorded',
+      source_order: null,
+      source_path: null,
+      default_folder_path: null
+    });
+  });
+
+  return results;
+}
+
+/**
+ * Sync the project_tests table for a given project from API, SOAP, and UI sources.
+ * - Upserts entries by (project_id, stable_key).
+ * - Marks entries as inactive if they are no longer discovered.
+ * @param {number} projectId
+ * @returns {Promise<Array<ProjectTest>>}
+ */
+async function syncProjectTests(projectId) {
+  const id = parseInt(projectId, 10);
+  if (!id) {
+    throw new Error('Invalid projectId');
+  }
+
+  const [apiTests, soapTests, uiTests] = await Promise.all([
+    discoverApiTestsForProject(id),
+    discoverSoapTestsForProject(id),
+    discoverUiTestsForProject(id)
+  ]);
+
+  const discovered = [...apiTests, ...soapTests, ...uiTests];
+  const discoveredKeys = new Set(discovered.map((t) => t.stable_key));
+
+  // Load existing tests for this project
+  const existing = await ProjectTest.findAll({
+    where: { project_id: id }
+  });
+
+  const existingByKey = new Map();
+  existing.forEach((row) => {
+    existingByKey.set(row.stable_key, row);
+  });
+
+  // Upsert discovered tests
+  for (const t of discovered) {
+    const existingRow = existingByKey.get(t.stable_key);
+    if (existingRow) {
+      const updates = {
+        test_type: t.test_type,
+        name: t.name,
+        endpoint: t.endpoint,
+        method: t.method,
+        source_id: t.source_id,
+        source_kind: t.source_kind,
+        source_order: t.source_order ?? null,
+        source_path: t.source_path ?? null,
+        default_folder_path: t.default_folder_path ?? null,
+        is_active: true
+      };
+      await existingRow.update(updates);
+    } else {
+      const newRow = await ProjectTest.create({
+        project_id: id,
+        test_type: t.test_type,
+        stable_key: t.stable_key,
+        name: t.name,
+        endpoint: t.endpoint,
+        method: t.method,
+        source_id: t.source_id,
+        source_kind: t.source_kind,
+        source_order: t.source_order ?? null,
+        source_path: t.source_path ?? null,
+        default_folder_path: t.default_folder_path ?? null,
+        folder_path_override: null,
+        is_active: true
+      });
+      // Make sure subsequent duplicates of this stable_key in the same sync
+      // pass through the update branch instead of trying to INSERT again.
+      existingByKey.set(t.stable_key, newRow);
+      // Ensure stats row exists for new tests
+      await ProjectTestStat.findOrCreate({
+        where: { project_test_id: newRow.id },
+        defaults: {
+          total_runs: 0,
+          last_status: 'not_run'
+        }
+      });
+    }
+  }
+
+  // Mark tests that are no longer discovered as inactive (but keep history)
+  const toDeactivate = existing.filter((row) => (
+    !discoveredKeys.has(row.stable_key)
+    && row.is_active
+    && row.source_kind !== 'manual'
+  ));
+  for (const row of toDeactivate) {
+    await row.update({ is_active: false });
+  }
+
+  // Return full catalogue with stats
+  return getProjectTestCatalogue(id);
+}
+
+/**
+ * Get full catalogue for a project, including stats.
+ * @param {number} projectId
+ * @returns {Promise<Array>}
+ */
+async function getProjectTestCatalogue(projectId) {
+  const id = parseInt(projectId, 10);
+  if (!id) throw new Error('Invalid projectId');
+
+  const rows = await ProjectTest.findAll({
+    where: { project_id: id },
+    include: [{
+      model: ProjectTestStat,
+      as: 'stats'
+    }],
+    order: [
+      [
+        literal(`CASE WHEN "ProjectTest"."test_type" = 'api' AND "ProjectTest"."source_order" IS NOT NULL THEN 0 ELSE 1 END`),
+        'ASC'
+      ],
+      [
+        literal(`CASE WHEN "ProjectTest"."test_type" = 'api' AND "ProjectTest"."source_order" IS NOT NULL THEN "ProjectTest"."source_order" ELSE 2147483647 END`),
+        'ASC'
+      ],
+      [
+        literal(`CASE WHEN ("ProjectTest"."test_type" = 'api' AND "ProjectTest"."source_order" IS NOT NULL) THEN NULL ELSE "ProjectTest"."created_at" END`),
+        'ASC'
+      ],
+      ['id', 'ASC']
+    ]
+  });
+
+  return rows;
+}
+
+/**
+ * Get global catalogue across projects with optional filtering.
+ * Filters: projectIds (array), test_type, last_status.
+ * @param {{ projectIds?: number[], test_type?: string, last_status?: string }} filters
+ * @returns {Promise<Array>}
+ */
+async function getGlobalTestCatalogue(filters = {}) {
+  const where = {};
+  if (filters.test_type) {
+    where.test_type = filters.test_type;
+  }
+  if (filters.projectIds && Array.isArray(filters.projectIds) && filters.projectIds.length > 0) {
+    where.project_id = { [Op.in]: filters.projectIds };
+  }
+
+  const statWhere = {};
+  if (filters.last_status) {
+    statWhere.last_status = filters.last_status;
+  }
+
+  const rows = await ProjectTest.findAll({
+    where,
+    include: [
+      {
+        model: ProjectTestStat,
+        as: 'stats',
+        required: Object.keys(statWhere).length ? true : false,
+        where: Object.keys(statWhere).length ? statWhere : undefined
+      },
+      {
+        model: Project,
+        as: 'project',
+        attributes: ['id', 'name']
+      }
+    ],
+    order: [
+      ['project_id', 'ASC'],
+      ['test_type', 'ASC'],
+      ['name', 'ASC']
+    ]
+  });
+
+  return rows;
+}
+
+/**
+ * Parse stable_key like api:GET:Request name (name may contain colons).
+ * @param {string} stableKey
+ * @returns {{ method: string, name: string }|null}
+ */
+function parseApiStableKey(stableKey) {
+  if (!stableKey || typeof stableKey !== 'string') return null;
+  const parts = stableKey.split(':');
+  if (parts[0] !== 'api' || parts.length < 3) return null;
+  const method = (parts[1] || 'GET').toUpperCase();
+  const name = parts.slice(2).join(':');
+  return { method, name };
+}
+
+/**
+ * Find nested Postman item path for a catalogue stable_key by matching method + request name.
+ * @param {object} collectionJson
+ * @param {string} stableKey
+ * @returns {number[]|null}
+ */
+function findPostmanItemPathInCollection(collectionJson, stableKey) {
+  const parsed = parseApiStableKey(stableKey);
+  if (!parsed) return null;
+  const wantMethod = parsed.method;
+  const wantName = parsed.name;
+  let found = null;
+  function walk(items, parentPath) {
+    if (!items || !Array.isArray(items) || found) return;
+    items.forEach((item, index) => {
+      if (found) return;
+      const path = [...parentPath, index];
+      if (item.request) {
+        const method = (item.request.method || 'GET').toUpperCase();
+        const baseName = item.name || '';
+        if (method === wantMethod && baseName === wantName) {
+          found = path;
+        }
+      } else if (item.item) {
+        walk(item.item, path);
+      }
+    });
+  }
+  walk((collectionJson && collectionJson.item) || [], []);
+  return found;
+}
+
+/**
+ * When source_path is missing (legacy rows), resolve from collection JSON + stable_key.
+ * @param {import('../models/ProjectTest')} projectTest
+ * @returns {Promise<string|null>}
+ */
+async function resolvePostmanSourcePathIfNeeded(projectTest) {
+  if (!projectTest || projectTest.source_kind !== 'postman_item' || !projectTest.source_id) {
+    return projectTest && projectTest.source_path ? projectTest.source_path : null;
+  }
+  if (projectTest.source_path) return projectTest.source_path;
+  const coll = await Collection.findByPk(projectTest.source_id);
+  if (!coll || !coll.collection_json) return null;
+  const pathArr = findPostmanItemPathInCollection(coll.collection_json, projectTest.stable_key);
+  return pathArr ? pathArr.join('.') : null;
+}
+
+/**
+ * Per-row metadata for single-test Run UI: resolved path + kind (matches POST /tests/:id/run eligibility).
+ * @param {Array} rows - Sequelize ProjectTest rows from getProjectTestCatalogue
+ * @param {number} projectId
+ * @returns {Promise<Array<{ effective_source_path: string|null, single_run_kind: 'api'|'ui_recorded'|null }>>}
+ */
+async function enrichCatalogueRowsWithSingleRun(rows, projectId) {
+  const pid = parseInt(projectId, 10);
+  const collIds = [...new Set(rows.map((r) => {
+    const p = r.get ? r.get({ plain: true }) : r;
+    return (p.source_kind === 'postman_item' && p.source_id && !p.source_path) ? p.source_id : null;
+  }).filter(Boolean))];
+
+  const collections = collIds.length === 0 ? [] : await Collection.findAll({ where: { id: collIds } });
+  const collMap = new Map(collections.map((c) => [c.id, c]));
+  const pathCache = new Map();
+
+  const uiRecordedIds = rows.map((r) => {
+    const p = r.get ? r.get({ plain: true }) : r;
+    return (p.test_type === 'ui_recorded' && p.source_kind === 'ui_recorded' && p.source_id)
+      ? p.source_id
+      : null;
+  }).filter(Boolean);
+  const linkedUi = new Set();
+  if (uiRecordedIds.length > 0 && pid) {
+    const links = await ProjectRecordedTest.findAll({
+      where: {
+        project_id: pid,
+        recorded_test_id: [...new Set(uiRecordedIds)]
+      },
+      attributes: ['recorded_test_id']
+    });
+    links.forEach((l) => linkedUi.add(l.recorded_test_id));
+  }
+
+  return rows.map((r) => {
+    const plain = r.get ? r.get({ plain: true }) : r;
+    let effective_source_path = plain.source_path;
+    if (!effective_source_path && plain.source_kind === 'postman_item' && plain.source_id && plain.stable_key) {
+      const coll = collMap.get(plain.source_id);
+      if (coll && coll.collection_json) {
+        const cacheKey = `${plain.source_id}::${plain.stable_key}`;
+        if (!pathCache.has(cacheKey)) {
+          const pathArr = findPostmanItemPathInCollection(coll.collection_json, plain.stable_key);
+          pathCache.set(cacheKey, pathArr ? pathArr.join('.') : null);
+        }
+        effective_source_path = pathCache.get(cacheKey);
+      }
+    }
+
+    let single_run_kind = null;
+    if (plain.test_type === 'api' && plain.source_kind === 'postman_item' && plain.source_id && effective_source_path) {
+      single_run_kind = 'api';
+    } else if (
+      plain.test_type === 'ui_recorded'
+      && plain.source_kind === 'ui_recorded'
+      && plain.source_id
+      && linkedUi.has(plain.source_id)
+    ) {
+      single_run_kind = 'ui_recorded';
+    }
+
+    return { effective_source_path, single_run_kind };
+  });
+}
+
+/**
+ * Same single-run enrichment as enrichCatalogueRowsWithSingleRun, for rows from multiple projects.
+ * @param {Array} rows - Sequelize ProjectTest rows from getGlobalTestCatalogue
+ * @returns {Promise<Array<{ effective_source_path: string|null, single_run_kind: 'api'|'ui_recorded'|null }>>}
+ */
+async function enrichGlobalCatalogueRowsWithSingleRun(rows) {
+  const byProject = new Map();
+  rows.forEach((r, idx) => {
+    const p = r.get ? r.get({ plain: true }) : r;
+    const pid = p.project_id;
+    if (!byProject.has(pid)) byProject.set(pid, []);
+    byProject.get(pid).push({ row: r, idx });
+  });
+  const metaByIdx = new Array(rows.length);
+  await Promise.all(
+    [...byProject.entries()].map(async ([pid, items]) => {
+      const onlyRows = items.map((i) => i.row);
+      const meta = await enrichCatalogueRowsWithSingleRun(onlyRows, pid);
+      items.forEach((item, j) => {
+        metaByIdx[item.idx] = meta[j];
+      });
+    })
+  );
+  return metaByIdx;
+}
+
+module.exports = {
+  syncProjectTests,
+  getProjectTestCatalogue,
+  getGlobalTestCatalogue,
+  discoverApiTestsForProject,
+  discoverSoapTestsForProject,
+  discoverUiTestsForProject,
+  enrichCatalogueRowsWithSingleRun,
+  enrichGlobalCatalogueRowsWithSingleRun,
+  resolvePostmanSourcePathIfNeeded,
+  findPostmanItemPathInCollection
+};
+

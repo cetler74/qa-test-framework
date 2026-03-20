@@ -30,6 +30,9 @@ services:
       - "3000:3000"
       # noVNC WebSocket ports for remote Codegen sessions (one per concurrent session)
       - "6080-6089:6080-6089"
+    # Optional: mount proxy config so the container uses your proxies.json (file is gitignored and not in image)
+    # volumes:
+    #   - ./config/proxies.json:/app/config/proxies.json:ro
     environment:
       DB_HOST: db
       DB_PORT: 5432
@@ -39,6 +42,13 @@ services:
       PORT: 3000
       NODE_ENV: production
       PLAYWRIGHT_HEADLESS: "true"
+      # Proxy: set QA_PROXY to override activeProxy from config (e.g. proxy_DEO). Mount config/proxies.json if not in image.
+      # QA_PROXY: ${QA_PROXY:-}
+      # Auth (set in .env; required for login and admin seed)
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
+      ENABLE_LOCAL_AUTH: ${ENABLE_LOCAL_AUTH:-true}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       # Remote Codegen session limits
       CODEGEN_MAX_SESSIONS: ${CODEGEN_MAX_SESSIONS:-3}
       CODEGEN_SESSION_TIMEOUT_MS: ${CODEGEN_SESSION_TIMEOUT_MS:-600000}

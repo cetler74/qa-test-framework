@@ -43,31 +43,41 @@ This is the recommended deployment method for production servers and SaaS hostin
 # 1. Create your environment file
 cp .env.example .env
 
-# 2. Edit .env — set DB_PASSWORD at minimum
+# 2. Edit .env — set DB_PASSWORD and SESSION_SECRET at minimum (use a strong SESSION_SECRET in production).
+#    For first-time login, add ADMIN_USERNAME and ADMIN_PASSWORD, then run seed-admin (step 4).
 #    Optionally adjust DB_NAME, CODEGEN_MAX_SESSIONS, etc.
 
 # 3. Build and start the containers
 docker compose up --build -d
-# Database migrations run automatically when the app container starts (see scripts/docker-entry.sh).
+# NODE_ENV=production is set by docker-compose; sessions are stored in PostgreSQL (migration 018_session_store).
+# Database migrations run automatically when the app container starts (see scripts/docker-entry.sh), including 018_session_store.
+# If ADMIN_USERNAME and ADMIN_PASSWORD are set in .env, the admin user is created automatically on first startup.
 # If you see schema errors (e.g. "column X does not exist"), run migrations manually:
 #   docker compose exec app npm run migrate
 
-# 4. Verify the app is running
+# 4. Create an initial admin user (required to sign in) — either:
+#    Option A: Add ADMIN_USERNAME and ADMIN_PASSWORD to .env before step 3; they are created on first startup.
+#    Option B: Add them to .env now, then run:
+docker compose exec app node scripts/seed-admin.js
+
+# 5. Verify the app is running
 curl http://localhost:3000/health
 # Should return: {"status":"ok","timestamp":"..."}
 ```
 
-The application is now available at **http://\<server-ip\>:3000**.
+The application is now available at **http://\<server-ip\>:3000**. Sign in with the admin user you created (Local account) or with Active Directory if enabled.
 
 ### Database migrations (Docker)
 
-Migrations run automatically when the app container starts (`scripts/docker-entry.sh`). You do not need to run them manually for a normal first-time deploy or after `git pull` + rebuild.
+Migrations run automatically when the app container starts (`scripts/docker-entry.sh`). You do not need to run them manually for a normal first-time deploy or after `git pull` + rebuild. This includes **018_session_store.sql**, which creates the `session` table used for production session storage (when `NODE_ENV=production`).
 
-If you see database schema errors (e.g. "column X of relation Y does not exist"), run migrations inside the app container:
+If you see database schema errors (e.g. "column X of relation Y does not exist"), or the "MemoryStore is not designed for a production environment" warning, run migrations inside the app container:
 
 ```bash
 docker compose exec app npm run migrate
 ```
+
+Then restart the app if needed: `docker compose restart app`.
 
 ### Ports
 
@@ -102,7 +112,8 @@ docker compose up -d
 # Pull latest code, rebuild, and restart
 git pull
 docker compose up --build -d
-# Migrations run automatically on app startup. To run them without restarting:
+# Migrations run automatically on app startup (including any new ones, e.g. 018_session_store).
+# To run migrations without restarting the app:
 #   docker compose exec app npm run migrate
 ```
 
@@ -161,6 +172,14 @@ MAX_FILE_SIZE=10485760
 # Report Configuration
 REPORTS_DIR=./reports
 
+# Auth (required for login)
+SESSION_SECRET=your-session-secret-change-in-production
+ENABLE_LOCAL_AUTH=true
+ENABLE_AD_AUTH=false
+# Optional: seed initial admin (uncomment and set, then run: node scripts/seed-admin.js)
+# ADMIN_USERNAME=admin
+# ADMIN_PASSWORD=your_admin_password
+
 # Playwright / UI Tests (optional)
 PLAYWRIGHT_BASE_URL=https://5gapisprint.meoempresas.pt/apis
 PLAYWRIGHT_TIMEOUT_MS=30000
@@ -187,9 +206,56 @@ npm run migrate
 
 This will:
 - Create the database if it doesn't exist (name from `DB_NAME` in `.env`)
-- Run all migration files in order, creating tables for projects, API specs, collections, test runs, Playwright runs/results/recorded tests, flows, schedules, SOAP, fuzz runs, and related schema
+- Run all migration files in order, including: projects, API specs, collections, test runs, Playwright runs/results/recorded tests, flows, schedules, SOAP, fuzz runs, **users/project access** (migration `015_users_and_project_access.sql`), **users.suspended** (migration `016_users_suspended.sql`), **project.proxy_name** (migration `017_project_proxy.sql`; column kept for compatibility—proxy is now inferred from URL per run), and **session store** (migration `018_session_store.sql`, used when `NODE_ENV=production`). Migrations run automatically on Docker app startup; for local runs use `npm run migrate`.
 
-### 3. Start the Server
+### 3. Auth and Initial Admin User
+
+The app requires sign-in. You must create at least one admin user before you can use the UI.
+
+1. In `.env`, set (and **save the file**):
+   ```env
+   SESSION_SECRET=your-session-secret-change-in-production
+   ENABLE_LOCAL_AUTH=true
+   ADMIN_USERNAME=admin
+   ADMIN_PASSWORD=your_secure_admin_password
+   ```
+2. From the project root, run:
+   ```bash
+   node scripts/seed-admin.js
+   ```
+   You should see: `Created admin user: admin` or `Updated admin user: admin`.
+
+3. If you see **"Set ADMIN_USERNAME and ADMIN_PASSWORD in .env"**: the script reads `.env` from disk. Ensure `ADMIN_USERNAME` and `ADMIN_PASSWORD` are present in `.env`, save the file in your editor, then run the script again.
+
+4. (Optional) To enable **Active Directory** login as well, set `ENABLE_AD_AUTH=true` and configure `AD_URL`, `AD_BASE_DN`, and optionally `AD_BIND_DN`, `AD_BIND_PASSWORD`, `AD_DOMAIN` in `.env`. See `.env.example` for the full list.
+
+#### PAM (OS user) login
+
+**Linux only.** Users can sign in with their **Linux OS account** (PAM). The app verifies credentials by calling a small **PAM auth proxy** over HTTP.
+
+- **Enable:** Set `ENABLE_PAM_AUTH=true` and `PAM_AUTH_URL` in `.env` (see **PAM_AUTH_URL** below).
+- **When the app runs in Docker:** The app runs inside a container and cannot use PAM directly. Run the reference **PAM auth proxy** on the **Linux host** so the container can call it:
+  1. On the host: `cd pam-auth-proxy && npm install && npm start` (see `pam-auth-proxy/README.md`). The proxy listens on port 9090 by default.
+  2. Set `PAM_AUTH_URL` so the app container can reach the proxy (see **PAM_AUTH_URL** below).
+- **Admin PAM users:** After a user signs in with PAM once, they appear in User management. An existing admin can set **Admin** for that user. Alternatively, run `node scripts/seed-pam-admin.js` after setting `PAM_ADMIN_USERNAME=<linux-username>` in `.env`; that user will have admin rights on first PAM login.
+
+**PAM_AUTH_URL — what to use**
+
+`PAM_AUTH_URL` is the URL the app (in Docker or not) uses to call the PAM auth proxy. The proxy runs on the **host**; from inside a container you must use a URL that reaches the host.
+
+- **Windows or Mac (Docker Desktop):** Use `PAM_AUTH_URL=http://host.docker.internal:9090`. Docker Desktop provides the special hostname `host.docker.internal`, which resolves to the host machine from inside any container.
+- **Linux server:** Docker on Linux does **not** provide `host.docker.internal` by default. Use one of:
+  - **Host IP:** Set `PAM_AUTH_URL=http://<host-ip>:9090` where `<host-ip>` is the server’s IP reachable from the container (e.g. the host’s primary interface: `10.0.0.5`, `192.168.1.100`).
+  - **Same hostname as Docker Desktop:** Add `host.docker.internal` to the app service in `docker-compose.yml` so you can keep using `PAM_AUTH_URL=http://host.docker.internal:9090`:
+    ```yaml
+    app:
+      ...
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+    ```
+    Then set `PAM_AUTH_URL=http://host.docker.internal:9090`. (Requires Docker 20.10+.)
+
+### 4. Start the Server
 
 ```bash
 npm start
@@ -201,7 +267,33 @@ Or for development with auto-reload:
 npm run dev
 ```
 
-### 4. Optional: UI Tests (Playwright)
+### 4a. Optional: Proxy configuration
+
+When running in restricted networks (e.g. VM with corporate proxy), API, UI, Codegen, SOAP, and fuzz runs can use a proxy. **Proxy is not configured per project.** It is inferred from the URL or endpoint used for each run:
+
+- **API**: URL from run env vars (e.g. `endpoint`, `base_url`) or first URL-like value
+- **UI**: Base URL of the run or recording
+- **SOAP**: Service URL from WSDL when available
+- **Fuzz**: Server URL of the run
+
+**Behaviour:** Internal URLs (localhost, 127.0.0.1, 10.0.0.0/8) use **no proxy**. All other (external) URLs use the proxy named in **`activeProxy`** in `config/proxies.json`. Set **`bypass`** on that proxy so internal links still bypass the proxy when it is in use (e.g. `localhost,127.0.0.1,10.0.0.0/8`).
+
+**Setup:**
+
+1. Copy the example config: `cp config/proxies.example.json config/proxies.json`
+2. Edit `config/proxies.json`: add or change proxy entries. Each entry has `http`, `https`, and `bypass` (comma-separated hosts/ranges to bypass, e.g. `localhost,127.0.0.1,10.0.0.0/8`). Set **`activeProxy`** to the key of the proxy to use for external URLs (e.g. `proxy_DEO`). The example includes `proxy_DIT_Gestao`, `proxy_DIT_FE`, `proxy_DEO`, and `no-proxy`.
+3. If the file may contain credentials (e.g. `user:pass@host`), add `config/proxies.json` to `.gitignore` so it is not committed.
+
+**Usage:** No UI selection is required. The app applies the proxy automatically based on the URL of each run. Restart the app after editing `config/proxies.json` if the config does not update (the app caches it in memory).
+
+**Docker and proxy:** Several things can affect proxy use when the app runs in Docker:
+
+1. **`config/proxies.json` is not in the image** – The file is in `.gitignore`, so the image only contains `config/proxies.example.json` (which has `activeProxy: "no-proxy"`). To use a proxy in Docker, either **mount** your `config/proxies.json` (e.g. in `docker-compose.yml`: `volumes: - ./config/proxies.json:/app/config/proxies.json:ro`) or copy it into the image in a custom Dockerfile.
+2. **Override active proxy via env** – Set **`QA_PROXY`** in the container environment to the proxy key you want (e.g. `QA_PROXY=proxy_DEO`). The app will use that instead of `activeProxy` from the file. Proxy definitions still come from the mounted or baked-in `proxies.json` (or `proxies.example.json`).
+3. **DNS resolution** – “Internal” URLs (no proxy) are detected using DNS from **inside the container**. If a hostname resolves to a private IP (10.x, 172.16–31.x, 192.168.x), no proxy is used. If DNS fails or resolves to a public IP, the proxy is used. So in Docker, different DNS or unreachable internal DNS can make some URLs use the proxy when they wouldn’t on the host (or the opposite).
+4. **Reachability of the proxy server** – The proxy (e.g. `http://10.162.2.24:3128`) must be reachable from the container. With the default bridge network, outbound traffic goes via the host; if the host can reach the proxy, the container usually can. If the container runs in an isolated network (e.g. some CI), ensure the proxy host is routable and that `bypass` includes any internal hosts that must not go through the proxy.
+
+### 5. Optional: UI Tests (Playwright)
 
 If you want to run UI tests from the **UI Tests** section:
 
@@ -219,7 +311,7 @@ On local development with a display, "Launch Codegen" opens the Playwright Codeg
 
 See **Playwright / UI Tests** in [README.md](README.md) for running and recording UI tests.
 
-### 5. Optional: REST API Fuzzing (CATS)
+### 6. Optional: REST API Fuzzing (CATS)
 
 If you want to run **Fuzz** runs from a project (Run Fuzz), you must install CATS. Without it, a fuzz run will be created but will fail immediately with no results.
 

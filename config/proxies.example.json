@@ -1,0 +1,25 @@
+{
+  "activeProxy": "no-proxy",
+  "proxies": {
+    "proxy_DIT_Gestao": {
+      "http": "http://10.162.2.24:3128",
+      "https": "http://10.162.2.24:3128",
+      "bypass": "localhost,127.0.0.1"
+    },
+    "proxy_DIT_FE": {
+      "http": "http://10.162.105.136:3128",
+      "https": "http://10.162.105.136:3128",
+      "bypass": "localhost,127.0.0.1"
+    },
+    "proxy_DEO": {
+      "http": "http://10.103.16.12:3128",
+      "https": "http://10.103.16.12:3128",
+      "bypass": "localhost,127.0.0.1,10.0.0.0/8"
+    },
+    "no-proxy": {
+      "http": "",
+      "https": "",
+      "bypass": "localhost,127.0.0.1"
+    }
+  }
+}

@@ -6,6 +6,9 @@ node_modules/
 .env.local
 .env.*.local
 
+# Proxy config (may contain credentials); use config/proxies.example.json as template
+config/proxies.json
+
 # Uploads and generated files (user-uploaded content)
 uploads/*
 !uploads/.gitkeep

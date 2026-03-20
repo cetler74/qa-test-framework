@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { Op } = require('sequelize');
-const { PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest } = require('../models');
+const { PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, ProjectTest, ProjectTestStat } = require('../models');
 const playwrightConfig = require('../config/playwright');
 const uiTestsConfig = require('../e2e/ui-tests.config');
 
@@ -14,6 +14,9 @@ const VIDEOS_DIR = path.join(REPORTS_DIR, 'playwright-videos');
 const TRACES_DIR = path.join(REPORTS_DIR, 'playwright-traces');
 
 const BROWSERS = { chromium, firefox, webkit };
+
+/** RunId -> { cancelled: boolean, child?: ChildProcess, browser?: Browser }. Used to cancel running UI tests. */
+const runningPlaywrightState = {};
 
 /**
  * Take a full-page screenshot on failure. Returns filename (e.g. "runId_order.png") or null.
@@ -148,13 +151,12 @@ function getPlaywrightTestList() {
 }
 
 /**
- * Combined list: built-in tests + recorded tests from DB.
+ * Combined list: recorded tests only (no built-in tests).
  * Recorded entries have id like "recorded-<numericId>".
  * @param {number} [projectId] - If set, only include recorded tests linked to this project (project_recorded_tests).
  * @returns {Promise<Array<{ id: string, name: string, base_url?: string }>>}
  */
 async function getPlaywrightTestListWithRecorded(projectId = null) {
-  const builtIn = getPlaywrightTestList();
   let recorded = [];
   try {
     const options = {
@@ -168,20 +170,20 @@ async function getPlaywrightTestListWithRecorded(projectId = null) {
       });
       const ids = links.map(l => l.recorded_test_id);
       if (ids.length === 0) {
-        return [...builtIn];
+        return [];
       }
       options.where = { id: ids };
     }
     const rows = await PlaywrightRecordedTest.findAll(options);
     recorded = rows.map(r => ({
       id: `recorded-${r.id}`,
-      name: `Recorded: ${r.name}`,
+      name: r.name,
       base_url: r.base_url || undefined
     }));
   } catch (err) {
     console.error('[playwrightRunner] Failed to load recorded tests:', err.message);
   }
-  return [...builtIn, ...recorded];
+  return recorded;
 }
 
 /**
@@ -196,7 +198,11 @@ async function getPlaywrightTestListWithRecorded(projectId = null) {
  */
 async function runPlaywrightTests(options = {}) {
   const runId = options.playwrightRunId;
-  const baseUrl = (options.baseUrl || playwrightConfig.baseUrl).replace(/\/$/, '');
+  runningPlaywrightState[runId] = { cancelled: false };
+  try {
+  const baseUrl = (options.baseUrl !== undefined && options.baseUrl !== '' && String(options.baseUrl).trim())
+    ? String(options.baseUrl).trim().replace(/\/$/, '')
+    : undefined;
   const headless = options.headless !== undefined ? options.headless : playwrightConfig.headless;
   const timeoutMs = options.timeoutMs || playwrightConfig.timeoutMs;
   const runOnly = options.runOnly && Array.isArray(options.runOnly) ? options.runOnly : null;
@@ -206,8 +212,8 @@ async function runPlaywrightTests(options = {}) {
   const slowMo = typeof options.slowMo === 'number' && options.slowMo >= 0 ? options.slowMo : 0;
 
   const recordedIds = runOnly ? runOnly.filter(id => String(id).startsWith('recorded-')).map(id => String(id).replace('recorded-', '')) : [];
-  const builtInRunOnly = runOnly ? runOnly.filter(id => !String(id).startsWith('recorded-')) : null;
-  const shouldRun = (id) => !builtInRunOnly || builtInRunOnly.includes(id);
+  const builtInRunOnly = null;
+  const shouldRun = () => false;
 
   const results = [];
   const startTime = Date.now();
@@ -216,11 +222,16 @@ async function runPlaywrightTests(options = {}) {
   let failed = 0;
   let order = 0;
 
-  const hasBuiltInToRun = builtInRunOnly === null || builtInRunOnly.length > 0;
+  const hasBuiltInToRun = false;
   const filterValidations = uiTestsConfig.filterValidations || [];
   const sections = uiTestsConfig.apiSections || [];
   // Start with 0 total; we update with actual result count as tests complete (recorded specs can have multiple test() blocks).
   await updateRunSummary(runId, 0, 0, 0, 0, 'running');
+
+  if (recordedIds.length === 0) {
+    await updateRunSummary(runId, 0, 0, 0, 0, 'passed');
+    return { summary: { total: 0, passed: 0, failed: 0 }, results: [] };
+  }
 
   const record = async (orderNum, testName, status, durationMs, endpoint, errorMessage, assertions, screenshotPath = null) => {
     results.push({ test_name: testName, status, duration_ms: durationMs, endpoint, error_message: errorMessage, assertions, execution_order: orderNum, screenshot_path: screenshotPath });
@@ -234,6 +245,9 @@ async function runPlaywrightTests(options = {}) {
   let page;
   let builtInContext = null;
 
+  const proxy = options.proxy && (options.proxy.http || options.proxy.https) ? options.proxy : null;
+  const proxyServer = proxy ? (proxy.http || proxy.https) : null;
+
   if (hasBuiltInToRun) {
     try {
       const launchOptions = {
@@ -241,8 +255,15 @@ async function runPlaywrightTests(options = {}) {
         args: playwrightConfig.launchArgs || []
       };
       if (slowMo > 0) launchOptions.slowMo = slowMo;
+      if (proxyServer) {
+        launchOptions.proxy = {
+          server: proxyServer,
+          ...(proxy.bypass && proxy.bypass.trim() ? { bypass: proxy.bypass.trim() } : {})
+        };
+      }
       const launch = BROWSERS[browserName] || chromium;
       browser = await launch.launch(launchOptions);
+      if (runningPlaywrightState[runId]) runningPlaywrightState[runId].browser = browser;
     } catch (err) {
       await record(++order, 'Browser launch', 'failed', 0, baseUrl, err.message, null);
       await updateRunSummary(runId, 1, 0, 1, Date.now() - startTime, 'failed');
@@ -577,10 +598,17 @@ async function runPlaywrightTests(options = {}) {
   // Track each recorded spec's output dir and whether it had a failure (so we prefer failed test's artifacts for run-level video/trace)
   const recordedRunDirs = [];
   for (const recId of recordedIds) {
+    if (runningPlaywrightState[runId] && runningPlaywrightState[runId].cancelled) break;
     try {
       const startOrder = order + 1;
-      const runOpts = { timeoutMs, headless, video: videoOpt, trace: traceOpt, browserName, slowMo };
-      const { results: recResults, testResultsDir: recTestResultsDir } = await runRecordedSpec(runId, recId, baseUrl, startOrder, runOpts);
+      const runOpts = { timeoutMs, headless, video: videoOpt, trace: traceOpt, browserName, slowMo, proxy };
+      const out = await runRecordedSpec(runId, recId, baseUrl, startOrder, runOpts);
+      if (out.cancelled) {
+        await updateRunSummary(runId, total, passed, failed, Date.now() - startTime, 'cancelled');
+        return { summary: { total, passed, failed }, results };
+      }
+      const recResults = out.results;
+      const recTestResultsDir = out.testResultsDir;
       const hasFailure = recResults.some(r => r.status === 'failed');
       recordedRunDirs.push({ testResultsDir: recTestResultsDir, hasFailure });
       for (const r of recResults) {
@@ -672,6 +700,9 @@ async function runPlaywrightTests(options = {}) {
   await updateRunSummary(runId, total, passed, failed, durationMs, status);
 
   return { summary: { total, passed, failed }, results };
+  } finally {
+    delete runningPlaywrightState[runId];
+  }
 }
 
 /**
@@ -727,8 +758,20 @@ async function runRecordedSpec(runId, recordedId, baseUrl, startOrder, runOption
     const userAgent = playwrightConfig.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
     const useVideo = videoOpt !== 'off' ? (videoOpt === 'retain-on-failure' ? "'retain-on-failure'" : "'on'") : "'off'";
     const useTrace = traceOpt !== 'off' ? (traceOpt === 'retain-on-failure' ? "'retain-on-failure'" : "'on'") : "'off'";
+    const proxySpec = runOptions.proxy && (runOptions.proxy.http || runOptions.proxy.https) ? runOptions.proxy : null;
+    const proxyServer = proxySpec ? (proxySpec.http || proxySpec.https) : null;
     const launchOpts = { headless, args: launchArgs };
     if (slowMo > 0) launchOpts.slowMo = slowMo;
+    if (proxyServer) {
+      launchOpts.proxy = {
+        server: proxyServer,
+        ...(proxySpec.bypass && proxySpec.bypass.trim() ? { bypass: proxySpec.bypass.trim() } : {})
+      };
+    }
+    const proxyObj = launchOpts.proxy ? (proxySpec.bypass && proxySpec.bypass.trim()
+      ? { server: proxyServer, bypass: proxySpec.bypass.trim() }
+      : { server: proxyServer }) : null;
+    const useProxyLine = proxyObj ? `proxy: ${JSON.stringify(proxyObj)},` : '';
     const configContent = `
 module.exports = {
   testDir: ${JSON.stringify(REPORTS_DIR)},
@@ -740,6 +783,7 @@ module.exports = {
     trace: ${useTrace},
     video: ${useVideo},
     screenshot: 'only-on-failure',
+    ${useProxyLine}
     launchOptions: ${JSON.stringify(launchOpts)}
   },
   projects: [{ name: ${JSON.stringify(browserName)}, use: { browserName: ${JSON.stringify(browserName)} } }],
@@ -759,14 +803,27 @@ module.exports = {
     // Use spawn (async) instead of spawnSync so the Node event loop is not blocked during the
     // subprocess run (video/trace recording can take a long time); the server can then accept
     // new run requests while this run is in progress.
+    const spawnEnv = { ...process.env };
+    if (proxySpec) {
+      const u = proxySpec.http || proxySpec.https || '';
+      spawnEnv.HTTP_PROXY = u;
+      spawnEnv.HTTPS_PROXY = u;
+      spawnEnv.NO_PROXY = proxySpec.bypass || '';
+      spawnEnv.http_proxy = u;
+      spawnEnv.https_proxy = u;
+      spawnEnv.no_proxy = proxySpec.bypass || '';
+    }
     const result = await new Promise((resolve, reject) => {
       const timeout = timeoutMs * 2 + 10000;
       let timedOut = false;
+      let cancelledByUser = false;
       const child = spawn(command, finalArgs, {
         cwd,
         shell: isWin,
+        env: spawnEnv,
         stdio: ['ignore', 'pipe', 'pipe']
       });
+      if (runningPlaywrightState[runId]) runningPlaywrightState[runId].child = child;
       const chunks = { stdout: [], stderr: [] };
       const maxBuffer = 4 * 1024 * 1024;
       let totalLen = 0;
@@ -785,6 +842,8 @@ module.exports = {
         try { child.kill('SIGKILL'); } catch (_) {}
       }, timeout);
       child.once('close', (code, signal) => {
+        if (runningPlaywrightState[runId]) runningPlaywrightState[runId].child = null;
+        if (signal && !timedOut) cancelledByUser = true;
         clearTimeout(timer);
         const stdout = Buffer.concat(chunks.stdout).toString('utf8').trim();
         const stderr = Buffer.concat(chunks.stderr).toString('utf8').trim();
@@ -792,20 +851,24 @@ module.exports = {
           status: timedOut ? 1 : (code != null ? code : (signal ? 1 : 0)),
           stdout,
           stderr,
-          error: timedOut ? new Error(`Playwright test timed out after ${timeout}ms`) : null
+          error: timedOut ? new Error(`Playwright test timed out after ${timeout}ms`) : null,
+          cancelled: cancelledByUser
         });
       });
       child.once('error', (err) => {
+        if (runningPlaywrightState[runId]) runningPlaywrightState[runId].child = null;
         clearTimeout(timer);
         try { child.kill(); } catch (_) {}
         resolve({
           status: 1,
           stdout: Buffer.concat(chunks.stdout).toString('utf8').trim(),
           stderr: Buffer.concat(chunks.stderr).toString('utf8').trim(),
-          error: err
+          error: err,
+          cancelled: false
         });
       });
     });
+    if (result.cancelled) return { results: [], testResultsDir, cancelled: true };
     const stderr = (result.stderr || '').trim();
     const stdout = (result.stdout || '').trim();
     const combinedOutput = [stderr, stdout, result.error ? String(result.error.message || result.error) : '']
@@ -987,7 +1050,7 @@ function flattenPlaywrightJsonReport(report) {
 }
 
 async function recordResult(runId, order, testName, status, durationMs, endpoint, errorMessage, assertions, screenshotPath = null) {
-  await PlaywrightResult.create({
+  const uiResult = await PlaywrightResult.create({
     playwright_run_id: runId,
     test_name: testName,
     status,
@@ -998,6 +1061,10 @@ async function recordResult(runId, order, testName, status, durationMs, endpoint
     execution_order: order,
     screenshot_path: screenshotPath || null
   });
+
+  // Update per-test catalogue stats for this UI result
+  const run = await PlaywrightRun.findByPk(runId);
+  await updateProjectTestStatsForUiResult(run, uiResult);
 }
 
 async function updateRunSummary(runId, totalTests, passedTests, failedTests, durationMs, status) {
@@ -1019,6 +1086,95 @@ async function updateRunArtifacts(runId, updates = {}) {
   if (updates.browser_name !== undefined) set.browser_name = updates.browser_name || null;
   if (Object.keys(set).length === 0) return;
   await PlaywrightRun.update(set, { where: { id: runId } });
+}
+
+/**
+ * Ensure a ProjectTest and ProjectTestStat exist for a given UI PlaywrightResult
+ * and update aggregated stats.
+ * Stable keys:
+ *  - Built-in UI tests: ui_builtin:<id>
+ *  - Recorded tests: ui_recorded:<recordedId>
+ * For recorded tests we prefer assertions.recorded_test_id; for built-in tests we
+ * fall back to the test_name to maintain stability.
+ * @param {import('../models/PlaywrightRun')} run
+ * @param {import('../models/PlaywrightResult')} result
+ * @returns {Promise<void>}
+ */
+async function updateProjectTestStatsForUiResult(run, result) {
+  try {
+    if (!run || !run.project_id) return;
+
+    const testName = (result.test_name || '').toString();
+    const assertions = result.assertions || {};
+    let stableKey;
+    let testType;
+    let sourceId = null;
+    let sourceKind = null;
+
+    if (assertions && assertions.source === 'recorded' && assertions.recorded_test_id) {
+      // Recorded UI test with explicit recorded_test_id
+      const recordedId = String(assertions.recorded_test_id);
+      stableKey = `ui_recorded:${recordedId}`;
+      testType = 'ui_recorded';
+      sourceId = parseInt(recordedId, 10) || null;
+      sourceKind = 'ui_recorded';
+    } else if (testName.startsWith('Recorded:')) {
+      // Fallback: treat as recorded by name
+      stableKey = `ui_recorded:${testName.replace(/^Recorded:\s*/, '')}`;
+      testType = 'ui_recorded';
+      sourceKind = 'ui_recorded';
+    } else {
+      // Built-in UI test: we do not include these in the project_tests catalogue anymore
+      // to avoid polluting coverage with global UI checks.
+      return;
+    }
+
+    const name = testName || 'UI Test';
+
+    const [projectTest] = await ProjectTest.findOrCreate({
+      where: {
+        project_id: run.project_id,
+        stable_key: stableKey
+      },
+      defaults: {
+        test_type: testType,
+        name,
+        endpoint: result.endpoint || null,
+        method: 'UI',
+        source_id: sourceId,
+        source_kind: sourceKind,
+        is_active: true
+      }
+    });
+
+    await projectTest.update({
+      name,
+      endpoint: result.endpoint || projectTest.endpoint,
+      method: 'UI',
+      is_active: true
+    });
+
+    const [stats] = await ProjectTestStat.findOrCreate({
+      where: { project_test_id: projectTest.id },
+      defaults: {
+        total_runs: 0,
+        last_status: 'not_run'
+      }
+    });
+
+    const newTotalRuns = (stats.total_runs || 0) + 1;
+    await stats.update({
+      total_runs: newTotalRuns,
+      last_status: result.status || stats.last_status || 'not_run',
+      last_run_at: new Date(),
+      last_run_source: 'ui_run',
+      last_run_type: 'ui',
+      last_run_id: run.id
+    });
+  } catch (err) {
+    // Never break UI execution because catalogue updates failed
+    console.error('[playwrightRunner] Failed to update project test stats for UI result:', err.message || err);
+  }
 }
 
 /**
@@ -1065,4 +1221,26 @@ if (isCli) {
   });
 }
 
-module.exports = { runPlaywrightTests, getPlaywrightTestList, getPlaywrightTestListWithRecorded };
+/**
+ * Cancel a running Playwright run by killing its subprocess and closing the browser (if any).
+ * Updates the run status to 'cancelled'. Idempotent if run is not running or already cancelled.
+ * @param {number} runId - PlaywrightRun id
+ * @returns {Promise<boolean>} true if run was running and was cancelled, false otherwise
+ */
+async function cancelPlaywrightRun(runId) {
+  const state = runningPlaywrightState[runId];
+  if (!state) return false;
+  state.cancelled = true;
+  if (state.child) {
+    try { state.child.kill('SIGTERM'); } catch (_) {}
+    state.child = null;
+  }
+  if (state.browser) {
+    try { await state.browser.close(); } catch (_) {}
+    state.browser = null;
+  }
+  await PlaywrightRun.update({ status: 'cancelled' }, { where: { id: runId } });
+  return true;
+}
+
+module.exports = { runPlaywrightTests, getPlaywrightTestList, getPlaywrightTestListWithRecorded, cancelPlaywrightRun };

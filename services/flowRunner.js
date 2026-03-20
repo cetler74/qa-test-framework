@@ -7,6 +7,8 @@ const { executeTests } = require('./testRunner');
 const { runPlaywrightTests } = require('./playwrightRunner');
 const { executeFuzz } = require('./fuzzRunner');
 const playwrightConfig = require('../config/playwright');
+const { getProxyForUrlAsync } = require('../lib/proxyConfig');
+const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
 
 /**
  * Run a flow by id. Executes each flow task in order; each task creates one run (test_run or playwright_run) with flow_id.
@@ -57,18 +59,21 @@ async function executeFlow(flowId, options = {}) {
         total_tests: 0,
         passed_tests: 0,
         failed_tests: 0,
-        duration_ms: 0
+        duration_ms: 0,
+        run_by_user_id: options?.runByUserId ?? null
       });
       apiRunIds.push(testRun.id);
 
       const selectedTests = { [collectionId]: [path] };
       const selectedTestsOrdered = [{ collectionId, path, testId: `Step ${i + 1}` }];
+      const apiProxy = await getProxyForUrlAsync(deriveUrlFromEnvVars(envVars));
 
       executeTests(projectId, runName, {
         testRunId: testRun.id,
         selectedTests,
         selectedTestsOrdered,
-        envVars
+        envVars,
+        proxy: apiProxy
       }).catch((err) => {
         console.error(`[flowRunner] API task ${task.id} failed:`, err);
         TestRun.update({ status: 'failed' }, { where: { id: testRun.id } }).catch(() => {});
@@ -93,13 +98,15 @@ async function executeFlow(flowId, options = {}) {
         duration_ms: 0
       });
       uiRunIds.push(run.id);
+      const uiProxy = await getProxyForUrlAsync(baseUrl);
 
       runPlaywrightTests({
         playwrightRunId: run.id,
         baseUrl: baseUrl.replace(/\/$/, ''),
         headless: playwrightConfig.headless,
         timeoutMs: playwrightConfig.timeoutMs,
-        runOnly: ['recorded-' + recordedTestId]
+        runOnly: ['recorded-' + recordedTestId],
+        proxy: uiProxy
       }).catch((err) => {
         console.error(`[flowRunner] UI task ${task.id} failed:`, err);
         PlaywrightRun.update({ status: 'failed' }, { where: { id: run.id } }).catch(() => {});
@@ -124,10 +131,13 @@ async function executeFlow(flowId, options = {}) {
         duration_ms: 0
       });
       fuzzRunIds.push(fuzzRun.id);
+      const fuzzServerUrl = serverUrl.replace(/\/$/, '');
+      const fuzzProxy = await getProxyForUrlAsync(fuzzServerUrl);
       executeFuzz(projectId, apiSpecId, runName, {
         fuzzRunId: fuzzRun.id,
-        serverUrl: serverUrl.replace(/\/$/, ''),
-        flowId
+        serverUrl: fuzzServerUrl,
+        flowId,
+        proxy: fuzzProxy
       }).catch((err) => {
         console.error(`[flowRunner] Fuzz task ${task.id} failed:`, err);
         FuzzRun.update({ status: 'failed' }, { where: { id: fuzzRun.id } }).catch(() => {});

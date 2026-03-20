@@ -12,6 +12,8 @@ A comprehensive API testing tool with Postman integration that allows you to man
 - **UI Tests (Playwright)**: Run browser-based UI tests (page load, key elements visible, basic navigation) against a configurable URL (e.g. 5gapisprint.meoempresas.pt/apis), with separate runs and HTML reports
 - **REST API Fuzzing (CATS)**: Run OpenAPI-based fuzz tests via CATS (Contract API Testing Service); view fuzz runs and HTML reports alongside API, UI, and SOAP runs
 - **Postman to OpenAPI**: Convert Postman collection JSON to OpenAPI 3.0 (Swagger) YAML for use with CATS, documentation, or other OpenAPI tools
+- **Test proxy (URL-based)**: Proxy is inferred from the URL or endpoint used for each run (API, UI, SOAP, Fuzz). Internal URLs (localhost, 127.0.0.1, 10.x.x.x) use no proxy; external URLs use the proxy set in `config/proxies.json` (`activeProxy`). No per-project proxy selection.
+- **Test Catalogue / Coverage**: Per-project and global catalogue of all runnable tests (API, SOAP, UI), auto-populated from specs and test definitions, showing last status, last run date, total run count, and per-test notes.
 
 ## Prerequisites and dependencies
 
@@ -26,7 +28,7 @@ The following software is required or optional depending on which features you u
 | **Playwright browsers** | Chromium (required); Firefox & WebKit optional | Run UI tests; install with `npx playwright install chromium` (or `chromium firefox webkit` for all) |
 | **Newman** | Installed via `npm install` | Postman collection test execution (API tests) |
 | **Java** | 17+ | REST API fuzzing (CATS) when using the JAR; not needed if using CATS native binary or Docker |
-| **CATS** | JAR or native binary | Optional; required only for **Run Fuzz** (OpenAPI fuzzing). See [SETUP.md – CATS](SETUP.md#5-optional-rest-api-fuzzing-cats) |
+| **CATS** | JAR or native binary | Optional; required only for **Run Fuzz** (OpenAPI fuzzing). See [SETUP.md – CATS](SETUP.md#6-optional-rest-api-fuzzing-cats) |
 
 **When using Docker:** The Docker image includes Node.js, Playwright Chromium, Xvfb, x11vnc, noVNC/websockify (remote Codegen), Java, and the CATS binary. Database migrations run automatically on app startup. You only need Docker Engine and Docker Compose; see [SETUP.md – Docker](SETUP.md#docker-deployment-recommended-for-saas--production).
 
@@ -48,7 +50,7 @@ Or separately: `npm install` then `npm run migrate`.
 cp .env.example .env
 ```
 
-5. Update the `.env` file with your database credentials (use your actual PostgreSQL database name; e.g. `linkuup_db` or `qa_framework`):
+5. Update the `.env` file with your database credentials and auth settings (use your actual PostgreSQL database name; e.g. `linkuup_db` or `qa_testing`):
 
 ```env
 DB_HOST=localhost
@@ -56,7 +58,25 @@ DB_PORT=5432
 DB_NAME=qa_framework
 DB_USER=postgres
 DB_PASSWORD=your_password
+
+# Required for login/session (change in production)
+SESSION_SECRET=your-session-secret-change-in-production
+ENABLE_LOCAL_AUTH=true
+
+# Optional: create first admin user (see step 6)
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your_admin_password
 ```
+
+6. **Create an initial admin user** (required to sign in). Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`, **save the file**, then run:
+
+```bash
+node scripts/seed-admin.js
+```
+
+This creates or updates a local user with admin rights.
+
+7. **Optional – Proxy for test traffic**: If tests must use a corporate proxy, copy `config/proxies.example.json` to `config/proxies.json`, set `activeProxy` to the desired proxy key, and configure `bypass` (e.g. `localhost,127.0.0.1,10.0.0.0/8`) so internal traffic does not go through the proxy. Proxy is applied automatically based on the URL/endpoint of each run (API env URL, UI base URL, SOAP service URL, Fuzz server URL)—there is no per-project proxy setting. See [SETUP.md – Proxy configuration](SETUP.md#4a-optional-proxy-configuration). If the script says "Set ADMIN_USERNAME and ADMIN_PASSWORD in .env", ensure those variables are in `.env` and the file is saved to disk. See [SETUP.md – Auth and admin](SETUP.md#auth-and-initial-admin-user) for details.
 
 ## Database Setup
 
@@ -81,7 +101,7 @@ node scripts/migrate.js
 This migration script will:
 
 - Connect to PostgreSQL using your `.env` credentials
-- Create the `qa_framework` database if it doesn't exist
+- Create the database (name from `DB_NAME`) if it doesn't exist
 - Run all migration files in order:
   - `000_create_database.sql` - Database creation (handled automatically)
   - `001_create_tables.sql` - Creates all base tables (projects, api_specs, collections, test_runs, test_results, etc.)
@@ -96,6 +116,14 @@ This migration script will:
   - `010_fuzz_run_progress.sql` - Fuzz run progress tracking
   - `011_fuzz_run_server_url.sql` - Server URL on fuzz runs
   - `012_playwright_result_screenshot.sql` - Screenshot path on playwright_results
+  - `013_playwright_run_artifacts_browser.sql` - Playwright run artifacts and browser
+  - `014_playwright_result_video_trace.sql` - Video and trace on playwright results
+  - `015_users_and_project_access.sql` - users, project owner/visibility, project_members (auth and project access)
+  - `016_users_suspended.sql` - adds `suspended` flag to users (suspended users cannot log in)
+  - `017_project_proxy.sql` - adds `proxy_name` to projects (kept for backward compatibility; proxy is now inferred from URL per run)
+  - `018_session_store.sql` - creates `session` table for production (express-session with PostgreSQL; avoids in-memory MemoryStore warning)
+  - `020_collections_project_id.sql` - makes collections project-specific by adding `project_id` and index to `collections`
+  - `021_project_tests_and_stats.sql` - creates `project_tests`, `project_test_stats`, and `project_test_notes` tables for the test catalogue/coverage feature
 
 ### Migration Files
 
@@ -114,6 +142,14 @@ The `migrations/` directory contains SQL migration files that are executed in al
 - **010_fuzz_run_progress.sql** - Fuzz run progress
 - **011_fuzz_run_server_url.sql** - Server URL on fuzz runs
 - **012_playwright_result_screenshot.sql** - Screenshot path on playwright_results
+- **013_playwright_run_artifacts_browser.sql** - Playwright run artifacts and browser
+- **014_playwright_result_video_trace.sql** - Video and trace on playwright results
+- **015_users_and_project_access.sql** - `users`, project `owner_id`/`visibility`, `project_members` (authentication and project access)
+- **016_users_suspended.sql** - `suspended` column on `users` (suspended users cannot log in; used by Manage users)
+- **017_project_proxy.sql** - `proxy_name` column on `projects` (kept for compatibility; proxy is inferred from URL/endpoint per run, not from project)
+- **018_session_store.sql** - `session` table for production session storage (connect-pg-simple; used when `NODE_ENV=production` to avoid MemoryStore warning)
+- **020_collections_project_id.sql** - `project_id` column and index on `collections` so standalone Postman collections can belong to a single project
+- **021_project_tests_and_stats.sql** - `project_tests` (per-project master test catalogue), `project_test_stats` (aggregated per-test execution stats), `project_test_notes` (per-test notes)
 
 ### Manual Database Setup (Alternative)
 
@@ -181,16 +217,34 @@ The application uses the following main tables:
   CREATE DATABASE qa_framework;
   ```
 
+**Login returns 500 or "column suspended does not exist"**
+
+- Solution: Run all migrations so the `users` table has the `suspended` column:
+  ```bash
+  npm run migrate
+  ```
+  Then restart the server.
+
+**"MemoryStore is not designed for a production environment" (Docker/server)**
+
+- Solution: Run with `NODE_ENV=production` (Docker Compose sets this by default) and run migrations so the `session` table exists (migration `018_session_store.sql`). The app then uses PostgreSQL for sessions instead of in-memory storage. If the warning persists, run `docker compose exec app npm run migrate` and restart the app.
+
+**Newman run crashes with "Unknown object type asyncfunction"**
+
+- Solution: The project overrides `object-hash` to v2.x (in `package.json` overrides) so collections that use async code in scripts do not crash. Ensure you run `npm install` (or rebuild the Docker image) so the override is applied.
+
 ## Dependency checklist (local run)
 
 Before running the app locally, ensure:
 
 - [ ] **Node.js** 18+ and **npm** installed (`node -v`, `npm -v`)
 - [ ] **PostgreSQL** 12+ installed and running; database created or migration will create it
-- [ ] **`.env`** created from `.env.example` with correct `DB_*` values
+- [ ] **`.env`** created from `.env.example` with correct `DB_*` values and **`SESSION_SECRET`** (required for login)
 - [ ] **`npm install`** and **`npm run migrate`** completed
+- [ ] **Initial admin user** created: set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `.env`, save the file, then run `node scripts/seed-admin.js` (see [SETUP.md – Auth and admin](SETUP.md#auth-and-initial-admin-user))
 - [ ] (Optional) **Playwright browsers** for UI tests: `npx playwright install chromium`
-- [ ] (Optional) **Java 17+** and **CATS** (JAR or binary) if you use **Run Fuzz** — see [SETUP.md](SETUP.md#5-optional-rest-api-fuzzing-cats)
+- [ ] (Optional) **Java 17+** and **CATS** (JAR or binary) if you use **Run Fuzz** — see [SETUP.md](SETUP.md#6-optional-rest-api-fuzzing-cats)
+- [ ] (Optional) **`config/proxies.json`** created from `config/proxies.example.json` with `activeProxy` set if tests must use a corporate proxy; proxy is inferred from the URL/endpoint of each run — see [SETUP.md – Proxy configuration](SETUP.md#4a-optional-proxy-configuration)
 
 ## Running the Application
 
@@ -206,7 +260,7 @@ For development with auto-reload:
 npm run dev
 ```
 
-The application will be available at `http://localhost:3000`
+The application will be available at `http://localhost:3000` (or the port set in `PORT`). You must sign in with a user account; use the admin user created by `node scripts/seed-admin.js` (Local account) or an Active Directory account if AD auth is enabled.
 
 ## Usage
 
@@ -243,16 +297,19 @@ The application will be available at `http://localhost:3000`
 
 Fuzz runs use [CATS](https://github.com/Endava/cats) (Contract API Testing Service) to test your OpenAPI endpoints with generated and boundary inputs. From a project, click **Run Fuzz**, select an **API Spec** (OpenAPI YAML/JSON only), enter the **Base URL** (server URL for CATS), and a **Run name**. Fuzz runs appear in **Test Runs** with the **Fuzz** badge; open a run for details and use **View Report** / **Download Report** for the HTML report.
 
-**Installing CATS:** You need Java 17+ and the CATS JAR (or native binary on macOS/Linux). See [SETUP.md – Installing CATS](SETUP.md#5-optional-rest-api-fuzzing-cats) for step-by-step instructions (download JAR, set `CATS_CMD` in `.env`, verify). Without CATS installed, "Run Fuzz" will create a run that immediately fails with no results.
+**Installing CATS:** You need Java 17+ and the CATS JAR (or native binary on macOS/Linux). See [SETUP.md – Installing CATS](SETUP.md#6-optional-rest-api-fuzzing-cats) for step-by-step instructions (download JAR, set `CATS_CMD` in `.env`, verify). Without CATS installed, "Run Fuzz" will create a run that immediately fails with no results.
 
 **Verification scripts:**
 
 - `scripts/run-sample-execution-with-delay.js` — creates a small two-request collection and runs it with a configured `delayBetweenTests` to validate delay timing.
 - `scripts/create-test-run-fixture.js` — creates a synthetic test run (success + failure) and generates an HTML report for manual verification of report content (response bodies, errors).
+- `scripts/backfillProjectTests.js` — one-off/periodic script that syncs the test catalogue for all projects and backfills `project_test_stats` from historical API, SOAP, and UI runs so coverage views start with realistic counts and last-status values.
 
 ### Converting Postman collections to OpenAPI (Swagger) YAML
 
 You can convert a Postman collection (JSON) to OpenAPI 3.0 YAML for use with CATS fuzzing, Swagger UI, or other OpenAPI-based tools.
+
+**Web UI:** In the app header go to **Settings → Postman to OpenAPI**. Upload a Postman collection (JSON) and click **Convert and download OpenAPI YAML** to get the OpenAPI file. You can also use the CLI below.
 
 **What the converter does:**
 
@@ -411,10 +468,13 @@ flowchart TD
 
 ```bash
 cp .env.example .env
-# Edit .env — set DB_PASSWORD at minimum
+# Edit .env — set DB_PASSWORD, SESSION_SECRET (required for production); for first-time login also set ADMIN_USERNAME and ADMIN_PASSWORD
 docker compose up --build -d
-# Migrations run automatically when the app starts. If you see DB schema errors (e.g. missing column), run:
-#   docker compose exec app npm run migrate
+# Migrations run automatically on app startup (including 018_session_store for production session storage).
+# With NODE_ENV=production (default in docker-compose), sessions are stored in PostgreSQL; set a strong SESSION_SECRET.
+# If ADMIN_USERNAME and ADMIN_PASSWORD are set in .env, the admin user is created on first startup.
+# Otherwise run: docker compose exec app node scripts/seed-admin.js (after adding ADMIN_USERNAME and ADMIN_PASSWORD to .env and restarting, or pass env when exec’ing)
+# If you see DB schema errors (e.g. missing column), run: docker compose exec app npm run migrate
 # Open http://<server-ip>:3000
 ```
 
@@ -513,6 +573,15 @@ docker compose up --build -d
 - `DELETE /api/playwright-recorded-tests/:id` - Delete
 - `POST /api/playwright-recorded-tests/launch-codegen` - Launch Playwright Codegen (optional; requires display; body: optional `baseUrl`)
 
+### Test Catalogue / Coverage
+
+- `GET /api/projects/:projectId/tests/catalogue` - Get the per-project test catalogue for a project, including aggregated stats for each test.
+- `POST /api/projects/:projectId/tests/catalogue/sync` - Re-scan API specs, Postman/OpenAPI collections, WSDL SOAP operations, and UI tests (built-in + recorded) to refresh the project’s test catalogue baseline.
+- `PATCH /api/projects/:projectId/tests/:projectTestId` - Update a single catalogue entry (name, description, active flag).
+- `GET /api/projects/:projectId/tests/:projectTestId/notes` - List notes for a single catalogue test (most recent first).
+- `POST /api/projects/:projectId/tests/:projectTestId/notes` - Add a new note to a test (body: `note`).
+- `GET /api/tests/catalogue` - Global catalogue across all projects, with filters by `projectId`, `test_type`, and `last_status`; used by the Test Catalogue UI for coverage metrics.
+
 ## Database Schema
 
 The application uses PostgreSQL with the following main tables:
@@ -546,6 +615,12 @@ The application uses PostgreSQL with the following main tables:
   - `id`, `name`, `status`, `project_id`, `api_spec_id`, `flow_id`, `total_tests`, `passed_tests`, `failed_tests`, `duration_ms`, `report_path`, `created_at`
 - **fuzz_results** - Individual fuzz test results (migration 009)
   - `id`, `fuzz_run_id`, `test_name`, `endpoint`, `method`, `status`, `duration_ms`, `request_body`, `response_body`, `response_code`, `fuzzer_name`, `error_message`, `execution_order`, `created_at`
+- **project_tests** - Per-project master test catalogue (migration 021)
+  - `id`, `project_id`, `test_type` (`api`, `soap`, `ui_builtin`, `ui_recorded`), `source_id`, `source_kind`, `stable_key`, `name`, `description`, `endpoint`, `method`, `is_active`, `created_at`, `updated_at`
+- **project_test_stats** - Aggregated execution stats per catalogue entry (migration 021)
+  - `id`, `project_test_id`, `total_runs`, `last_status`, `last_run_at`, `last_run_source`, `last_run_type`, `last_run_id`, `created_at`, `updated_at`
+- **project_test_notes** - Free-form notes/comments per catalogue test (migration 021)
+  - `id`, `project_test_id`, `author_id`, `note`, `created_at`
 
 ## Environment Variables
 
@@ -555,6 +630,13 @@ The application uses PostgreSQL with the following main tables:
 - `DB_USER` - Database user (default: postgres)
 - `DB_PASSWORD` - Database password
 - `PORT` - Server port (default: 3000)
+- **`SESSION_SECRET`** - Secret for session cookies (required for auth; use a strong value in production)
+- **`NODE_ENV`** - Set to `production` on the server (Docker Compose sets this by default). When `production`, sessions are stored in PostgreSQL (migration `018_session_store.sql`) instead of in-memory, avoiding the MemoryStore warning and session loss on restart.
+- **`COOKIE_SECURE`** - Set to `true` only when the app is served over HTTPS. Leave unset (or false) for Docker or `http://localhost`, otherwise the session cookie is not sent and login appears to fail (401 on `/api/auth/me`).
+- **`ENABLE_LOCAL_AUTH`** - Enable local username/password login (default: true)
+- **`ENABLE_AD_AUTH`** - Enable Active Directory login (default: false). When true, set `AD_URL`, `AD_BASE_DN`, and optionally `AD_BIND_DN`, `AD_BIND_PASSWORD`, `AD_DOMAIN`
+- **`ENABLE_PAM_AUTH`** - Enable PAM (OS user) login (default: false). **Linux only.** When true, set **`PAM_AUTH_URL`** to the URL of the PAM auth proxy. When the app runs in Docker, the proxy must run on the host; use `http://host.docker.internal:9090` on Windows/Mac (Docker Desktop), or on Linux use the host IP (e.g. `http://10.0.0.5:9090`) or add `extra_hosts: - "host.docker.internal:host-gateway"` to the app service and use `http://host.docker.internal:9090`. See [SETUP.md – PAM (OS user) login](SETUP.md#pam-os-user-login) for details.
+- **`ADMIN_USERNAME`** / **`ADMIN_PASSWORD`** - Used by `node scripts/seed-admin.js` to create or update the first admin user (local auth). Must be set in `.env` and the file saved before running the script.
 - `UPLOAD_DIR` - Directory for uploaded files (default: ./uploads)
 - `REPORTS_DIR` - Directory for generated reports (default: ./reports)
 - `MAX_FILE_SIZE` - Maximum upload file size in bytes (default: 10485760)
@@ -565,6 +647,9 @@ The application uses PostgreSQL with the following main tables:
 - `CODEGEN_MAX_SESSIONS` - Maximum concurrent remote Codegen sessions (default: 3)
 - `CODEGEN_SESSION_TIMEOUT_MS` - Remote Codegen session auto-timeout in ms (default: 600000 = 10 min)
 - `CODEGEN_VNC_PORT_START` - First websockify port for noVNC sessions (default: 6080)
+- **Proxy** – `config/proxies.json` defines named proxies (http, https, bypass) and `activeProxy`. Proxy is inferred from the URL/endpoint used for each run: internal URLs (localhost, 127.0.0.1, 10.x.x.x) use no proxy; external URLs use `activeProxy`. There is no per-project proxy selection. If the file is missing, the app reads `config/proxies.example.json`. Optional: set `QA_PROXY` (e.g. in Docker) to override active proxy when running tests outside the UI.
+
+**Docker:** To use a proxy for test traffic, configure `config/proxies.json` (or mount it) with `activeProxy` and `bypass`; proxy is applied automatically based on the run URL. Optionally set `QA_PROXY` for CLI-style runs.
 
 ## License
 

@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<definitions xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+             xmlns:tns="http://tempuri.org/"
+             xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+             xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/"
+             xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+             targetNamespace="http://tempuri.org/">
+  <types>
+    <xsd:schema targetNamespace="http://tempuri.org/">
+      <xsd:element name="Add">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="intA" type="xsd:int" />
+            <xsd:element name="intB" type="xsd:int" />
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+      <xsd:element name="AddResponse">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="AddResult" type="xsd:int" />
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <xsd:element name="Subtract">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="intA" type="xsd:int" />
+            <xsd:element name="intB" type="xsd:int" />
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+      <xsd:element name="SubtractResponse">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="SubtractResult" type="xsd:int" />
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <xsd:element name="Multiply">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="intA" type="xsd:int" />
+            <xsd:element name="intB" type="xsd:int" />
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+      <xsd:element name="MultiplyResponse">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="MultiplyResult" type="xsd:int" />
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <xsd:element name="Divide">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="intA" type="xsd:int" />
+            <xsd:element name="intB" type="xsd:int" />
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+      <xsd:element name="DivideResponse">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="DivideResult" type="xsd:int" />
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+    </xsd:schema>
+  </types>
+
+  <message name="AddSoapIn">
+    <part name="parameters" element="tns:Add" />
+  </message>
+  <message name="AddSoapOut">
+    <part name="parameters" element="tns:AddResponse" />
+  </message>
+
+  <message name="SubtractSoapIn">
+    <part name="parameters" element="tns:Subtract" />
+  </message>
+  <message name="SubtractSoapOut">
+    <part name="parameters" element="tns:SubtractResponse" />
+  </message>
+
+  <message name="MultiplySoapIn">
+    <part name="parameters" element="tns:Multiply" />
+  </message>
+  <message name="MultiplySoapOut">
+    <part name="parameters" element="tns:MultiplyResponse" />
+  </message>
+
+  <message name="DivideSoapIn">
+    <part name="parameters" element="tns:Divide" />
+  </message>
+  <message name="DivideSoapOut">
+    <part name="parameters" element="tns:DivideResponse" />
+  </message>
+
+  <portType name="CalculatorSoap">
+    <operation name="Add">
+      <input message="tns:AddSoapIn" />
+      <output message="tns:AddSoapOut" />
+    </operation>
+    <operation name="Subtract">
+      <input message="tns:SubtractSoapIn" />
+      <output message="tns:SubtractSoapOut" />
+    </operation>
+    <operation name="Multiply">
+      <input message="tns:MultiplySoapIn" />
+      <output message="tns:MultiplySoapOut" />
+    </operation>
+    <operation name="Divide">
+      <input message="tns:DivideSoapIn" />
+      <output message="tns:DivideSoapOut" />
+    </operation>
+  </portType>
+
+  <binding name="CalculatorSoap" type="tns:CalculatorSoap">
+    <soap:binding transport="http://schemas.xmlsoap.org/soap/http" style="document" />
+    <operation name="Add">
+      <soap:operation soapAction="http://tempuri.org/Add" style="document" />
+      <input>
+        <soap:body use="literal" />
+      </input>
+      <output>
+        <soap:body use="literal" />
+      </output>
+    </operation>
+    <operation name="Subtract">
+      <soap:operation soapAction="http://tempuri.org/Subtract" style="document" />
+      <input>
+        <soap:body use="literal" />
+      </input>
+      <output>
+        <soap:body use="literal" />
+      </output>
+    </operation>
+    <operation name="Multiply">
+      <soap:operation soapAction="http://tempuri.org/Multiply" style="document" />
+      <input>
+        <soap:body use="literal" />
+      </input>
+      <output>
+        <soap:body use="literal" />
+      </output>
+    </operation>
+    <operation name="Divide">
+      <soap:operation soapAction="http://tempuri.org/Divide" style="document" />
+      <input>
+        <soap:body use="literal" />
+      </input>
+      <output>
+        <soap:body use="literal" />
+      </output>
+    </operation>
+  </binding>
+
+  <service name="Calculator">
+    <port name="CalculatorSoap" binding="tns:CalculatorSoap">
+      <soap:address location="http://www.dneonline.com/calculator.asmx" />
+    </port>
+  </service>
+</definitions>

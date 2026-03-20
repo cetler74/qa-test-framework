@@ -97,19 +97,15 @@
 
   let testList = [];
 
-  function filterTestsBySuite(list, suite) {
-    if (suite === 'builtin') return list.filter(t => !String(t.id).startsWith('recorded-'));
-    if (suite === 'recorded') return list.filter(t => String(t.id).startsWith('recorded-'));
+  function filterTestsBySuite(list, _suite) {
     return list;
   }
 
   async function loadRunUiTestsPage() {
     const container = document.getElementById('playwright-test-list-container');
     const nameInput = document.getElementById('run-ui-tests-name');
-    const urlInput = document.getElementById('run-ui-tests-base-url');
     const projectSelectWrap = document.getElementById('run-ui-tests-project-wrap');
     const projectSelect = document.getElementById('run-ui-tests-project-select');
-    const suiteSelect = document.getElementById('run-ui-tests-suite');
     const projectId = window._runUiTestsProjectId ? String(window._runUiTestsProjectId) : null;
     // Always show project selector so the user can change project (e.g. when a test is running or after coming from a project card).
     if (projectSelectWrap) {
@@ -136,7 +132,6 @@
         apiRequest('/playwright-config').catch(() => ({}))
       ]);
       testList = tests;
-      if (urlInput && config.baseUrl) urlInput.value = config.baseUrl;
       const showBrowserOptions = document.querySelector('.run-ui-tests-show-browser-options');
       const noDisplayMsg = document.getElementById('run-ui-tests-no-display-msg');
       const showBrowserCb = document.getElementById('run-ui-tests-show-browser');
@@ -144,19 +139,12 @@
       if (showBrowserOptions) showBrowserOptions.style.display = hasDisplay ? '' : 'none';
       if (noDisplayMsg) noDisplayMsg.style.display = hasDisplay ? 'none' : 'block';
       if (showBrowserCb && typeof config.headless === 'boolean') showBrowserCb.checked = !config.headless;
-      const suite = suiteSelect ? suiteSelect.value : 'all';
       const showCheckboxes = document.querySelector('input[name="test-list-type"]:checked')?.value === 'selected';
-      renderTestList(showCheckboxes, suite);
-      suiteSelect?.addEventListener('change', () => {
-        const s = document.getElementById('run-ui-tests-suite')?.value || 'all';
-        const sel = document.querySelector('input[name="test-list-type"]:checked')?.value === 'selected';
-        renderTestList(sel, s);
-      });
+      renderTestList(showCheckboxes);
       const radios = document.querySelectorAll('input[name="test-list-type"]');
       radios.forEach(r => r.addEventListener('change', () => {
         const sel = document.querySelector('input[name="test-list-type"]:checked').value === 'selected';
-        const s = document.getElementById('run-ui-tests-suite')?.value || 'all';
-        renderTestList(sel, s);
+        renderTestList(sel);
       }));
       // When user changes project, reload test list for the new project (one handler via onchange to avoid stacking).
       if (sel) {
@@ -165,14 +153,13 @@
           window._runUiTestsProjectId = pid ? Number(pid) : null;
           if (!pid) {
             testList = [];
-            renderTestList(document.querySelector('input[name="test-list-type"]:checked')?.value === 'selected', document.getElementById('run-ui-tests-suite')?.value || 'all');
+            renderTestList(document.querySelector('input[name="test-list-type"]:checked')?.value === 'selected');
             return;
           }
           try {
             testList = await apiRequest(`/playwright-tests/list?projectId=${pid}`);
-            const s = document.getElementById('run-ui-tests-suite')?.value || 'all';
             const showCb = document.querySelector('input[name="test-list-type"]:checked')?.value === 'selected';
-            renderTestList(showCb, s);
+            renderTestList(showCb);
           } catch (err) {
             console.error('Error loading test list for project:', err);
           }
@@ -183,59 +170,28 @@
     }
   }
 
-  function renderTestList(showCheckboxes, suiteFilter) {
+  function renderTestList(showCheckboxes, _suiteFilter) {
     const container = document.getElementById('playwright-test-list-container');
     if (!container) return;
-    const filtered = filterTestsBySuite(testList, suiteFilter || 'all');
+    const filtered = testList;
     if (!filtered.length) {
       container.innerHTML = `
         <h3 class="test-list-title">Tests that will run</h3>
-        <p class="test-list-empty">No tests in this suite. Choose another test suite or ensure recorded tests are linked to the project.</p>
+        <p class="test-list-empty">No recorded tests in this project. Add recorded tests and link them to the project first.</p>
       `;
       return;
     }
-    const builtin = filtered.filter(t => !String(t.id).startsWith('recorded-'));
-    const recorded = filtered.filter(t => String(t.id).startsWith('recorded-'));
-    const showSections = (suiteFilter === 'all') && builtin.length > 0 && recorded.length > 0;
 
-    let listHtml = '';
-    if (showSections) {
-      listHtml += `
-        <div class="test-list-section">
-          <h4 class="test-list-section-title">Built-in tests</h4>
-          <ul class="playwright-test-list ${showCheckboxes ? 'selectable' : ''}">
-            ${builtin.map((t, i) => `
-              <li class="playwright-test-item">
-                ${showCheckboxes ? `<input type="checkbox" class="playwright-test-cb" data-test-id="${t.id}" id="pt-${t.id}" />` : ''}
-                <span class="playwright-test-name">${i + 1}. ${t.name}</span>
-              </li>
-            `).join('')}
-          </ul>
-        </div>
-        <div class="test-list-section">
-          <h4 class="test-list-section-title">Recorded tests</h4>
-          <ul class="playwright-test-list ${showCheckboxes ? 'selectable' : ''}">
-            ${recorded.map((t, i) => `
-              <li class="playwright-test-item">
-                ${showCheckboxes ? `<input type="checkbox" class="playwright-test-cb" data-test-id="${t.id}" id="pt-${t.id}" />` : ''}
-                <span class="playwright-test-name">${builtin.length + i + 1}. ${t.name}</span>
-              </li>
-            `).join('')}
-          </ul>
-        </div>
-      `;
-    } else {
-      listHtml = `
-        <ul class="playwright-test-list ${showCheckboxes ? 'selectable' : ''}">
-          ${filtered.map((t, i) => `
-            <li class="playwright-test-item">
-              ${showCheckboxes ? `<input type="checkbox" class="playwright-test-cb" data-test-id="${t.id}" id="pt-${t.id}" />` : ''}
-              <span class="playwright-test-name">${i + 1}. ${t.name}</span>
-            </li>
-          `).join('')}
-        </ul>
-      `;
-    }
+    const listHtml = `
+      <ul class="playwright-test-list ${showCheckboxes ? 'selectable' : ''}">
+        ${filtered.map((t, i) => `
+          <li class="playwright-test-item">
+            ${showCheckboxes ? `<input type="checkbox" class="playwright-test-cb" data-test-id="${t.id}" id="pt-${t.id}" />` : ''}
+            <span class="playwright-test-name">${i + 1}. ${t.name}</span>
+          </li>
+        `).join('')}
+      </ul>
+    `;
 
     container.innerHTML = `
       <h3 class="test-list-title">Tests that will run</h3>
@@ -244,12 +200,6 @@
           <button type="button" class="btn btn-link" id="select-all-tests">Select all</button>
           <span class="test-list-select-sep">|</span>
           <button type="button" class="btn btn-link" id="deselect-all-tests">Deselect all</button>
-          ${showSections ? `
-            <span class="test-list-select-sep">|</span>
-            <button type="button" class="btn btn-link" id="select-builtin-tests">Built-in only</button>
-            <span class="test-list-select-sep">|</span>
-            <button type="button" class="btn btn-link" id="select-recorded-tests">Recorded only</button>
-          ` : ''}
         </div>
       ` : ''}
       ${listHtml}
@@ -263,16 +213,6 @@
       container.querySelector('#deselect-all-tests')?.addEventListener('click', () => {
         container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = false; });
       });
-      const builtinCbs = showSections ? container.querySelectorAll('.test-list-section:first-of-type .playwright-test-cb') : [];
-      const recordedCbs = showSections ? container.querySelectorAll('.test-list-section:last-of-type .playwright-test-cb') : [];
-      container.querySelector('#select-builtin-tests')?.addEventListener('click', () => {
-        container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = false; });
-        builtinCbs.forEach(cb => { cb.checked = true; });
-      });
-      container.querySelector('#select-recorded-tests')?.addEventListener('click', () => {
-        container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = false; });
-        recordedCbs.forEach(cb => { cb.checked = true; });
-      });
     }
   }
 
@@ -285,13 +225,11 @@
   function handleRunUiTestsSubmit(e) {
     e.preventDefault();
     const name = document.getElementById('run-ui-tests-name')?.value?.trim();
-    const baseUrlInput = document.getElementById('run-ui-tests-base-url')?.value?.trim();
     if (!name) {
       alert('Please enter a run name.');
       return;
     }
     const listType = document.querySelector('input[name="test-list-type"]:checked')?.value || 'selected';
-    const suiteFilter = document.getElementById('run-ui-tests-suite')?.value || 'all';
     let projectId = window._runUiTestsProjectId;
     if (!projectId) {
       const sel = document.getElementById('run-ui-tests-project-select');
@@ -301,7 +239,7 @@
       alert('Please select a project.');
       return;
     }
-    const filtered = filterTestsBySuite(testList, suiteFilter);
+    const filtered = testList;
     const runOnlyIds = listType === 'selected'
       ? Array.from(document.querySelectorAll('.playwright-test-cb:checked')).map(cb => cb.getAttribute('data-test-id'))
       : filtered.map(t => t.id);
@@ -319,13 +257,12 @@
     const slowMo = slowMoInput && slowMoInput.value.trim() !== '' ? parseInt(slowMoInput.value.trim(), 10) : 0;
 
     const body = { name, projectId: Number(projectId), headless: !showBrowser };
-    if (baseUrlInput) body.baseUrl = baseUrlInput;
     if (typeof timeoutSeconds === 'number' && timeoutSeconds >= 10 && timeoutSeconds <= 300) body.timeoutSeconds = timeoutSeconds;
     body.video = videoSelect ? videoSelect.value : 'off';
     body.trace = traceSelect ? traceSelect.value : 'off';
     body.browser = browserSelect ? browserSelect.value : 'chromium';
     if (typeof slowMo === 'number' && slowMo >= 0) body.slowMo = slowMo;
-    if (suiteFilter === 'all' && listType === 'full' && runOnlyIds.length === filtered.length) {
+    if (listType === 'full' && runOnlyIds.length === filtered.length) {
       body.suite = 'full';
     } else {
       body.suite = 'selected';
@@ -616,7 +553,6 @@
     const idInput = document.getElementById('recorded-test-id');
     const titleEl = document.getElementById('recorded-test-form-title');
     const nameInput = document.getElementById('recorded-test-name');
-    const baseUrlInput = document.getElementById('recorded-test-base-url');
     const specInput = document.getElementById('recorded-test-spec');
     const codegenUrlInput = document.getElementById('recorded-test-codegen-url');
     const loadBtn = document.getElementById('load-codegen-output-btn');
@@ -624,11 +560,11 @@
     const addToProjectWrap = document.getElementById('recorded-test-add-to-project-wrap');
     const addToProjectSelect = document.getElementById('recorded-test-add-to-project');
     if (!form) return;
-    
+
     if (addToProjectWrap) addToProjectWrap.style.display = editId ? 'none' : 'block';
     if (addToProjectSelect) addToProjectSelect.innerHTML = '<option value="">None</option>';
-    
-    // Reset codegen state when opening form (unless editing)
+
+    // Proxy is inferred from base URL by the backend (no dropdown)
     if (!editId) {
       currentCodegenSlug = null;
       currentCodegenMode = null;
@@ -637,17 +573,15 @@
       if (loadBtn) loadBtn.style.display = 'none';
       if (autoRefreshBtn) autoRefreshBtn.style.display = 'none';
     }
-    
+
     idInput.value = editId || '';
     titleEl.textContent = editId ? 'Edit recorded test' : 'Add recorded test';
     nameInput.value = '';
-    baseUrlInput.value = '';
     specInput.value = '';
     if (editId) {
       apiRequest(`/playwright-recorded-tests/${editId}`)
         .then(t => {
           nameInput.value = t.name || '';
-          baseUrlInput.value = t.base_url || '';
           specInput.value = t.spec_content || '';
           codegenUrlInput.value = (t.base_url || '').trim() || codegenUrlInput.placeholder;
         })
@@ -657,10 +591,8 @@
       apiRequest('/playwright-config').then(c => {
         const defaultUrl = (c.baseUrl || '').trim() || 'https://example.com';
         codegenUrlInput.value = defaultUrl;
-        if (baseUrlInput) baseUrlInput.value = defaultUrl;
-      }).catch(() => { 
+      }).catch(() => {
         codegenUrlInput.value = 'https://example.com';
-        if (baseUrlInput) baseUrlInput.value = 'https://example.com';
       });
       apiRequest('/projects').then(projects => {
         if (addToProjectSelect && Array.isArray(projects) && projects.length > 0) {
@@ -699,24 +631,19 @@
 
   document.getElementById('launch-codegen-btn')?.addEventListener('click', async () => {
     const urlInput = document.getElementById('recorded-test-codegen-url');
-    const baseUrlInput = document.getElementById('recorded-test-base-url');
     const url = (urlInput?.value || '').trim();
     if (!url) {
       alert('Please enter a Base URL for recording');
       return;
     }
     try {
+      const projectId = window._projectRecordedTestsProjectId || window._runUiTestsProjectId || null;
       const res = await apiRequest('/playwright-recorded-tests/launch-codegen', {
         method: 'POST',
-        body: { baseUrl: url }
+        body: { baseUrl: url, projectId: projectId ? Number(projectId) : undefined }
       });
       currentCodegenSlug = res.slug;
       currentCodegenMode = res.mode || 'local';
-
-      // Also update base URL field if empty
-      if (baseUrlInput && !baseUrlInput.value.trim()) {
-        baseUrlInput.value = url;
-      }
 
       if (currentCodegenMode === 'remote') {
         // --- Remote mode: show embedded noVNC panel (same-origin + WS proxy) ---
@@ -772,7 +699,6 @@
     stopAutoRefresh();
     const idInput = document.getElementById('recorded-test-id');
     const name = document.getElementById('recorded-test-name')?.value?.trim();
-    const baseUrl = document.getElementById('recorded-test-base-url')?.value?.trim() || null;
     const spec = document.getElementById('recorded-test-spec')?.value?.trim();
     const addToProjectEl = document.getElementById('recorded-test-add-to-project');
     const addToProjectId = addToProjectEl?.value?.trim() || null;
@@ -781,10 +707,10 @@
     const editId = idInput?.value?.trim() || null;
     try {
       if (editId) {
-        await apiRequest(`/playwright-recorded-tests/${editId}`, { method: 'PUT', body: { name, spec_content: spec, base_url: baseUrl } });
+        await apiRequest(`/playwright-recorded-tests/${editId}`, { method: 'PUT', body: { name, spec_content: spec, base_url: null } });
         alert('Recorded test updated.');
       } else {
-        const body = { name, spec_content: spec, base_url: baseUrl };
+        const body = { name, spec_content: spec, base_url: null };
         if (addToProjectId) body.addToProjectIds = [Number(addToProjectId)];
         await apiRequest('/playwright-recorded-tests', { method: 'POST', body });
         alert('Recorded test saved. It will appear in the test list when you run UI tests.');
@@ -1026,6 +952,8 @@ async function viewPlaywrightRun(id) {
     }
     document.getElementById('view-ui-report-btn').setAttribute('data-playwright-run-id', id);
     document.getElementById('download-ui-report-btn').setAttribute('data-playwright-run-id', id);
+    const deleteUiRunBtn = document.getElementById('delete-ui-run-btn');
+    if (deleteUiRunBtn) deleteUiRunBtn.setAttribute('data-playwright-run-id', id);
     const viewVideoBtn = document.getElementById('view-ui-video-btn');
     const viewTraceBtn = document.getElementById('view-ui-trace-btn');
     const downloadTraceBtn = document.getElementById('download-ui-trace-btn');
@@ -1108,6 +1036,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('download-ui-trace-btn')?.addEventListener('click', () => {
     const id = document.getElementById('download-ui-trace-btn').getAttribute('data-playwright-run-id');
     if (id) window.location.href = `${API_BASE}/playwright-runs/${id}/trace`;
+  });
+  document.getElementById('delete-ui-run-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('delete-ui-run-btn');
+    const id = btn?.getAttribute('data-playwright-run-id');
+    if (!id) return;
+    if (!confirm('Delete this run and all its artifacts (reports, videos, traces)? This cannot be undone.')) return;
+    try {
+      await apiRequest(`/playwright-runs/${id}`, { method: 'DELETE' });
+      showView('test-runs');
+      if (typeof loadTestRuns === 'function') loadTestRuns();
+      alert('Run deleted successfully.');
+    } catch (err) {
+      alert('Error deleting run: ' + (err.message || err));
+    }
   });
   // Per-result video/trace links (event delegation; use closest so click on icon still works)
   document.getElementById('playwright-results-list')?.addEventListener('click', (e) => {

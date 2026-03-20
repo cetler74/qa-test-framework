@@ -41,6 +41,29 @@ const upload = multer({
   }
 });
 
+// Multer for tests import: CSV (and optionally .xlsx) only
+const testsImportStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname) || '.csv';
+    cb(null, `tests-import-${uniqueSuffix}${ext}`);
+  }
+});
+const testsImportFileFilter = (req, file, cb) => {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (ext === '.csv') {
+    cb(null, true);
+  } else {
+    cb(new Error('Only CSV files are allowed for tests import'), false);
+  }
+};
+const uploadTestsImport = multer({
+  storage: testsImportStorage,
+  fileFilter: testsImportFileFilter,
+  limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024 }
+});
+
 /**
  * Validate and parse API specification file
  * @param {string} filePath - Path to the uploaded file
@@ -151,6 +174,7 @@ function parseWSDLToOperations(filePath) {
 
 module.exports = {
   upload,
+  uploadTestsImport,
   validateAndParseApiSpec,
   validatePostmanCollection,
   parseWSDLToOperations
