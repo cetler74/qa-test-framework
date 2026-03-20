@@ -350,12 +350,143 @@ async function getGlobalTestCatalogue(filters = {}) {
   return rows;
 }
 
+/**
+ * Parse stable_key like api:GET:Request name (name may contain colons).
+ * @param {string} stableKey
+ * @returns {{ method: string, name: string }|null}
+ */
+function parseApiStableKey(stableKey) {
+  if (!stableKey || typeof stableKey !== 'string') return null;
+  const parts = stableKey.split(':');
+  if (parts[0] !== 'api' || parts.length < 3) return null;
+  const method = (parts[1] || 'GET').toUpperCase();
+  const name = parts.slice(2).join(':');
+  return { method, name };
+}
+
+/**
+ * Find nested Postman item path for a catalogue stable_key by matching method + request name.
+ * @param {object} collectionJson
+ * @param {string} stableKey
+ * @returns {number[]|null}
+ */
+function findPostmanItemPathInCollection(collectionJson, stableKey) {
+  const parsed = parseApiStableKey(stableKey);
+  if (!parsed) return null;
+  const wantMethod = parsed.method;
+  const wantName = parsed.name;
+  let found = null;
+  function walk(items, parentPath) {
+    if (!items || !Array.isArray(items) || found) return;
+    items.forEach((item, index) => {
+      if (found) return;
+      const path = [...parentPath, index];
+      if (item.request) {
+        const method = (item.request.method || 'GET').toUpperCase();
+        const baseName = item.name || '';
+        if (method === wantMethod && baseName === wantName) {
+          found = path;
+        }
+      } else if (item.item) {
+        walk(item.item, path);
+      }
+    });
+  }
+  walk((collectionJson && collectionJson.item) || [], []);
+  return found;
+}
+
+/**
+ * When source_path is missing (legacy rows), resolve from collection JSON + stable_key.
+ * @param {import('../models/ProjectTest')} projectTest
+ * @returns {Promise<string|null>}
+ */
+async function resolvePostmanSourcePathIfNeeded(projectTest) {
+  if (!projectTest || projectTest.source_kind !== 'postman_item' || !projectTest.source_id) {
+    return projectTest && projectTest.source_path ? projectTest.source_path : null;
+  }
+  if (projectTest.source_path) return projectTest.source_path;
+  const coll = await Collection.findByPk(projectTest.source_id);
+  if (!coll || !coll.collection_json) return null;
+  const pathArr = findPostmanItemPathInCollection(coll.collection_json, projectTest.stable_key);
+  return pathArr ? pathArr.join('.') : null;
+}
+
+/**
+ * Per-row metadata for single-test Run UI: resolved path + kind (matches POST /tests/:id/run eligibility).
+ * @param {Array} rows - Sequelize ProjectTest rows from getProjectTestCatalogue
+ * @param {number} projectId
+ * @returns {Promise<Array<{ effective_source_path: string|null, single_run_kind: 'api'|'ui_recorded'|null }>>}
+ */
+async function enrichCatalogueRowsWithSingleRun(rows, projectId) {
+  const pid = parseInt(projectId, 10);
+  const collIds = [...new Set(rows.map((r) => {
+    const p = r.get ? r.get({ plain: true }) : r;
+    return (p.source_kind === 'postman_item' && p.source_id && !p.source_path) ? p.source_id : null;
+  }).filter(Boolean))];
+
+  const collections = collIds.length === 0 ? [] : await Collection.findAll({ where: { id: collIds } });
+  const collMap = new Map(collections.map((c) => [c.id, c]));
+  const pathCache = new Map();
+
+  const uiRecordedIds = rows.map((r) => {
+    const p = r.get ? r.get({ plain: true }) : r;
+    return (p.test_type === 'ui_recorded' && p.source_kind === 'ui_recorded' && p.source_id)
+      ? p.source_id
+      : null;
+  }).filter(Boolean);
+  const linkedUi = new Set();
+  if (uiRecordedIds.length > 0 && pid) {
+    const links = await ProjectRecordedTest.findAll({
+      where: {
+        project_id: pid,
+        recorded_test_id: [...new Set(uiRecordedIds)]
+      },
+      attributes: ['recorded_test_id']
+    });
+    links.forEach((l) => linkedUi.add(l.recorded_test_id));
+  }
+
+  return rows.map((r) => {
+    const plain = r.get ? r.get({ plain: true }) : r;
+    let effective_source_path = plain.source_path;
+    if (!effective_source_path && plain.source_kind === 'postman_item' && plain.source_id && plain.stable_key) {
+      const coll = collMap.get(plain.source_id);
+      if (coll && coll.collection_json) {
+        const cacheKey = `${plain.source_id}::${plain.stable_key}`;
+        if (!pathCache.has(cacheKey)) {
+          const pathArr = findPostmanItemPathInCollection(coll.collection_json, plain.stable_key);
+          pathCache.set(cacheKey, pathArr ? pathArr.join('.') : null);
+        }
+        effective_source_path = pathCache.get(cacheKey);
+      }
+    }
+
+    let single_run_kind = null;
+    if (plain.test_type === 'api' && plain.source_kind === 'postman_item' && plain.source_id && effective_source_path) {
+      single_run_kind = 'api';
+    } else if (
+      plain.test_type === 'ui_recorded'
+      && plain.source_kind === 'ui_recorded'
+      && plain.source_id
+      && linkedUi.has(plain.source_id)
+    ) {
+      single_run_kind = 'ui_recorded';
+    }
+
+    return { effective_source_path, single_run_kind };
+  });
+}
+
 module.exports = {
   syncProjectTests,
   getProjectTestCatalogue,
   getGlobalTestCatalogue,
   discoverApiTestsForProject,
   discoverSoapTestsForProject,
-  discoverUiTestsForProject
+  discoverUiTestsForProject,
+  enrichCatalogueRowsWithSingleRun,
+  resolvePostmanSourcePathIfNeeded,
+  findPostmanItemPathInCollection
 };
 

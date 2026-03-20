@@ -814,7 +814,10 @@ function getEffectiveFolderPath(test) {
 /** @returns {'api'|'ui_recorded'|null} */
 function getCatalogueTestRunKind(t) {
   if (!t) return null;
-  if (t.test_type === 'api' && t.source_kind === 'postman_item' && t.source_id && t.source_path) return 'api';
+  if (t.single_run_kind === 'api' || t.single_run_kind === 'ui_recorded') return t.single_run_kind;
+  if (t.test_type === 'api' && t.source_kind === 'postman_item' && t.source_id && (t.source_path || t.effective_source_path)) {
+    return 'api';
+  }
   if (t.test_type === 'ui_recorded' && t.source_kind === 'ui_recorded' && t.source_id) return 'ui_recorded';
   return null;
 }
@@ -942,6 +945,7 @@ function renderProjectTestsTable(projectId) {
       const lastRunBy = stats.last_run_by_username ? escapeHtml(stats.last_run_by_username) : '—';
       const ticketDisplay = t.ticket_url ? `<a class="ticket-link" href="${escapeHtml(t.ticket_url)}" target="_blank" rel="noopener" title="${escapeHtml(t.ticket_url)}">${escapeHtml(t.ticket_url)}</a>` : '—';
       const typeLabel =
+        t.source_kind === 'manual' ? 'Manual Test' :
         t.test_type === 'soap' ? 'SOAP' :
         t.test_type === 'ui_builtin' ? 'UI (built-in)' :
         t.test_type === 'ui_recorded' ? 'UI (recorded)' :
@@ -976,7 +980,7 @@ function renderProjectTestsTable(projectId) {
       const runKind = getCatalogueTestRunKind(t);
       const runCell = runKind
         ? `<td class="project-test-run-cell"><button type="button" class="btn btn-secondary btn-sm project-test-run-btn" onclick="window.runProjectCatalogueTest(${projectId}, ${t.id}, '${runKind}')" title="Run this test only">Run</button></td>`
-        : '<td class="project-test-run-cell"><span class="muted">—</span></td>';
+        : '<td class="project-test-run-cell"><span class="muted" title="Run is only available for tests synced from API collections (Sync from specs) or linked UI recordings—not for manual-only catalogue rows.">—</span></td>';
       const nameCell = `<button type="button" class="link-button" onclick="window.viewProjectTestDetails(${projectId}, ${t.id})">${escapeHtml(t.name || '')}</button>`;
       const folderOrigin = t.folder_path_override
         ? '<span class="muted" title="User override"> (override)</span>'

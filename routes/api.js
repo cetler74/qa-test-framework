@@ -21,7 +21,7 @@ const { executeSoapTests } = require('../services/soapRunner');
 const { executeFuzz, cancelFuzzRun } = require('../services/fuzzRunner');
 const { generateFuzzReport, getStableReportPath } = require('../services/fuzzReportGenerator');
 const { generatePlaywrightReport } = require('../services/playwrightReportGenerator');
-const { syncProjectTests, getProjectTestCatalogue, getGlobalTestCatalogue } = require('../services/testCatalogue');
+const { syncProjectTests, getProjectTestCatalogue, getGlobalTestCatalogue, enrichCatalogueRowsWithSingleRun, resolvePostmanSourcePathIfNeeded } = require('../services/testCatalogue');
 const playwrightConfig = require('../config/playwright');
 const { validateSpecContent } = require('../services/recordedTestValidation');
 const codegenSessionManager = require('../services/codegenSessionManager');
@@ -382,6 +382,7 @@ router.get('/projects/:id/tests/catalogue', (req, res, next) => {
   loadProjectAndCheckAccess(req, res, async () => {
     try {
       const rows = await getProjectTestCatalogue(req.project.id);
+      const singleRunMeta = await enrichCatalogueRowsWithSingleRun(rows, req.project.id);
       const lastRunIds = [...new Set(rows.map(r => r.stats?.last_run_id).filter(Boolean))];
       const lastRunByUserIds = [...new Set(rows.map(r => r.stats?.last_run_by_user_id).filter(Boolean))];
       let runByMap = {};
@@ -405,16 +406,19 @@ router.get('/projects/:id/tests/catalogue', (req, res, next) => {
           userByMap[u.id] = u.display_name || u.username || '';
         });
       }
-      const out = rows.map(r => {
+      const out = rows.map((r, idx) => {
         const plain = r.get ? r.get({ plain: true }) : r;
         const stats = plain.stats || {};
         const fromRun = stats.last_run_id ? runByMap[stats.last_run_id] : null;
         const fromUser = stats.last_run_by_user_id ? userByMap[stats.last_run_by_user_id] : null;
         stats.last_run_by_username = fromRun ?? fromUser ?? null;
+        const meta = singleRunMeta[idx] || { effective_source_path: plain.source_path, single_run_kind: null };
         return {
           ...plain,
           stats,
-          effective_folder_path: effectiveFolderPathForTest(plain)
+          effective_folder_path: effectiveFolderPathForTest(plain),
+          effective_source_path: meta.effective_source_path,
+          single_run_kind: meta.single_run_kind
         };
       });
       res.json(out);
@@ -988,11 +992,16 @@ router.post('/projects/:projectId/tests/:testId/run', (req, res, next) => {
         }
       }
 
-      if (test.test_type === 'api' && test.source_kind === 'postman_item' && test.source_id && test.source_path) {
+      if (test.test_type === 'api' && test.source_kind === 'postman_item' && test.source_id) {
         const ok = await collectionBelongsToProject(test.source_id, projectId);
         if (!ok) return res.status(400).json({ error: 'Collection is not available for this project' });
 
-        const pathParts = String(test.source_path).split('.').map((p) => parseInt(p, 10)).filter((n) => !Number.isNaN(n));
+        const resolvedPath = await resolvePostmanSourcePathIfNeeded(test);
+        if (!resolvedPath) {
+          return res.status(400).json({ error: 'Could not resolve test request path in collection; try Sync from specs again.' });
+        }
+
+        const pathParts = String(resolvedPath).split('.').map((p) => parseInt(p, 10)).filter((n) => !Number.isNaN(n));
         if (pathParts.length === 0) return res.status(400).json({ error: 'Invalid test source path' });
 
         const selectedTests = { [test.source_id]: [pathParts] };
