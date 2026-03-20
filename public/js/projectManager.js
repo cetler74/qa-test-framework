@@ -1351,6 +1351,26 @@ window.downloadProjectTestsReport = () => {
   const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
 
   const { search, type, statuses } = getProjectTestsFilters();
+  const statusFilterSelected = new Set(statuses || []);
+  const reportStatusOptions = [
+    { value: 'passed', label: 'Passed' },
+    { value: 'failed', label: 'Failed' },
+    { value: 'partial_failed', label: 'Partial Failed' },
+    { value: 'running', label: 'Running' },
+    { value: 'cancelled', label: 'Cancelled' },
+    { value: 'not_run', label: 'Not run' }
+  ];
+  const reportStatusMenuRowsHtml = reportStatusOptions.map(({ value, label }) => {
+    const checked = statusFilterSelected.has(value) ? ' checked' : '';
+    return `<label><input type="checkbox" value="${value}"${checked} /> ${label}</label>`;
+  }).join('');
+  const selectedStatusArr = Array.from(statusFilterSelected);
+  const reportStatusLabelInitial =
+    selectedStatusArr.length === 0
+      ? 'All statuses'
+      : selectedStatusArr.length === 1
+        ? (reportStatusOptions.find((o) => o.value === selectedStatusArr[0]) || {}).label || '1 selected'
+        : `${selectedStatusArr.length} selected`;
 
   const safeHtml = (str) => String(str || '').replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -1457,9 +1477,19 @@ window.downloadProjectTestsReport = () => {
       --color-error: #ef4444;
       --color-warning: #f59e0b;
       --color-text-muted: #6b7280;
+      --color-text-primary: #111827;
+      --color-text-secondary: #6b7280;
+      --color-text-tertiary: #9ca3af;
       --spacing-xs: 4px;
+      --spacing-sm: 8px;
       --spacing-md: 12px;
+      --spacing-xl: 24px;
+      --radius-sm: 4px;
+      --radius-md: 8px;
       --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --transition-base: 200ms ease-in-out;
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -1562,29 +1592,142 @@ window.downloadProjectTestsReport = () => {
     }
     .filters input[type="text"],
     .filters select {
-      padding: 6px 10px;
-      border-radius: 8px;
+      padding: var(--spacing-sm) var(--spacing-md);
+      border-radius: var(--radius-md);
       border: 2px solid var(--color-primary);
-      font-size: 13px;
+      font-size: 14px;
       background: var(--color-white);
+      color: var(--color-text-primary);
+      transition: border-color var(--transition-base), box-shadow var(--transition-base);
     }
-    .filters button {
-      padding: 6px 12px;
-      border-radius: 8px;
+    .filters input[type="text"]:focus,
+    .filters select:focus {
+      outline: none;
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.25);
+    }
+    /* Same dropdown pattern as Tests & Coverage (multi-select) */
+    .multi-select {
+      position: relative;
+      min-width: 220px;
+    }
+    .multi-select-trigger {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--spacing-sm);
+      padding: var(--spacing-sm) var(--spacing-md);
+      border-radius: var(--radius-md);
+      border: 2px solid var(--color-primary);
+      background: var(--color-white);
+      color: var(--color-text-primary);
+      cursor: pointer;
+      font-size: 14px;
+      font: inherit;
+      transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
+    }
+    .multi-select-trigger:hover {
+      border-color: var(--color-primary-dark);
+    }
+    .multi-select-trigger:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.25);
+    }
+    .multi-select-label {
+      font-weight: 600;
+      color: var(--color-text-secondary);
+    }
+    .multi-select-value {
+      flex: 1;
+      text-align: left;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--color-text-primary);
+    }
+    .multi-select-caret {
+      font-size: 10px;
+      color: var(--color-text-tertiary);
+    }
+    .multi-select-menu {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      margin-top: 4px;
+      min-width: 100%;
+      padding: var(--spacing-sm);
+      background: var(--color-white);
+      border-radius: var(--radius-md);
+      border: 2px solid var(--color-gray-200);
+      box-shadow: var(--shadow-lg);
+      z-index: 40;
+      display: none;
+    }
+    .multi-select-menu.open {
+      display: block;
+    }
+    .multi-select-menu label {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+      padding: var(--spacing-xs) var(--spacing-sm);
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .multi-select-menu label:hover {
+      background: var(--color-gray-100);
+      border-radius: var(--radius-sm);
+    }
+    .multi-select-menu input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--color-primary);
+    }
+    /* Match app .btn / .btn-primary / .btn-secondary (Tests & Coverage filters) */
+    .filters .btn {
+      padding: var(--spacing-sm) var(--spacing-xl);
+      border-radius: var(--radius-md);
       border: none;
-      font-size: 13px;
+      font-size: 14px;
+      font-weight: 500;
+      font-family: inherit;
+      line-height: 1.5;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      justify-content: center;
+      gap: var(--spacing-sm);
+      transition: all var(--transition-base);
     }
-    .btn-primary {
+    .filters .btn:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 2px;
+    }
+    .filters .btn-primary {
       background: var(--color-primary);
-      color: #fff;
+      color: var(--color-text-inverse);
+      box-shadow: var(--shadow-sm);
     }
-    .btn-secondary {
+    .filters .btn-primary:hover {
+      background: var(--color-primary-dark);
+      box-shadow: var(--shadow-md);
+      transform: translateY(-1px);
+    }
+    .filters .btn-primary:active {
+      transform: translateY(0);
+      box-shadow: var(--shadow-sm);
+    }
+    .filters .btn-secondary {
       background: var(--color-gray-200);
-      color: #111827;
+      color: var(--color-text-primary);
+    }
+    .filters .btn-secondary:hover {
+      background: var(--color-gray-300);
+      transform: translateY(-1px);
+    }
+    .filters .btn-secondary:active {
+      transform: translateY(0);
     }
     table {
       width: 100%;
@@ -1695,17 +1838,18 @@ window.downloadProjectTestsReport = () => {
             <option value="manual">Manual Test</option>
             <option value="other">Other</option>
           </select>
-          <select id="filter-status">
-            <option value="">All Statuses</option>
-            <option value="passed">passed</option>
-            <option value="failed">failed</option>
-            <option value="partial_failed">partial_failed</option>
-            <option value="running">running</option>
-            <option value="cancelled">cancelled</option>
-            <option value="not_run">not_run</option>
-          </select>
-          <button class="btn-primary" id="filter-apply">Apply</button>
-          <button class="btn-secondary" id="filter-clear">Clear</button>
+          <div class="multi-select project-tests-status-multiselect" id="report-status-filter-wrap">
+            <button type="button" class="multi-select-trigger" id="report-status-trigger" aria-haspopup="listbox" aria-expanded="false">
+              <span class="multi-select-label">Last status</span>
+              <span class="multi-select-value" id="report-status-label">${safeHtml(reportStatusLabelInitial)}</span>
+              <span class="multi-select-caret" aria-hidden="true">&#9662;</span>
+            </button>
+            <div class="multi-select-menu" id="report-status-menu" role="listbox">
+              ${reportStatusMenuRowsHtml}
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary" id="filter-apply">Apply</button>
+          <button type="button" class="btn btn-secondary" id="filter-clear">Clear</button>
         </div>
         <div class="count" id="filtered-count"></div>
 
@@ -1734,16 +1878,37 @@ window.downloadProjectTestsReport = () => {
     (function () {
       const searchInput = document.getElementById('filter-search');
       const typeSelect = document.getElementById('filter-type');
-      const statusSelect = document.getElementById('filter-status');
+      const statusMenu = document.getElementById('report-status-menu');
+      const statusTrigger = document.getElementById('report-status-trigger');
+      const statusLabel = document.getElementById('report-status-label');
       const applyBtn = document.getElementById('filter-apply');
       const clearBtn = document.getElementById('filter-clear');
       const tbody = document.querySelector('#tests-table tbody');
       const countEl = document.getElementById('filtered-count');
 
+      function selectedStatuses() {
+        if (!statusMenu) return [];
+        return Array.from(statusMenu.querySelectorAll('input[type="checkbox"]:checked')).map(function (cb) { return cb.value; });
+      }
+
+      function syncReportStatusLabel() {
+        if (!statusMenu || !statusLabel) return;
+        const boxes = Array.from(statusMenu.querySelectorAll('input[type="checkbox"]'));
+        const selectedValues = boxes.filter(function (cb) { return cb.checked; }).map(function (cb) { return cb.value; });
+        if (selectedValues.length === 0) {
+          statusLabel.textContent = 'All statuses';
+        } else if (selectedValues.length === 1) {
+          var one = boxes.find(function (cb) { return cb.checked; });
+          statusLabel.textContent = one && one.parentElement ? one.parentElement.textContent.trim() : '1 selected';
+        } else {
+          statusLabel.textContent = selectedValues.length + ' selected';
+        }
+      }
+
       function applyFilters() {
         const search = (searchInput.value || '').toLowerCase();
         const type = typeSelect.value;
-        const status = statusSelect.value;
+        const statuses = selectedStatuses();
         let visible = 0;
 
         Array.from(tbody.querySelectorAll('tr')).forEach((row) => {
@@ -1759,8 +1924,8 @@ window.downloadProjectTestsReport = () => {
           if (ok && type) {
             ok = rowType === type;
           }
-          if (ok && status) {
-            ok = rowStatus === status;
+          if (ok && statuses.length > 0) {
+            ok = statuses.indexOf(rowStatus) !== -1;
           }
 
           row.style.display = ok ? '' : 'none';
@@ -1772,14 +1937,39 @@ window.downloadProjectTestsReport = () => {
         }
       }
 
+      if (statusTrigger && statusMenu) {
+        statusTrigger.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var open = statusMenu.classList.toggle('open');
+          statusTrigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        statusMenu.addEventListener('change', function () {
+          syncReportStatusLabel();
+        });
+        document.addEventListener('click', function (e) {
+          if (!statusMenu.classList.contains('open')) return;
+          var t = e.target;
+          if (t && statusMenu.contains(t)) return;
+          if (t && statusTrigger.contains(t)) return;
+          statusMenu.classList.remove('open');
+          statusTrigger.setAttribute('aria-expanded', 'false');
+        });
+      }
+
       if (applyBtn) applyBtn.addEventListener('click', applyFilters);
       if (clearBtn) clearBtn.addEventListener('click', () => {
         if (searchInput) searchInput.value = '';
         if (typeSelect) typeSelect.value = '';
-        if (statusSelect) statusSelect.value = '';
+        if (statusMenu) {
+          statusMenu.querySelectorAll('input[type="checkbox"]').forEach((cb) => { cb.checked = false; });
+        }
+        syncReportStatusLabel();
+        if (statusMenu) statusMenu.classList.remove('open');
+        if (statusTrigger) statusTrigger.setAttribute('aria-expanded', 'false');
         applyFilters();
       });
 
+      syncReportStatusLabel();
       applyFilters();
     })();
   </script>
