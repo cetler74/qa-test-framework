@@ -1395,6 +1395,16 @@ p.run-status-in-progress {
     padding-inline: var(--spacing-md);
 }
 
+#project-tests-table .project-test-run-cell {
+    white-space: nowrap;
+    width: 1%;
+    vertical-align: middle;
+}
+
+#project-tests-table .project-test-run-btn {
+    min-width: auto;
+}
+
 #project-tests-table .btn-sm + .btn-sm {
     margin-left: var(--spacing-xs);
 }

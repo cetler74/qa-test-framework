@@ -1020,6 +1020,34 @@ function loadSavedEnvs(projectId) {
   }
 }
 
+/**
+ * Merge a saved environment (by id) into base env vars — same rules as Run API Tests when env-select is set.
+ * @param {string|number} projectId
+ * @param {string} [envId] - saved environment id from loadSavedEnvs, or empty
+ * @param {Record<string, string>} [baseEnv]
+ * @returns {Record<string, string>}
+ */
+function mergeSavedEnvironmentIntoEnvVars(projectId, envId, baseEnv = {}) {
+  const out = { ...(baseEnv && typeof baseEnv === 'object' ? baseEnv : {}) };
+  if (!envId) return out;
+  const savedEnvs = loadSavedEnvs(projectId);
+  const selectedEnv = savedEnvs.find((e) => e.id === envId);
+  if (!selectedEnv) return out;
+  Object.keys(selectedEnv).forEach((k) => {
+    if (k === 'id' || k === 'name') return;
+    const v = selectedEnv[k];
+    if (typeof v !== 'undefined' && v !== null && String(v).trim() !== '') {
+      out[k] = v;
+    }
+  });
+  return out;
+}
+
+if (typeof window !== 'undefined') {
+  window.getProjectSavedEnvironments = loadSavedEnvs;
+  window.mergeSavedEnvironmentIntoEnvVars = mergeSavedEnvironmentIntoEnvVars;
+}
+
 function saveSavedEnvs(projectId, envs) {
   localStorage.setItem(getEnvStorageKey(projectId), JSON.stringify(envs));
 }

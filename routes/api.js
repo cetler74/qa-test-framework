@@ -48,6 +48,23 @@ function normalizeBaseUrl(value) {
   return s;
 }
 
+/** True if collection is standalone on project or linked via ProjectApiSpec (same rules as test catalogue). */
+async function collectionBelongsToProject(collectionId, projectId) {
+  const cid = parseInt(collectionId, 10);
+  const pid = parseInt(projectId, 10);
+  if (!cid || !pid) return false;
+  const coll = await Collection.findByPk(cid);
+  if (!coll) return false;
+  if (coll.project_id === pid) return true;
+  if (coll.api_spec_id) {
+    const link = await ProjectApiSpec.findOne({
+      where: { project_id: pid, api_spec_id: coll.api_spec_id }
+    });
+    return !!link;
+  }
+  return false;
+}
+
 function normalizeFolderPath(value) {
   if (value === undefined) return undefined;
   if (value === null) return null;
@@ -945,6 +962,143 @@ router.delete('/projects/:projectId/tests/:testId', (req, res, next) => {
       res.status(500).json({ error: error.message });
     }
   }, req.params.projectId, true);
+});
+
+// Run a single catalogue test (API Postman item or UI recorded) — project access required
+router.post('/projects/:projectId/tests/:testId/run', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const projectId = req.project.id;
+      const testId = parseInt(req.params.testId, 10);
+      if (!testId) return res.status(400).json({ error: 'Invalid test id' });
+
+      const test = await ProjectTest.findOne({
+        where: { id: testId, project_id: projectId }
+      });
+      if (!test) return res.status(404).json({ error: 'Project test not found' });
+
+      const { name: bodyName, envVars: bodyEnvVars, baseUrl: bodyBaseUrl } = req.body || {};
+      const runName = (bodyName && String(bodyName).trim()) || `[Single] ${test.name || 'test'}`;
+
+      const testOptions = {};
+      if (bodyEnvVars && typeof bodyEnvVars === 'object') {
+        testOptions.envVars = {};
+        for (const [k, v] of Object.entries(bodyEnvVars)) {
+          testOptions.envVars[k] = normalizeBaseUrl(String(v));
+        }
+      }
+
+      if (test.test_type === 'api' && test.source_kind === 'postman_item' && test.source_id && test.source_path) {
+        const ok = await collectionBelongsToProject(test.source_id, projectId);
+        if (!ok) return res.status(400).json({ error: 'Collection is not available for this project' });
+
+        const pathParts = String(test.source_path).split('.').map((p) => parseInt(p, 10)).filter((n) => !Number.isNaN(n));
+        if (pathParts.length === 0) return res.status(400).json({ error: 'Invalid test source path' });
+
+        const selectedTests = { [test.source_id]: [pathParts] };
+        const derivedUrl = deriveUrlFromEnvVars(testOptions.envVars);
+        const proxy = await getProxyForUrlAsync(derivedUrl);
+
+        const testRun = await TestRun.create({
+          name: runName,
+          status: 'running',
+          project_id: projectId,
+          total_tests: 0,
+          passed_tests: 0,
+          failed_tests: 0,
+          duration_ms: 0,
+          run_by_user_id: req.user?.id ?? null
+        });
+
+        executeTests(projectId, runName, { ...testOptions, testRunId: testRun.id, selectedTests, proxy })
+          .then(() => {
+            setImmediate(() => {
+              generateReport(testRun.id, { skipCache: true, writeToStablePath: true })
+                .catch((err) => console.error('[api] Pre-generate test report failed:', err));
+            });
+          })
+          .catch((error) => {
+            console.error(`[api] Single test run ${testRun.id} failed:`, error);
+            TestRun.update({ status: 'failed' }, { where: { id: testRun.id } }).catch(() => {});
+          });
+
+        return res.status(201).json({
+          testRun: { id: testRun.id },
+          status: 'running',
+          message: 'Test execution started'
+        });
+      }
+
+      if (test.test_type === 'ui_recorded' && test.source_kind === 'ui_recorded' && test.source_id) {
+        const link = await ProjectRecordedTest.findOne({
+          where: { project_id: projectId, recorded_test_id: test.source_id }
+        });
+        if (!link) return res.status(400).json({ error: 'Recorded UI test is not linked to this project' });
+
+        const url = (bodyBaseUrl && typeof bodyBaseUrl === 'string' && bodyBaseUrl.trim())
+          ? bodyBaseUrl.trim().replace(/\/$/, '')
+          : (test.endpoint && String(test.endpoint).trim())
+            ? String(test.endpoint).trim().replace(/\/$/, '')
+            : undefined;
+
+        const validBrowsers = ['chromium', 'firefox', 'webkit'];
+        const browserName = validBrowsers.includes(req.body.browser) ? req.body.browser : 'chromium';
+        const videoOpt = ['off', 'on', 'retain-on-failure'].includes(req.body.video) ? req.body.video : 'off';
+        const traceOpt = ['off', 'on', 'retain-on-failure'].includes(req.body.trace) ? req.body.trace : 'off';
+        const slowMo = typeof req.body.slowMo === 'number' && req.body.slowMo >= 0 ? req.body.slowMo : 0;
+
+        const proxy = await getProxyForUrlAsync(url || playwrightConfig.baseUrl || '');
+        let headless = typeof req.body.headless === 'boolean' ? req.body.headless : playwrightConfig.headless;
+        const hasDisplay = process.platform === 'win32' || !!process.env.DISPLAY;
+        if (!hasDisplay && !headless) headless = true;
+        let timeoutMs = playwrightConfig.timeoutMs;
+        if (typeof req.body.timeoutMs === 'number' && req.body.timeoutMs > 0) timeoutMs = req.body.timeoutMs;
+        else if (typeof req.body.timeoutSeconds === 'number' && req.body.timeoutSeconds > 0) timeoutMs = req.body.timeoutSeconds * 1000;
+
+        const run = await PlaywrightRun.create({
+          name: runName,
+          status: 'running',
+          base_url: url || '',
+          project_id: projectId,
+          total_tests: 0,
+          passed_tests: 0,
+          failed_tests: 0,
+          duration_ms: 0,
+          browser_name: browserName
+        });
+
+        runPlaywrightTests({
+          playwrightRunId: run.id,
+          baseUrl: url,
+          headless,
+          timeoutMs,
+          runOnly: [`recorded-${test.source_id}`],
+          video: videoOpt,
+          trace: traceOpt,
+          browserName,
+          slowMo,
+          proxy
+        })
+          .then(() => console.log(`[api] Single UI test run ${run.id} completed`))
+          .catch(async (err) => {
+            console.error(`[api] Single UI test run ${run.id} failed:`, err);
+            const current = await PlaywrightRun.findByPk(run.id, { attributes: ['status'] });
+            if (current && current.status === 'cancelled') return;
+            await PlaywrightRun.update({ status: 'failed' }, { where: { id: run.id } }).catch(() => {});
+          });
+
+        return res.status(201).json({
+          playwrightRun: { id: run.id },
+          status: 'running',
+          message: 'UI test execution started'
+        });
+      }
+
+      return res.status(400).json({ error: 'This test type cannot be run from the catalogue (manual tests or unsupported source)' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.projectId, false);
 });
 
 // Global test catalogue across projects (access-filtered)

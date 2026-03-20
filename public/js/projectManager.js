@@ -811,6 +811,14 @@ function getEffectiveFolderPath(test) {
   return test.effective_folder_path || test.folder_path_override || test.default_folder_path || '';
 }
 
+/** @returns {'api'|'ui_recorded'|null} */
+function getCatalogueTestRunKind(t) {
+  if (!t) return null;
+  if (t.test_type === 'api' && t.source_kind === 'postman_item' && t.source_id && t.source_path) return 'api';
+  if (t.test_type === 'ui_recorded' && t.source_kind === 'ui_recorded' && t.source_id) return 'ui_recorded';
+  return null;
+}
+
 function updateProjectTestsFolderFilterOptions(tests) {
   const folderEl = document.getElementById('project-tests-folder-filter');
   if (!folderEl) return;
@@ -906,7 +914,7 @@ function renderProjectTestsTable(projectId) {
       if (folderLabel !== lastFolderLabel) {
         groupedRows.push(`
           <tr class="folder-group-row">
-            <td colspan="${inEditMode ? '10' : '8'}">
+            <td colspan="${inEditMode ? '11' : '9'}">
               <button
                 type="button"
                 class="folder-group-toggle"
@@ -965,6 +973,10 @@ function renderProjectTestsTable(projectId) {
         : '';
       const activeCol = inEditMode ? `<td>${activeCell}</td>` : '';
       const actionsCol = inEditMode ? `<td>${actionsCell}</td>` : '';
+      const runKind = getCatalogueTestRunKind(t);
+      const runCell = runKind
+        ? `<td class="project-test-run-cell"><button type="button" class="btn btn-secondary btn-sm project-test-run-btn" onclick="window.runProjectCatalogueTest(${projectId}, ${t.id}, '${runKind}')" title="Run this test only">Run</button></td>`
+        : '<td class="project-test-run-cell"><span class="muted">—</span></td>';
       const nameCell = `<button type="button" class="link-button" onclick="window.viewProjectTestDetails(${projectId}, ${t.id})">${escapeHtml(t.name || '')}</button>`;
       const folderOrigin = t.folder_path_override
         ? '<span class="muted" title="User override"> (override)</span>'
@@ -982,6 +994,7 @@ function renderProjectTestsTable(projectId) {
           <td>${totalRuns}</td>
           <td>${lastRunBy}</td>
           <td>${ticketDisplay}</td>
+          ${runCell}
           ${activeCol}
           ${actionsCol}
         </tr>
@@ -1001,6 +1014,7 @@ function renderProjectTestsTable(projectId) {
               <th>Total runs</th>
               <th>Last run by</th>
               <th>Ticket ID</th>
+              <th>Run</th>
               ${inEditMode ? '<th>Active</th><th>Actions</th>' : ''}
             </tr>
           </thead>
@@ -1027,6 +1041,92 @@ async function loadProjectTests(projectId) {
     tableEl.innerHTML = '<div class="empty-state"><p>Failed to load tests.</p></div>';
   }
 }
+
+window.runProjectCatalogueTest = (projectId, projectTestId, kind) => {
+  const test = (window.currentProjectTests || []).find((x) => x.id === projectTestId);
+  const defaultName = test ? `[Single] ${test.name || 'test'}` : '[Single] test';
+
+  if (kind === 'api') {
+    const envs = typeof window.getProjectSavedEnvironments === 'function'
+      ? window.getProjectSavedEnvironments(projectId)
+      : [];
+    const options = envs.map((e) => `<option value="${escapeHtml(String(e.id))}">${escapeHtml(e.name || '')}</option>`).join('');
+    const content = `
+      <form id="single-test-run-form">
+        <div class="form-group">
+          <label for="single-test-env-select">Environment</label>
+          <select id="single-test-env-select" class="form-control" style="width:100%;">
+            <option value="">None (collection defaults only)</option>
+            ${options}
+          </select>
+          <p class="muted form-help" style="margin-top:8px;">Uses the same saved environments as <strong>Run API Tests</strong> (stored in this browser).</p>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Run</button>
+        </div>
+      </form>
+    `;
+    showModal('Run API test', content);
+    document.getElementById('single-test-run-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const envId = document.getElementById('single-test-env-select').value;
+      let envVars = {};
+      if (typeof window.mergeSavedEnvironmentIntoEnvVars === 'function') {
+        envVars = window.mergeSavedEnvironmentIntoEnvVars(projectId, envId, {});
+      }
+      hideModal();
+      try {
+        const body = { name: defaultName };
+        if (Object.keys(envVars).length > 0) body.envVars = envVars;
+        await apiRequest(`/projects/${projectId}/tests/${projectTestId}/run`, { method: 'POST', body });
+        alert('Run started. Results appear in Test Runs; coverage updates when the run finishes.');
+        await loadProjectTests(projectId);
+        if (typeof window.loadProjectCoverageSummary === 'function') {
+          window.loadProjectCoverageSummary(projectId);
+        }
+      } catch (err) {
+        alert('Error: ' + (err.message || err));
+      }
+    });
+    return;
+  }
+
+  if (kind === 'ui_recorded') {
+    const urlVal = test && test.endpoint ? escapeHtml(test.endpoint) : '';
+    const content = `
+      <form id="single-ui-test-run-form">
+        <div class="form-group">
+          <label for="single-ui-base-url">Base URL (optional)</label>
+          <input type="url" id="single-ui-base-url" class="form-control" placeholder="https://…" value="${urlVal}">
+          <p class="muted form-help" style="margin-top:8px;">Leave empty to use the URL from the recorded test or project defaults.</p>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Run</button>
+        </div>
+      </form>
+    `;
+    showModal('Run UI test', content);
+    document.getElementById('single-ui-test-run-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const raw = document.getElementById('single-ui-base-url').value.trim();
+      hideModal();
+      try {
+        const body = { name: defaultName };
+        if (raw) body.baseUrl = raw;
+        await apiRequest(`/projects/${projectId}/tests/${projectTestId}/run`, { method: 'POST', body });
+        alert('Run started. Results appear in Test Runs; coverage updates when the run finishes.');
+        await loadProjectTests(projectId);
+        if (typeof window.loadProjectCoverageSummary === 'function') {
+          window.loadProjectCoverageSummary(projectId);
+        }
+      } catch (err) {
+        alert('Error: ' + (err.message || err));
+      }
+    });
+  }
+};
 
 // Download Tests & Coverage report (HTML file with interactive filtering, no edit)
 window.downloadProjectTestsReport = () => {
