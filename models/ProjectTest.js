@@ -27,6 +27,22 @@ const ProjectTest = sequelize.define('ProjectTest', {
     type: DataTypes.STRING(64),
     allowNull: true
   },
+  source_order: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  source_path: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  default_folder_path: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  folder_path_override: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
   stable_key: {
     type: DataTypes.STRING(255),
     allowNull: false

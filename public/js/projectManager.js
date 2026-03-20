@@ -523,10 +523,20 @@ window.viewProject = async (projectId) => {
         return `
           <div class="list-item">
             <div class="list-item-info">
-              <h3>${collection.name}</h3>
+              <h3>
+                <button
+                  type="button"
+                  class="link-button"
+                  onclick="window.viewCollectionContents(${collection.id}, ${projectId})"
+                  title="View collection content"
+                >
+                  ${collection.name}
+                </button>
+              </h3>
               <p>${itemCount} item(s)</p>
             </div>
             <div class="list-item-actions">
+              <button class="btn btn-secondary" onclick="window.downloadCollectionJson(${collection.id}, ${projectId}, '${String(collection.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" title="Download collection">Download</button>
               <button class="btn btn-danger" onclick="deleteCollection(${collection.id}, ${projectId})" title="Delete collection">Delete</button>
             </div>
           </div>
@@ -542,6 +552,14 @@ window.viewProject = async (projectId) => {
     console.error('Error loading project:', error);
     alert('Error loading project: ' + error.message);
   }
+};
+
+window.projectTestsCollapsedFolders = window.projectTestsCollapsedFolders || {};
+window.toggleProjectTestsFolderGroup = (projectId, folderKey) => {
+  const key = `${projectId}::${folderKey || ''}`;
+  const next = !window.projectTestsCollapsedFolders[key];
+  window.projectTestsCollapsedFolders[key] = next;
+  renderProjectTestsTable(projectId);
 };
 
 // Project-level tests & coverage summary (dashboard strip + chart)
@@ -588,6 +606,7 @@ window.loadProjectCoverageSummary = async (projectId) => {
   const coveredNow = passed + failed + partial;
   const coveragePct = totalTests > 0 ? Math.round((coveredNow / totalTests) * 100) : 0;
   const successPct = totalTests > 0 ? Math.round((passed / totalTests) * 100) : 0;
+  const folderRows = Array.isArray(data.folders) ? data.folders : [];
 
   // Cache latest summary on window for report downloads
   window.currentProjectCoverageSummary = {
@@ -603,9 +622,54 @@ window.loadProjectCoverageSummary = async (projectId) => {
       other,
       coveredNow,
       coveragePct,
-      successPct
+      successPct,
+      folders: folderRows
     }
   };
+
+  const foldersCoverageHtml = folderRows.length
+    ? `
+      <div class="table-responsive project-folder-coverage-table-wrap">
+        <table class="table project-folder-coverage-table">
+          <thead>
+            <tr>
+              <th>Folder</th>
+              <th>Active tests</th>
+              <th>Covered</th>
+              <th>Passed</th>
+              <th>Failed</th>
+              <th>Partial failed</th>
+              <th>Not run</th>
+              <th>Coverage</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${folderRows.map((f) => {
+              const counts = f.last_status_counts || {};
+              const coverage = Number(f.coverage_pct || 0);
+              return `
+                <tr>
+                  <td>${escapeHtml(f.folder_path || 'No folder')}</td>
+                  <td>${Number(f.total_tests || 0)}</td>
+                  <td>${Number(f.covered_tests || 0)}</td>
+                  <td><span class="folder-metric-badge metric-passed">${Number(counts.passed || 0)}</span></td>
+                  <td><span class="folder-metric-badge metric-failed">${Number(counts.failed || 0)}</span></td>
+                  <td><span class="folder-metric-badge metric-partial">${Number(counts.partial_failed || 0)}</span></td>
+                  <td><span class="folder-metric-badge metric-notrun">${Number(counts.not_run || 0)}</span></td>
+                  <td>
+                    <div class="folder-coverage-meter">
+                      <div class="folder-coverage-meter-fill" style="width:${coverage}%"></div>
+                    </div>
+                    <span class="folder-coverage-meter-label">${coverage}%</span>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `
+    : '<p class="muted project-folder-coverage-empty">No folder breakdown available yet.</p>';
 
   statsEl.innerHTML = `
     <div class="stat-card">
@@ -627,6 +691,10 @@ window.loadProjectCoverageSummary = async (projectId) => {
       <div class="stat-label">Not yet run</div>
       <div class="stat-value">${notRun}</div>
       <div class="stat-subtext">Active tests with no successful or failed runs yet</div>
+    </div>
+    <div class="project-folder-coverage-section">
+      <h4 class="project-folder-coverage-title">Coverage by folder</h4>
+      ${foldersCoverageHtml}
     </div>
   `;
 
@@ -738,13 +806,32 @@ window.loadProjectCoverageSummary = async (projectId) => {
   });
 };
 
+function getEffectiveFolderPath(test) {
+  if (!test) return '';
+  return test.effective_folder_path || test.folder_path_override || test.default_folder_path || '';
+}
+
+function updateProjectTestsFolderFilterOptions(tests) {
+  const folderEl = document.getElementById('project-tests-folder-filter');
+  if (!folderEl) return;
+  const current = folderEl.value || '';
+  const folders = Array.from(new Set((tests || [])
+    .map((t) => getEffectiveFolderPath(t))
+    .filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b));
+  folderEl.innerHTML = `<option value="">All Folders</option>${folders.map((f) => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join('')}`;
+  folderEl.value = folders.includes(current) ? current : '';
+}
+
 function getProjectTestsFilters() {
   const searchEl = document.getElementById('project-tests-search');
   const typeEl = document.getElementById('project-tests-type-filter');
+  const folderEl = document.getElementById('project-tests-folder-filter');
   const statusEl = document.getElementById('project-tests-status-filter');
   return {
     search: (searchEl?.value || '').trim().toLowerCase(),
     type: typeEl?.value || '',
+    folder: folderEl?.value || '',
     statuses: statusEl
       ? Array.from(statusEl.selectedOptions || []).map(o => o.value).filter(Boolean)
       : []
@@ -753,7 +840,7 @@ function getProjectTestsFilters() {
 
 function applyProjectTestsFilters(tests, inEditMode) {
   if (!Array.isArray(tests)) return [];
-  const { search, type, statuses } = getProjectTestsFilters();
+  const { search, type, folder, statuses } = getProjectTestsFilters();
 
   let result = tests.slice();
 
@@ -766,12 +853,17 @@ function applyProjectTestsFilters(tests, inEditMode) {
     result = result.filter(t => {
       const name = (t.name || '').toLowerCase();
       const ticket = (t.ticket_url || '').toLowerCase();
-      return name.includes(search) || ticket.includes(search);
+      const folderPath = getEffectiveFolderPath(t).toLowerCase();
+      return name.includes(search) || ticket.includes(search) || folderPath.includes(search);
     });
   }
 
   if (type) {
     result = result.filter(t => t.test_type === type);
+  }
+
+  if (folder) {
+    result = result.filter(t => getEffectiveFolderPath(t) === folder);
   }
 
   if (statuses && statuses.length > 0) {
@@ -802,7 +894,37 @@ function renderProjectTestsTable(projectId) {
     return;
   }
 
-  const rows = tests.map(t => {
+  const groupedRows = [];
+  let lastFolderLabel = null;
+  tests.forEach((t) => {
+      const folderPath = getEffectiveFolderPath(t);
+      const folderPathArg = (folderPath || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const folderLabel = folderPath || 'No folder';
+      const folderKey = folderPath || '__NO_FOLDER__';
+      const collapseKey = `${projectId}::${folderKey}`;
+      const isCollapsed = !!window.projectTestsCollapsedFolders[collapseKey];
+      if (folderLabel !== lastFolderLabel) {
+        groupedRows.push(`
+          <tr class="folder-group-row">
+            <td colspan="${inEditMode ? '10' : '8'}">
+              <button
+                type="button"
+                class="folder-group-toggle"
+                onclick="window.toggleProjectTestsFolderGroup(${projectId}, '${folderPathArg}')"
+                aria-expanded="${isCollapsed ? 'false' : 'true'}"
+                title="${isCollapsed ? 'Expand folder' : 'Collapse folder'}"
+              >
+                <span class="folder-group-chevron">${isCollapsed ? '&#9656;' : '&#9662;'}</span>
+                <span class="folder-group-label">Folder: ${escapeHtml(folderLabel)}</span>
+              </button>
+            </td>
+          </tr>
+        `);
+        lastFolderLabel = folderLabel;
+      }
+      if (isCollapsed) {
+        return;
+      }
       const stats = t.stats || {};
       const lastStatus = stats.last_status || 'not_run';
       const hasStatusSet = lastStatus && lastStatus !== 'not_run';
@@ -844,9 +966,16 @@ function renderProjectTestsTable(projectId) {
       const activeCol = inEditMode ? `<td>${activeCell}</td>` : '';
       const actionsCol = inEditMode ? `<td>${actionsCell}</td>` : '';
       const nameCell = `<button type="button" class="link-button" onclick="window.viewProjectTestDetails(${projectId}, ${t.id})">${escapeHtml(t.name || '')}</button>`;
-      return `
+      const folderOrigin = t.folder_path_override
+        ? '<span class="muted" title="User override"> (override)</span>'
+        : (t.default_folder_path ? '<span class="muted" title="From source"> (source)</span>' : '');
+      const folderCell = folderPath
+        ? `<span title="${escapeHtml(folderPath)}">${escapeHtml(folderPath)}</span>${folderOrigin}`
+        : '<span class="muted">—</span>';
+      groupedRows.push(`
         <tr data-project-test-id="${t.id}">
           <td>${nameCell}</td>
+          <td>${folderCell}</td>
           <td>${typeLabel}</td>
           <td><span class="status-badge ${statusClass}">${lastStatus}</span></td>
           <td>${lastRunAt}</td>
@@ -856,8 +985,8 @@ function renderProjectTestsTable(projectId) {
           ${activeCol}
           ${actionsCol}
         </tr>
-      `;
-    }).join('');
+      `);
+    });
 
   tableEl.innerHTML = `
       <div class="table-responsive">
@@ -865,6 +994,7 @@ function renderProjectTestsTable(projectId) {
           <thead>
             <tr>
               <th>Name</th>
+              <th>Folder</th>
               <th>Type</th>
               <th>Last status</th>
               <th>Last run</th>
@@ -875,7 +1005,7 @@ function renderProjectTestsTable(projectId) {
             </tr>
           </thead>
           <tbody>
-            ${rows}
+            ${groupedRows.join('')}
           </tbody>
         </table>
       </div>
@@ -890,6 +1020,7 @@ async function loadProjectTests(projectId) {
     tableEl.innerHTML = '<p class="muted">Loading tests…</p>';
     const tests = await apiRequest(`/projects/${projectId}/tests/catalogue`);
     window.currentProjectTests = Array.isArray(tests) ? tests : [];
+    updateProjectTestsFolderFilterOptions(window.currentProjectTests);
     renderProjectTestsTable(projectId);
   } catch (err) {
     console.error('Error loading project tests:', err);
@@ -970,6 +1101,7 @@ window.downloadProjectTestsReport = () => {
       t.test_type === 'other' ? 'Other' :
       'API';
     const ticket = t.ticket_url || '';
+    const folder = getEffectiveFolderPath(t) || '';
     const statusClass =
       lastStatus === 'passed' ? 'passed' :
       lastStatus === 'failed' ? 'failed' :
@@ -984,8 +1116,10 @@ window.downloadProjectTestsReport = () => {
         data-type="${safeHtml(t.test_type || '')}"
         data-status="${safeHtml(lastStatus)}"
         data-ticket="${safeHtml(ticket)}"
+        data-folder="${safeHtml(folder)}"
       >
         <td>${safeHtml(t.name || '')}</td>
+        <td>${safeHtml(folder || '—')}</td>
         <td>${safeHtml(typeLabel)}</td>
         <td><span class="status-badge ${statusClass}">${safeHtml(statusLabel)}</span></td>
         <td>${safeHtml(lastRunAt)}</td>
@@ -1274,6 +1408,7 @@ window.downloadProjectTestsReport = () => {
           <thead>
             <tr>
               <th>Name</th>
+              <th>Folder</th>
               <th>Type</th>
               <th>Last status</th>
               <th>Last run</th>
@@ -1396,6 +1531,10 @@ window.addProjectTest = (projectId) => {
         <input type="url" id="add-project-test-ticket-url" placeholder="https://jira.example.com/browse/KEY-123">
       </div>
       <div class="form-group">
+        <label for="add-project-test-folder-path">Folder path</label>
+        <input type="text" id="add-project-test-folder-path" placeholder="Release/Smoke">
+      </div>
+      <div class="form-group">
         <label class="checkbox-label">
           <input type="checkbox" id="add-project-test-active" checked>
           Active in coverage
@@ -1421,11 +1560,12 @@ window.addProjectTest = (projectId) => {
     const endpoint = document.getElementById('add-project-test-endpoint').value.trim();
     const description = document.getElementById('add-project-test-description').value;
     const ticket_url = document.getElementById('add-project-test-ticket-url').value.trim();
+    const folder_path_override = document.getElementById('add-project-test-folder-path').value.trim();
     const is_active = document.getElementById('add-project-test-active').checked;
     try {
       await apiRequest(`/projects/${projectId}/tests`, {
         method: 'POST',
-        body: { name, test_type, method, endpoint, description, is_active, ticket_url }
+        body: { name, test_type, method, endpoint, description, is_active, ticket_url, folder_path_override }
       });
       hideModal();
       await loadProjectTests(projectId);
@@ -1452,7 +1592,7 @@ window.showUploadProjectTestsModal = (projectId) => {
         <label>Upload CSV file</label>
         <div class="file-upload-area" id="project-tests-file-upload-area">
           <p id="project-tests-upload-prompt">Click to select or drag and drop</p>
-          <p class="file-upload-hint">CSV with columns: Name, Type, Method, Endpoint, Description, Ticket URL, Active</p>
+          <p class="file-upload-hint">Semicolon-delimited CSV (`;`) with columns: Name, Type, Method, Endpoint, Description, Ticket URL, Folder path, Active</p>
           <input type="file" id="project-tests-file" accept=".csv" style="display: none;">
         </div>
         <div id="project-tests-selected-file-card" class="selected-file-card" style="display: none;">
@@ -1647,6 +1787,11 @@ window.editProjectTest = async (projectId, projectTestId) => {
         <input type="url" id="edit-project-test-ticket-url" value="${escapeHtml(test.ticket_url || '')}" placeholder="https://jira.example.com/browse/KEY-123">
       </div>
         <div class="form-group">
+          <label for="edit-project-test-folder-path">Folder path override</label>
+          <input type="text" id="edit-project-test-folder-path" value="${escapeHtml(test.folder_path_override || '')}" placeholder="Release/Smoke">
+          <small class="form-help">Source folder: ${escapeHtml(test.default_folder_path || '—')}</small>
+        </div>
+        <div class="form-group">
           <label class="checkbox-label">
             <input type="checkbox" id="edit-project-test-active" ${test.is_active ? 'checked' : ''}>
             Active in coverage
@@ -1667,11 +1812,12 @@ window.editProjectTest = async (projectId, projectTestId) => {
       const endpoint = document.getElementById('edit-project-test-endpoint').value.trim();
       const description = document.getElementById('edit-project-test-description').value;
       const ticket_url = document.getElementById('edit-project-test-ticket-url').value.trim();
+      const folder_path_override = document.getElementById('edit-project-test-folder-path').value.trim();
       const is_active = document.getElementById('edit-project-test-active').checked;
       try {
         await apiRequest(`/projects/${projectId}/tests/${projectTestId}`, {
           method: 'PATCH',
-          body: { name, description, is_active, method, endpoint, test_type, ticket_url }
+          body: { name, description, is_active, method, endpoint, test_type, ticket_url, folder_path_override }
         });
         hideModal();
         await loadProjectTests(projectId);
@@ -1750,6 +1896,11 @@ window.viewProjectTestDetails = async (projectId, projectTestId) => {
             <input type="url" id="project-test-detail-ticket-url" value="${escapeHtml(test.ticket_url || '')}" placeholder="https://jira.example.com/browse/KEY-123">
           </div>
           <div class="form-group">
+            <label for="project-test-detail-folder-path">Folder path override</label>
+            <input type="text" id="project-test-detail-folder-path" value="${escapeHtml(test.folder_path_override || '')}" placeholder="Release/Smoke">
+            <p class="muted" style="margin-top:6px;">Source folder: ${escapeHtml(test.default_folder_path || '—')} | Effective folder: ${escapeHtml(getEffectiveFolderPath(test) || '—')}</p>
+          </div>
+          <div class="form-group">
             <label for="project-test-detail-status">Status</label>
             <select id="project-test-detail-status">
               <option value="not_run" ${(test.stats?.last_status || 'not_run') === 'not_run' ? 'selected' : ''}>Not run</option>
@@ -1813,12 +1964,13 @@ window.viewProjectTestDetails = async (projectId, projectTestId) => {
       const endpoint = document.getElementById('project-test-detail-endpoint').value.trim();
       const description = document.getElementById('project-test-detail-description').value;
       const ticket_url = document.getElementById('project-test-detail-ticket-url').value.trim();
+      const folder_path_override = document.getElementById('project-test-detail-folder-path').value.trim();
       const is_active = document.getElementById('project-test-detail-active').checked;
       const last_status = document.getElementById('project-test-detail-status').value || 'not_run';
       const runByEl = document.getElementById('project-test-detail-run-by');
       const last_run_by_user_id = runByEl ? (runByEl.value === '' ? null : parseInt(runByEl.value, 10)) : undefined;
       try {
-        const body = { name, description, is_active, method, endpoint, test_type, ticket_url, last_status };
+        const body = { name, description, is_active, method, endpoint, test_type, ticket_url, folder_path_override, last_status };
         if (last_run_by_user_id !== undefined) body.last_run_by_user_id = last_run_by_user_id;
         await apiRequest(`/projects/${projectId}/tests/${projectTestId}`, {
           method: 'PATCH',
@@ -1905,6 +2057,121 @@ window.deleteCollection = async (collectionId, projectId) => {
     alert('Collection deleted successfully');
   } catch (error) {
     alert('Error deleting collection: ' + error.message);
+  }
+};
+
+function renderCollectionItemsHtml(items, depth = 0) {
+  if (!Array.isArray(items) || items.length === 0) return '';
+  const indent = depth * 16;
+  return `
+    <ul style="list-style: none; margin: 0; padding-left: ${indent}px;">
+      ${items.map((item) => {
+        const name = escapeHtml(item?.name || 'Unnamed');
+        if (item?.request) {
+          const method = escapeHtml(item.request?.method || 'GET');
+          let url = '';
+          if (item.request?.url) {
+            url = typeof item.request.url === 'string'
+              ? item.request.url
+              : (item.request.url.raw || '');
+          }
+          const safeUrl = escapeHtml(url || '');
+          return `
+            <li style="margin: 6px 0; padding: 8px 10px; border: 1px solid var(--color-gray-200); border-radius: 8px; background: var(--color-gray-50);">
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span class="status-badge running" style="text-transform:none; letter-spacing:0;">${method}</span>
+                <strong>${name}</strong>
+              </div>
+              ${safeUrl ? `<div class="muted" style="margin-top:4px; word-break: break-all;">${safeUrl}</div>` : ''}
+            </li>
+          `;
+        }
+        const children = Array.isArray(item?.item) ? item.item : [];
+        return `
+          <li style="margin: 8px 0;">
+            <div style="font-weight: 600; color: var(--color-text-primary);">📁 ${name}</div>
+            ${renderCollectionItemsHtml(children, depth + 1)}
+          </li>
+        `;
+      }).join('')}
+    </ul>
+  `;
+}
+
+window.viewCollectionContents = async (collectionId, projectId) => {
+  try {
+    const collections = await apiRequest(`/projects/${projectId}/collections`);
+    const collection = (collections || []).find((c) => Number(c.id) === Number(collectionId));
+    if (!collection) {
+      alert('Collection not found.');
+      return;
+    }
+    const rootItems = Array.isArray(collection.collection_json?.item) ? collection.collection_json.item : [];
+    const contentHtml = rootItems.length
+      ? `
+        <div class="form-group" style="margin-bottom: 8px;">
+          <label>Collection</label>
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+            <p class="muted" style="margin:0;">${escapeHtml(collection.name || '')}</p>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              onclick="window.downloadCollectionJson(${collection.id}, ${projectId}, '${String(collection.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')"
+            >
+              Download collection
+            </button>
+          </div>
+        </div>
+        <div style="max-height: 60vh; overflow: auto; border: 1px solid var(--color-gray-200); border-radius: 10px; padding: 12px; background: var(--color-white);">
+          ${renderCollectionItemsHtml(rootItems)}
+        </div>
+      `
+      : `<p class="muted">This collection has no items.</p>`;
+    showModal(`Collection content: ${collection.name || collectionId}`, contentHtml);
+  } catch (error) {
+    alert('Error loading collection content: ' + (error.message || error));
+  }
+};
+
+window.downloadCollectionJson = async (collectionId, projectId, suggestedName) => {
+  try {
+    let collection = null;
+    try {
+      collection = await apiRequest(`/collections/${collectionId}`);
+    } catch (_) {
+      const collections = await apiRequest(`/projects/${projectId}/collections`);
+      collection = (collections || []).find((c) => Number(c.id) === Number(collectionId)) || null;
+    }
+    if (!collection || !collection.collection_json) {
+      alert('Collection JSON not available.');
+      return;
+    }
+
+    const safeBase = (suggestedName || collection.name || `collection-${collectionId}`)
+      .toString()
+      .trim()
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
+      .replace(/\s+/g, ' ')
+      .slice(0, 120) || `collection-${collectionId}`;
+    const filename = (collection.original_is_exact && collection.original_file_name)
+      ? String(collection.original_file_name)
+      : `${safeBase}.postman_collection.json`;
+
+    const payload = (collection.original_is_exact && typeof collection.original_file_content === 'string')
+      ? collection.original_file_content
+      : JSON.stringify(collection.collection_json, null, 2);
+
+    const blob = new Blob([payload], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    alert('Error downloading collection: ' + (error.message || error));
   }
 };
 

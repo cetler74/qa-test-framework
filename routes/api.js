@@ -48,6 +48,24 @@ function normalizeBaseUrl(value) {
   return s;
 }
 
+function normalizeFolderPath(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const s = String(value).trim();
+  if (!s) return null;
+  const cleaned = s
+    .split('/')
+    .map((part) => part.trim().replace(/\s+/g, ' ').replace(/[\\/]+/g, '-'))
+    .filter(Boolean)
+    .join('/');
+  return cleaned ? cleaned.slice(0, 500) : null;
+}
+
+function effectiveFolderPathForTest(test) {
+  if (!test) return null;
+  return test.folder_path_override || test.default_folder_path || null;
+}
+
 function normalizeRecordedSpecTitle(specContent, recordedName) {
   if (typeof specContent !== 'string') return specContent;
   const name = typeof recordedName === 'string' ? recordedName.trim() : '';
@@ -376,7 +394,11 @@ router.get('/projects/:id/tests/catalogue', (req, res, next) => {
         const fromRun = stats.last_run_id ? runByMap[stats.last_run_id] : null;
         const fromUser = stats.last_run_by_user_id ? userByMap[stats.last_run_by_user_id] : null;
         stats.last_run_by_username = fromRun ?? fromUser ?? null;
-        return { ...plain, stats };
+        return {
+          ...plain,
+          stats,
+          effective_folder_path: effectiveFolderPathForTest(plain)
+        };
       });
       res.json(out);
     } catch (error) {
@@ -390,10 +412,7 @@ router.get('/projects/:id/tests/catalogue/export', (req, res, next) => {
   loadProjectAndCheckAccess(req, res, async () => {
     try {
       const projectId = req.project.id;
-      const tests = await ProjectTest.findAll({
-        where: { project_id: projectId },
-        include: [{ model: ProjectTestStat, as: 'stats' }]
-      });
+      const tests = await getProjectTestCatalogue(projectId);
 
       const header = [
         'Name',
@@ -403,20 +422,24 @@ router.get('/projects/:id/tests/catalogue/export', (req, res, next) => {
         'Total runs',
         'Active',
         'Description',
-        'Ticket URL'
+        'Ticket URL',
+        'Folder',
+        'Default folder path',
+        'Folder override'
       ];
 
       const escapeCsv = (value) => {
         if (value == null) return '';
         const str = String(value);
-        if (/[",\n]/.test(str)) {
+        // Quote when value may break ';'-delimited CSV (commas/quotes/semicolons/newlines)
+        if (/[",;\n]/.test(str)) {
           return `"${str.replace(/"/g, '""')}"`;
         }
         return str;
       };
 
       const lines = [];
-      lines.push(header.map(escapeCsv).join(','));
+      lines.push(header.map(escapeCsv).join(';'));
 
       for (const t of tests) {
         const stats = t.stats || {};
@@ -436,9 +459,12 @@ router.get('/projects/:id/tests/catalogue/export', (req, res, next) => {
           totalRuns,
           t.is_active ? 'Yes' : 'No',
           t.description || '',
-          t.ticket_url || ''
+          t.ticket_url || '',
+          effectiveFolderPathForTest(t) || '',
+          t.default_folder_path || '',
+          t.folder_path_override || ''
         ];
-        lines.push(row.map(escapeCsv).join(','));
+        lines.push(row.map(escapeCsv).join(';'));
       }
 
       const csv = lines.join('\n');
@@ -458,16 +484,17 @@ router.get('/projects/:id/tests/catalogue/template', (req, res, next) => {
       const escapeCsv = (value) => {
         if (value == null) return '';
         const str = String(value);
-        if (/[",\n]/.test(str)) {
+        // Quote when value may break ';'-delimited CSV
+        if (/[",;\n]/.test(str)) {
           return `"${str.replace(/"/g, '""')}"`;
         }
         return str;
       };
-      const header = ['Name', 'Type', 'Method', 'Endpoint', 'Description', 'Ticket URL', 'Active'];
-      const exampleRow = ['Get health', 'API', 'GET', '/health', 'Optional description', 'https://jira.example.com/KEY-1', 'Yes'];
+      const header = ['Name', 'Type', 'Method', 'Endpoint', 'Description', 'Ticket URL', 'Folder path', 'Active'];
+      const exampleRow = ['Get health', 'API', 'GET', '/health', 'Optional description', 'https://jira.example.com/KEY-1', 'Release/Smoke', 'Yes'];
       const lines = [
-        header.map(escapeCsv).join(','),
-        exampleRow.map(escapeCsv).join(',')
+        header.map(escapeCsv).join(';'),
+        exampleRow.map(escapeCsv).join(';')
       ];
       const csv = lines.join('\n');
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -506,18 +533,54 @@ router.get('/projects/:id/tests/coverage-summary', (req, res, next) => {
           other: 0
         }
       };
+      const byFolder = {};
 
       // Bucket every active test by last_status so manual status changes (Passed/Failed) are reflected
       for (const t of tests) {
         const stats = t.stats;
         const lastStatus = (stats && stats.last_status) ? String(stats.last_status).toLowerCase() : 'not_run';
+        const folderKey = effectiveFolderPathForTest(t) || '(No folder)';
+        if (!byFolder[folderKey]) {
+          byFolder[folderKey] = {
+            folder_path: folderKey === '(No folder)' ? null : folderKey,
+            total_tests: 0,
+            tests_ever_run: 0,
+            last_status_counts: {
+              passed: 0,
+              failed: 0,
+              partial_failed: 0,
+              not_run: 0,
+              other: 0
+            }
+          };
+        }
+        byFolder[folderKey].total_tests += 1;
         if (lastStatus === 'passed') summary.last_status_counts.passed += 1;
         else if (lastStatus === 'failed') summary.last_status_counts.failed += 1;
         else if (lastStatus === 'partial_failed') summary.last_status_counts.partial_failed += 1;
         else if (lastStatus === 'not_run') summary.last_status_counts.not_run += 1;
         else summary.last_status_counts.other += 1;
-        if (stats && stats.total_runs > 0) summary.tests_ever_run += 1;
+        if (lastStatus === 'passed') byFolder[folderKey].last_status_counts.passed += 1;
+        else if (lastStatus === 'failed') byFolder[folderKey].last_status_counts.failed += 1;
+        else if (lastStatus === 'partial_failed') byFolder[folderKey].last_status_counts.partial_failed += 1;
+        else if (lastStatus === 'not_run') byFolder[folderKey].last_status_counts.not_run += 1;
+        else byFolder[folderKey].last_status_counts.other += 1;
+        if (stats && stats.total_runs > 0) {
+          summary.tests_ever_run += 1;
+          byFolder[folderKey].tests_ever_run += 1;
+        }
       }
+
+      const folders = Object.values(byFolder).map((bucket) => {
+        const last = bucket.last_status_counts || {};
+        const covered = (last.passed || 0) + (last.failed || 0) + (last.partial_failed || 0);
+        const total = bucket.total_tests || 0;
+        return {
+          ...bucket,
+          covered_tests: covered,
+          coverage_pct: total > 0 ? Math.round((covered / total) * 100) : 0
+        };
+      }).sort((a, b) => (a.folder_path || '').localeCompare(b.folder_path || ''));
 
       // Time series: total / passed / failed tests run per day from API/SOAP and UI runs
       const sequelize = TestRun.sequelize;
@@ -563,7 +626,7 @@ router.get('/projects/:id/tests/coverage-summary', (req, res, next) => {
           }))
         : [];
 
-      res.json({ summary, timeseries });
+      res.json({ summary, folders, timeseries });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -600,7 +663,8 @@ router.post('/projects/:id/tests', (req, res, next) => {
         endpoint,
         description,
         is_active,
-        ticket_url
+        ticket_url,
+        folder_path_override
       } = req.body || {};
 
       if (!name || typeof name !== 'string') {
@@ -619,6 +683,8 @@ router.post('/projects/:id/tests', (req, res, next) => {
         method: method || null,
         description: description || null,
         ticket_url: ticket_url || null,
+        default_folder_path: null,
+        folder_path_override: normalizeFolderPath(folder_path_override),
         source_id: null,
         source_kind: 'manual',
         is_active: is_active !== false
@@ -642,7 +708,8 @@ router.post('/projects/:id/tests', (req, res, next) => {
       const reloaded = await ProjectTest.findByPk(test.id, {
         include: [{ model: ProjectTestStat, as: 'stats' }]
       });
-      res.status(201).json(reloaded);
+      const plain = reloaded.get ? reloaded.get({ plain: true }) : reloaded;
+      res.status(201).json({ ...plain, effective_folder_path: effectiveFolderPathForTest(plain) });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -663,7 +730,13 @@ router.post('/projects/:id/tests/import', uploadTestsImport.single('file'), (req
       const raw = fs.readFileSync(req.file.path, 'utf8');
       let rows;
       try {
-        rows = parseCsv(raw, { columns: true, skip_empty_lines: true, trim: true, relax_column_count: true });
+        rows = parseCsv(raw, {
+          columns: true,
+          skip_empty_lines: true,
+          trim: true,
+          relax_column_count: true,
+          delimiter: ';'
+        });
       } catch (parseErr) {
         return res.status(400).json({ error: 'Invalid CSV: ' + (parseErr.message || 'parse error') });
       }
@@ -705,6 +778,7 @@ router.post('/projects/:id/tests/import', uploadTestsImport.single('file'), (req
         const endpoint = get('endpoint') || null;
         const description = get('description') || null;
         const ticket_url = get('ticket url') || get('ticket_url') || null;
+        const folder_path_override = normalizeFolderPath(get('folder path') || get('folder_path') || get('folder'));
         const is_active = normalizeActive(get('active'));
 
         try {
@@ -718,6 +792,8 @@ router.post('/projects/:id/tests/import', uploadTestsImport.single('file'), (req
             method: method || null,
             description: description || null,
             ticket_url: ticket_url || null,
+            default_folder_path: null,
+            folder_path_override,
             source_id: null,
             source_kind: 'manual',
             is_active
@@ -770,6 +846,7 @@ router.patch('/projects/:projectId/tests/:testId', (req, res, next) => {
         endpoint,
         test_type,
         ticket_url,
+        folder_path_override,
         last_status,
         last_run_by_user_id: bodyLastRunByUserId
       } = req.body || {};
@@ -786,6 +863,7 @@ router.patch('/projects/:projectId/tests/:testId', (req, res, next) => {
       if (typeof endpoint !== 'undefined') updates.endpoint = endpoint || null;
       if (typeof test_type !== 'undefined') updates.test_type = test_type;
       if (typeof ticket_url !== 'undefined') updates.ticket_url = ticket_url || null;
+      if (typeof folder_path_override !== 'undefined') updates.folder_path_override = normalizeFolderPath(folder_path_override);
       await test.update(updates);
 
       const statUpdates = {};
@@ -818,7 +896,7 @@ router.patch('/projects/:projectId/tests/:testId', (req, res, next) => {
         const after = reloaded.get ? reloaded.get({ plain: true }) : { ...reloaded };
         const afterStat = after.stats || {};
         const diffs = [];
-        const fieldsToTrack = ['name', 'description', 'method', 'endpoint', 'test_type', 'is_active'];
+        const fieldsToTrack = ['name', 'description', 'method', 'endpoint', 'test_type', 'is_active', 'folder_path_override'];
         fieldsToTrack.forEach((field) => {
           if (before[field] !== after[field]) {
             const beforeVal = typeof before[field] === 'boolean' ? (before[field] ? 'true' : 'false') : (before[field] ?? '');
@@ -840,7 +918,8 @@ router.patch('/projects/:projectId/tests/:testId', (req, res, next) => {
         // Ignore note errors to avoid blocking main update
       }
 
-      res.json(reloaded);
+      const plain = reloaded.get ? reloaded.get({ plain: true }) : reloaded;
+      res.json({ ...plain, effective_folder_path: effectiveFolderPathForTest(plain) });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -1585,7 +1664,10 @@ router.post('/api-specs/upload', upload.single('file'), async (req, res) => {
       name: collection.info.name,
       version: collection.info.version || '1.0.0',
       collection_json: collection,
-      api_spec_id: apiSpec.id
+      api_spec_id: apiSpec.id,
+      original_file_content: null,
+      original_file_name: null,
+      original_is_exact: false
     });
 
     res.status(201).json(apiSpec);
@@ -1749,7 +1831,10 @@ router.post('/collections/upload', upload.single('file'), async (req, res) => {
       name: collection.info?.name || 'Imported Collection',
       version: collection.info?.version || '1.0.0',
       collection_json: collection,
-      project_id: projectId || null
+      project_id: projectId || null,
+      original_file_content: content,
+      original_file_name: req.file.originalname || null,
+      original_is_exact: true
     });
 
     console.log(`Collection created with ID: ${collectionRecord.id}`);

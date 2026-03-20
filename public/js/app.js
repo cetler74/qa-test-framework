@@ -739,9 +739,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     projectTestsClear.addEventListener('click', () => {
       const search = document.getElementById('project-tests-search');
       const type = document.getElementById('project-tests-type-filter');
+      const folder = document.getElementById('project-tests-folder-filter');
       const status = document.getElementById('project-tests-status-filter');
       if (search) search.value = '';
       if (type) type.value = '';
+      if (folder) folder.value = '';
       if (status) {
         Array.from(status.options || []).forEach(o => { o.selected = false; });
       }
@@ -895,6 +897,15 @@ async function loadGlobalTestsCatalogue() {
 
     // Compute coverage metrics based only on ACTIVE tests to match per-project coverage logic
     const activeTests = tests.filter(t => t.is_active);
+    if (activeTests.length === 0) {
+      tableEl.innerHTML = `
+        <div class=\"empty-state\">
+          <p>No active tests match the current filters.</p>
+        </div>
+      `;
+      metricsEl.innerHTML = '';
+      return;
+    }
     const total = activeTests.length;
     const passed = activeTests.filter(t => t.stats && t.stats.last_status === 'passed').length;
     const failed = activeTests.filter(t => t.stats && (t.stats.last_status === 'failed' || t.stats.last_status === 'partial_failed')).length;
@@ -927,7 +938,7 @@ async function loadGlobalTestsCatalogue() {
       </div>
     `;
 
-    const rows = tests.map(t => {
+    const rows = activeTests.map(t => {
       const stats = t.stats || {};
       const lastStatus = stats.last_status || 'not_run';
       const lastRunAt = stats.last_run_at ? formatDateTime(stats.last_run_at) : '—';

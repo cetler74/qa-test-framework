@@ -19,6 +19,19 @@ const Collection = sequelize.define('Collection', {
     type: DataTypes.JSONB,
     allowNull: false
   },
+  original_file_content: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  original_file_name: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  original_is_exact: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  },
   api_spec_id: {
     type: DataTypes.INTEGER,
     allowNull: true,
