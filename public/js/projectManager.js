@@ -15,9 +15,8 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Add API spec to project button
   document.getElementById('add-api-spec-btn')?.addEventListener('click', showAddApiSpecToProjectModal);
-  
-  // Run API tests button
-  document.getElementById('run-tests-btn')?.addEventListener('click', showRunTestsModal);
+
+  // Run API tests: listener is registered in testRunner.js (do not duplicate — a stub here overwrote the real handler)
 
   // Run Fuzz button (from project): open Run Fuzz modal
   document.getElementById('run-fuzz-btn')?.addEventListener('click', showRunFuzzModal);
@@ -2965,10 +2964,7 @@ function showAddApiSpecToProjectModal() {
   });
 }
 
-// Run Tests (handled in testRunner.js)
-function showRunTestsModal() {
-  // This will be implemented in testRunner.js
-}
+// Run Tests modal: showRunTestsModal is defined in testRunner.js
 
 // Run Fuzz modal: select API Spec (OpenAPI), base URL, run name; POST /api/fuzz-runs/execute
 async function showRunFuzzModal() {
