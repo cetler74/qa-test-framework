@@ -11,6 +11,13 @@ function authSourceLabel(source) {
   return 'Local';
 }
 
+function escapeHtmlLite(s) {
+  if (s == null) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
 function showLoginView() {
   document.getElementById('login-view').style.display = 'flex';
   document.getElementById('app-container').style.display = 'none';
@@ -103,6 +110,16 @@ function showView(viewId) {
   if (activeEl && activeEl.id === 'test-runs-view') {
     clearInterval(window._testRunsRefreshInterval);
     window._testRunsRefreshInterval = null;
+    if (viewId !== 'test-runs') {
+      window.testRunsEditMode = false;
+      const trEditBtn = document.getElementById('toggle-test-runs-edit-mode-btn');
+      if (trEditBtn) {
+        trEditBtn.textContent = 'Edit mode';
+        trEditBtn.setAttribute('aria-pressed', 'false');
+        trEditBtn.classList.remove('btn-primary');
+        trEditBtn.classList.add('btn-secondary');
+      }
+    }
   }
   const currentId = activeEl && activeEl.id ? activeEl.id.replace(/-view$/, '') : null;
   if (currentId && currentId !== viewId) {
@@ -647,8 +664,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const flowId = runHubFlow?.value;
       if (!projectId) { alert('Select a project'); return; }
       if (type === 'flow' && !flowId) { alert('Select a flow'); return; }
-      if (typeof viewProject !== 'function') { alert('Cannot run'); return; }
-      viewProject(Number(projectId));
+      if (typeof window.viewProject !== 'function') { alert('Cannot run'); return; }
+      window.viewProject(Number(projectId));
       if (type === 'api') {
         setTimeout(() => document.getElementById('run-tests-btn')?.click(), 300);
       } else if (type === 'ui') {
@@ -794,6 +811,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  const toggleTestRunsEditBtn = document.getElementById('toggle-test-runs-edit-mode-btn');
+  if (toggleTestRunsEditBtn) {
+    toggleTestRunsEditBtn.addEventListener('click', () => {
+      window.testRunsEditMode = !window.testRunsEditMode;
+      toggleTestRunsEditBtn.textContent = window.testRunsEditMode ? 'Done editing' : 'Edit mode';
+      toggleTestRunsEditBtn.setAttribute('aria-pressed', window.testRunsEditMode ? 'true' : 'false');
+      toggleTestRunsEditBtn.classList.toggle('btn-primary', window.testRunsEditMode);
+      toggleTestRunsEditBtn.classList.toggle('btn-secondary', !window.testRunsEditMode);
+      if (Array.isArray(window.testRunsData)) {
+        renderTestRunsList(window.testRunsData);
+      }
+    });
+  }
+
   // Footer collapsible toggle
   const appFooterToggle = document.getElementById('app-footer-toggle');
   const appFooter = document.getElementById('app-footer');
@@ -825,6 +856,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
   });
+
 });
 
 // Load view data
@@ -938,14 +970,6 @@ async function loadGlobalTestsCatalogue() {
       </div>
     `;
 
-    const globalRunKind = (t) => {
-      if (typeof window.getCatalogueTestRunKind === 'function') return window.getCatalogueTestRunKind(t);
-      if (t.single_run_kind === 'api' || t.single_run_kind === 'ui_recorded') return t.single_run_kind;
-      if (t.test_type === 'api' && t.source_kind === 'postman_item' && t.source_id && (t.source_path || t.effective_source_path)) return 'api';
-      if (t.test_type === 'ui_recorded' && t.source_kind === 'ui_recorded' && t.source_id) return 'ui_recorded';
-      return null;
-    };
-
     const rows = activeTests.map(t => {
       const stats = t.stats || {};
       const lastStatus = stats.last_status || 'not_run';
@@ -959,7 +983,6 @@ async function loadGlobalTestsCatalogue() {
         t.test_type === 'other' ? 'Other' :
         'API';
       const projectName = t.project && t.project.name ? t.project.name : (t.project_id || '');
-      const pid = t.project_id;
       const statusClass =
         lastStatus === 'passed'
           ? 'passed'
@@ -972,17 +995,12 @@ async function loadGlobalTestsCatalogue() {
                 : lastStatus === 'cancelled'
                   ? 'cancelled'
                   : 'pending';
-      const runKind = globalRunKind(t);
       const lastRunId = stats.last_run_id;
       const lastRunType = stats.last_run_type || stats.last_run_source || '';
       const historyBtn = lastRunId
         ? `<button type="button" class="btn btn-outline btn-sm" onclick='window.openLastRunForTest(${lastRunId}, ${JSON.stringify(String(lastRunType))})'>History</button>`
         : `<button type="button" class="btn btn-outline btn-sm" disabled title="No run yet">History</button>`;
-      const runSnap = JSON.stringify({ id: t.id, name: t.name || '', endpoint: t.endpoint || null });
-      const runBtn = runKind
-        ? `<button type="button" class="btn btn-outline btn-sm" onclick="window.runProjectCatalogueTestFromGlobal(${pid}, ${t.id}, '${runKind}', ${runSnap})">Run</button>`
-        : `<span class="muted">—</span>`;
-      const actions = `<div class="project-test-row-actions">${runBtn} ${historyBtn}</div>`;
+      const actions = `<div class="project-test-row-actions">${historyBtn}</div>`;
       return `
         <tr>
           <td>${escapeHtml(projectName)}</td>
@@ -998,7 +1016,7 @@ async function loadGlobalTestsCatalogue() {
 
     tableEl.innerHTML = `
       <div class=\"table-responsive\">
-        <table class=\"table tests-catalogue-table\">
+        <table class=\"table\">
           <thead>
             <tr>
               <th>Project</th>
@@ -1007,7 +1025,7 @@ async function loadGlobalTestsCatalogue() {
               <th>Last status</th>
               <th>Last run</th>
               <th>Total runs</th>
-              <th>Actions</th>
+              <th>History</th>
             </tr>
           </thead>
           <tbody>
@@ -1311,16 +1329,16 @@ async function loadProjects() {
       `;
     } else {
       projectsList.innerHTML = projects.map(project => `
-        <div class="list-item">
-          <div class="list-item-info" onclick="viewProject(${project.id})" style="cursor: pointer;">
-            <h3>${project.name}</h3>
-            <p>${project.description || 'No description'}</p>
+        <div class="list-item" data-project-id="${project.id}" role="button" tabindex="0" aria-label="Open project ${String(project.name || '').replace(/"/g, '&quot;')}">
+          <div class="list-item-info" style="cursor: pointer;">
+            <h3>${escapeHtmlLite(project.name)}</h3>
+            <p>${escapeHtmlLite(project.description || 'No description')}</p>
             <p style="font-size: 12px; color: #999; margin-top: 5px;">
               ${project.apiSpecs?.length || 0} API spec(s)
             </p>
           </div>
           <div class="list-item-actions">
-            <button class="btn btn-secondary" onclick="editProject(${project.id})">
+            <button type="button" class="btn btn-secondary" onclick="window.editProject(${project.id})">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px;">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
@@ -1401,6 +1419,9 @@ function getRunTypeBadgeHtml(runType) {
   return `<span class="run-type-badge run-type-${type}">${icon}${label}</span>`;
 }
 
+// When true, Test Runs list shows per-row Delete for removing runs and artifacts.
+window.testRunsEditMode = false;
+
 function renderTestRunsList(allRuns) {
   const testRunsList = document.getElementById('test-runs-list');
   const pageSizeSelect = document.getElementById('test-runs-page-size');
@@ -1445,7 +1466,9 @@ function renderTestRunsList(allRuns) {
     const cancelBtn = isRunning
       ? `<button type="button" class="btn btn-error btn-sm" onclick="event.stopPropagation(); cancelTestRun('${runType}', ${run.id})" title="Cancel this run">Cancel</button>`
       : '';
-    const deleteBtn = `<button type="button" class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteTestRunFromList('${runType}', ${run.id})" title="Delete this run and all artifacts (reports, videos, traces)">Delete</button>`;
+    const deleteBtn = window.testRunsEditMode
+      ? `<button type="button" class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteTestRunFromList('${runType}', ${run.id})" title="Delete this run and all artifacts (reports, videos, traces)">Delete</button>`
+      : '';
     const runBy = run.runByUser ? (run.runByUser.display_name || run.runByUser.username || '') : null;
     const runByLine = runBy ? `<p style="font-size: 12px; color: #666; margin-top: 4px;">Run by: ${runBy}</p>` : '';
     return `
@@ -1790,10 +1813,7 @@ document.getElementById('delete-test-run-btn')?.addEventListener('click', async 
   }
 });
 
-// Export functions for onclick handlers
-window.viewProject = (projectId) => {
-  // Handled in projectManager.js
-};
+// viewProject / editProject are assigned in projectManager.js (do not stub here — a noop breaks list clicks if load order fails)
 
 window.viewTestRun = viewTestRun;
 window.viewFuzzRun = viewFuzzRun;
@@ -1835,10 +1855,6 @@ window.cancelTestRun = async (runType, id) => {
   }
 };
 
-window.editProject = (projectId) => {
-  // Handled in projectManager.js
-};
-
 window.deleteProject = async (projectId) => {
   if (!confirm('Are you sure you want to delete this project?')) return;
   
@@ -1861,3 +1877,34 @@ window.deleteApiSpec = async (apiSpecId) => {
   }
 };
 
+// Projects list: capture phase so clicks still open the project even if something stops bubbling; runs after projectManager defines window.viewProject.
+function projectsListClickTarget(el) {
+  return el && el.nodeType === Node.ELEMENT_NODE ? el : el?.parentElement;
+}
+document.addEventListener('click', (e) => {
+  const t = projectsListClickTarget(e.target);
+  if (!t) return;
+  const pl = document.getElementById('projects-list');
+  if (!pl || !pl.contains(t)) return;
+  if (t.closest('.list-item-actions')) return;
+  const row = t.closest('.list-item[data-project-id]');
+  if (!row || !pl.contains(row)) return;
+  const id = row.getAttribute('data-project-id');
+  if (!id || typeof window.viewProject !== 'function') return;
+  window.viewProject(Number(id));
+}, true);
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const t = projectsListClickTarget(e.target);
+  if (!t) return;
+  const pl = document.getElementById('projects-list');
+  if (!pl || !pl.contains(t)) return;
+  if (t.closest('.list-item-actions')) return;
+  const row = t.closest('.list-item[data-project-id]');
+  if (!row || !pl.contains(row)) return;
+  e.preventDefault();
+  const id = row.getAttribute('data-project-id');
+  if (!id || typeof window.viewProject !== 'function') return;
+  window.viewProject(Number(id));
+}, true);

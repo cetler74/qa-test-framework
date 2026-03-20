@@ -86,10 +86,13 @@ async function userCanAccessProjectId(userId, isAdmin, projectId) {
   return canAccessProject(userId, isAdmin, project, memberUserIds);
 }
 
+/**
+ * Whether the user may edit project content: tests, catalogue, collections, runs, schedules, etc.
+ * Matches read access — any member with access to the project can create/update/delete those resources.
+ * (Project deletion and visibility are enforced separately via canManageProject + route logic.)
+ */
 async function userCanManageProjectId(userId, isAdmin, projectId) {
-  if (isAdmin) return true;
-  const project = await Project.findByPk(projectId, { attributes: ['id', 'owner_id'] });
-  return project && project.owner_id === userId;
+  return userCanAccessProjectId(userId, isAdmin, projectId);
 }
 
 module.exports = {

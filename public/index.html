@@ -451,7 +451,7 @@
                                 </button>
                             </div>
                         </div>
-                        <div id="project-tests-table" class="project-tests-table"></div>
+                        <div id="project-tests-table" class="project-tests-table tests-table-host"></div>
                     </div>
                 </div>
             </div>
@@ -577,13 +577,16 @@
                     </div>
                 </div>
                 <div class="test-runs-pagination-bar">
-                    <div class="test-runs-page-size">
-                        <label for="test-runs-page-size">Rows per page</label>
-                        <select id="test-runs-page-size">
-                            <option value="10">10</option>
-                            <option value="50" selected>50</option>
-                            <option value="100">100</option>
-                        </select>
+                    <div class="test-runs-pagination-left">
+                        <button type="button" class="btn btn-secondary btn-sm" id="toggle-test-runs-edit-mode-btn" title="Show Delete on each run">Edit mode</button>
+                        <div class="test-runs-page-size">
+                            <label for="test-runs-page-size">Rows per page</label>
+                            <select id="test-runs-page-size">
+                                <option value="10">10</option>
+                                <option value="50" selected>50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="test-runs-page-controls">
                         <button type="button" class="btn btn-secondary btn-sm" id="test-runs-prev-page">&laquo; Prev</button>
@@ -594,37 +597,42 @@
                 <div id="test-runs-list"></div>
             </div>
 
-            <!-- Global Test Catalogue / Coverage View -->
+            <!-- Global Test Catalogue / Coverage View (same section chrome as project Tests & Coverage) -->
             <div id="tests-catalogue-view" class="view">
                 <div class="view-header">
                     <h2>Test Catalogue / Coverage</h2>
                 </div>
-                <p class="view-description">Unified view of all tests across projects, with their latest status and execution counts. Use filters to focus on specific projects or test types.</p>
-                <div class="tests-catalogue-filters-toolbar">
-                    <div class="filters tests-catalogue-filters">
-                        <select id="tests-catalogue-project-filter">
-                            <option value="">All Projects</option>
-                        </select>
-                        <select id="tests-catalogue-type-filter">
-                            <option value="">All Types</option>
-                            <option value="api">API</option>
-                            <option value="soap">SOAP</option>
-                            <option value="ui_builtin">UI (built-in)</option>
-                            <option value="ui_recorded">UI (recorded)</option>
-                        </select>
-                        <select id="tests-catalogue-status-filter">
-                            <option value="">All Statuses</option>
-                            <option value="passed">Passed</option>
-                            <option value="failed">Failed</option>
-                            <option value="partial_failed">Partial Failed</option>
-                            <option value="not_run">Not run</option>
-                        </select>
-                        <button class="btn btn-primary" id="tests-catalogue-apply-btn">Apply</button>
-                        <button class="btn btn-secondary" id="tests-catalogue-clear-btn">Clear</button>
+                <div class="project-detail-content">
+                    <div class="project-tests project-section-box project-section-3d">
+                        <h3>Tests &amp; Coverage</h3>
+                        <p class="project-flows-desc">Unified view of all tests across projects, with their latest status and execution counts. Use filters to focus on specific projects or test types.</p>
+                        <div class="project-tests-filters-toolbar">
+                            <div class="filters project-tests-filters project-tests-filters-left">
+                                <select id="tests-catalogue-project-filter">
+                                    <option value="">All Projects</option>
+                                </select>
+                                <select id="tests-catalogue-type-filter">
+                                    <option value="">All Types</option>
+                                    <option value="api">API</option>
+                                    <option value="soap">SOAP</option>
+                                    <option value="ui_builtin">UI (built-in)</option>
+                                    <option value="ui_recorded">UI (recorded)</option>
+                                </select>
+                                <select id="tests-catalogue-status-filter">
+                                    <option value="">All Statuses</option>
+                                    <option value="passed">Passed</option>
+                                    <option value="failed">Failed</option>
+                                    <option value="partial_failed">Partial Failed</option>
+                                    <option value="not_run">Not run</option>
+                                </select>
+                                <button class="btn btn-primary" id="tests-catalogue-apply-btn">Apply</button>
+                                <button class="btn btn-secondary" id="tests-catalogue-clear-btn">Clear</button>
+                            </div>
+                        </div>
+                        <div id="tests-catalogue-metrics" class="tests-catalogue-metrics"></div>
+                        <div id="tests-catalogue-table" class="project-tests-table tests-table-host"></div>
                     </div>
                 </div>
-                <div id="tests-catalogue-metrics" class="tests-catalogue-metrics"></div>
-                <div id="tests-catalogue-table"></div>
             </div>
 
             <!-- UI Tests View -->
@@ -974,10 +982,6 @@ test('test', async ({ page }) => {
                     <div class="app-footer-contact">
                         <span>Contact:</span>
                         <a href="mailto:carlos.e.larramba@meo.pt">carlos.e.larramba@meo.pt</a>
-                    </div>
-                    <div class="app-footer-brand" aria-label="Powered by CL">
-                        <span class="app-footer-powered">Powered by</span>
-                        <span class="app-footer-signature">CL</span>
                     </div>
                 </div>
             </div>

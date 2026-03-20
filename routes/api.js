@@ -29,6 +29,13 @@ const { loadProxyConfig, getProxyByName, getProxyForUrl, getProxyForUrlAsync } =
 const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
 const { deleteTestRunArtifacts, deleteFuzzRunArtifacts, deletePlaywrightRunArtifacts } = require('../services/artifactCleanup');
 const { postmanToOpenApiYaml } = require('../services/postmanToOpenApi');
+const {
+  normalizeTicketUrlsList,
+  persistTicketUrlsFromBody,
+  ticketUrlsForDb,
+  parseTicketUrlsFromCsvCell,
+  ticketUrlsToCsvCell
+} = require('../lib/ticketUrls');
 
 /** Extract first soap:address location URL from a WSDL file for proxy inference. Returns '' if not found. */
 function getSoapServiceUrlFromWsdl(filePath) {
@@ -295,19 +302,33 @@ router.post('/projects', async (req, res) => {
   }
 });
 
-// Update project (manage required; supports visibility + shared_user_ids)
+// Update project (access required). Name/description: any member with access.
+// Visibility & shared users: owner or admin only.
 router.put('/projects/:id', (req, res, next) => {
   loadProjectAndCheckAccess(req, res, async () => {
     try {
       const project = req.project;
+      const uid = req.user.id;
+      const isAdmin = req.user.is_admin;
+      const isOwner = project.owner_id === uid;
+      const canChangeSharing = isAdmin || isOwner;
+
       const { name, description, visibility, shared_user_ids, proxy_name } = req.body;
       const updates = {};
       if (name !== undefined) updates.name = name;
       if (description !== undefined) updates.description = description;
-      if (visibility !== undefined) updates.visibility = visibility;
+      if (visibility !== undefined) {
+        if (!canChangeSharing) {
+          return res.status(403).json({ error: 'Only the project owner can change visibility' });
+        }
+        updates.visibility = visibility;
+      }
       // proxy_name is ignored; proxy is inferred from URL per run (getProxyForUrl)
       await project.update(updates);
       if (Array.isArray(shared_user_ids)) {
+        if (!canChangeSharing) {
+          return res.status(403).json({ error: 'Only the project owner can change who the project is shared with' });
+        }
         await ProjectMember.destroy({ where: { project_id: project.id } });
         if (shared_user_ids.length > 0) {
           await ProjectMember.bulkCreate(shared_user_ids.map(uid => ({ project_id: project.id, user_id: uid })));
@@ -326,7 +347,7 @@ router.put('/projects/:id', (req, res, next) => {
       }
       res.status(500).json({ error: error.message });
     }
-  }, req.params.id, true);
+  }, req.params.id, false);
 });
 
 // Delete project (manage required)
@@ -374,7 +395,7 @@ router.post('/projects/:id/tests/catalogue/sync', (req, res, next) => {
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
-  }, req.params.id, true);
+  }, req.params.id, false);
 });
 
 // Get project test catalogue (access required); enriches stats with last_run_by_username and last_run_by_user_id
@@ -413,8 +434,11 @@ router.get('/projects/:id/tests/catalogue', (req, res, next) => {
         const fromUser = stats.last_run_by_user_id ? userByMap[stats.last_run_by_user_id] : null;
         stats.last_run_by_username = fromRun ?? fromUser ?? null;
         const meta = singleRunMeta[idx] || { effective_source_path: plain.source_path, single_run_kind: null };
+        const ticket_urls = normalizeTicketUrlsList(plain);
         return {
           ...plain,
+          ticket_urls,
+          ticket_url: ticket_urls[0] || null,
           stats,
           effective_folder_path: effectiveFolderPathForTest(plain),
           effective_source_path: meta.effective_source_path,
@@ -443,7 +467,7 @@ router.get('/projects/:id/tests/catalogue/export', (req, res, next) => {
         'Total runs',
         'Active',
         'Description',
-        'Ticket URL',
+        'Ticket URLs',
         'Folder',
         'Default folder path',
         'Folder override'
@@ -480,7 +504,7 @@ router.get('/projects/:id/tests/catalogue/export', (req, res, next) => {
           totalRuns,
           t.is_active ? 'Yes' : 'No',
           t.description || '',
-          t.ticket_url || '',
+          ticketUrlsToCsvCell(normalizeTicketUrlsList(t)),
           effectiveFolderPathForTest(t) || '',
           t.default_folder_path || '',
           t.folder_path_override || ''
@@ -511,8 +535,8 @@ router.get('/projects/:id/tests/catalogue/template', (req, res, next) => {
         }
         return str;
       };
-      const header = ['Name', 'Type', 'Method', 'Endpoint', 'Description', 'Ticket URL', 'Folder path', 'Active'];
-      const exampleRow = ['Get health', 'API', 'GET', '/health', 'Optional description', 'https://jira.example.com/KEY-1', 'Release/Smoke', 'Yes'];
+      const header = ['Name', 'Type', 'Method', 'Endpoint', 'Description', 'Ticket URLs', 'Folder path', 'Active'];
+      const exampleRow = ['Get health', 'API', 'GET', '/health', 'Optional description', 'https://jira.example.com/KEY-1|https://jira.example.com/KEY-2', 'Release/Smoke', 'Yes'];
       const lines = [
         header.map(escapeCsv).join(';'),
         exampleRow.map(escapeCsv).join(';')
@@ -666,7 +690,7 @@ router.delete('/projects/:id/tests/catalogue', (req, res, next) => {
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
-  }, req.params.id, true);
+  }, req.params.id, false);
 });
 
 // Create a manual project test (manage required)
@@ -684,7 +708,6 @@ router.post('/projects/:id/tests', (req, res, next) => {
         endpoint,
         description,
         is_active,
-        ticket_url,
         folder_path_override
       } = req.body || {};
 
@@ -695,6 +718,9 @@ router.post('/projects/:id/tests', (req, res, next) => {
       const type = (test_type || 'api').toString();
       const stableKey = `manual:${type}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
 
+      const ticketList = persistTicketUrlsFromBody(req.body);
+      const ticketFields = ticketUrlsForDb(ticketList);
+
       const test = await ProjectTest.create({
         project_id: projectId,
         test_type: type,
@@ -703,7 +729,8 @@ router.post('/projects/:id/tests', (req, res, next) => {
         endpoint: endpoint || null,
         method: method || null,
         description: description || null,
-        ticket_url: ticket_url || null,
+        ticket_url: ticketFields.ticket_url,
+        ticket_urls: ticketFields.ticket_urls,
         default_folder_path: null,
         folder_path_override: normalizeFolderPath(folder_path_override),
         source_id: null,
@@ -734,7 +761,7 @@ router.post('/projects/:id/tests', (req, res, next) => {
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
-  }, req.params.id, true);
+  }, req.params.id, false);
 });
 
 // Bulk import project tests from CSV (manage required)
@@ -798,12 +825,14 @@ router.post('/projects/:id/tests/import', uploadTestsImport.single('file'), (req
         const method = get('method') || null;
         const endpoint = get('endpoint') || null;
         const description = get('description') || null;
-        const ticket_url = get('ticket url') || get('ticket_url') || null;
+        const ticketCell = get('ticket url') || get('ticket_url') || get('ticket urls') || '';
         const folder_path_override = normalizeFolderPath(get('folder path') || get('folder_path') || get('folder'));
         const is_active = normalizeActive(get('active'));
 
         try {
           const stableKey = `manual:${type}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+          const ticketList = parseTicketUrlsFromCsvCell(ticketCell);
+          const ticketFields = ticketUrlsForDb(ticketList);
           const test = await ProjectTest.create({
             project_id: projectId,
             test_type: type,
@@ -812,7 +841,8 @@ router.post('/projects/:id/tests/import', uploadTestsImport.single('file'), (req
             endpoint: endpoint || null,
             method: method || null,
             description: description || null,
-            ticket_url: ticket_url || null,
+            ticket_url: ticketFields.ticket_url,
+            ticket_urls: ticketFields.ticket_urls,
             default_folder_path: null,
             folder_path_override,
             source_id: null,
@@ -843,7 +873,7 @@ router.post('/projects/:id/tests/import', uploadTestsImport.single('file'), (req
       }
       res.status(500).json({ error: error.message });
     }
-  }, req.params.id, true);
+  }, req.params.id, false);
 });
 
 // Update a single project test (name, description, method, endpoint, type, is_active) (manage required)
@@ -867,6 +897,7 @@ router.patch('/projects/:projectId/tests/:testId', (req, res, next) => {
         endpoint,
         test_type,
         ticket_url,
+        ticket_urls,
         folder_path_override,
         last_status,
         last_run_by_user_id: bodyLastRunByUserId
@@ -883,7 +914,10 @@ router.patch('/projects/:projectId/tests/:testId', (req, res, next) => {
       if (typeof method !== 'undefined') updates.method = method || null;
       if (typeof endpoint !== 'undefined') updates.endpoint = endpoint || null;
       if (typeof test_type !== 'undefined') updates.test_type = test_type;
-      if (typeof ticket_url !== 'undefined') updates.ticket_url = ticket_url || null;
+      if (typeof ticket_urls !== 'undefined' || typeof ticket_url !== 'undefined') {
+        const urls = persistTicketUrlsFromBody(req.body);
+        Object.assign(updates, ticketUrlsForDb(urls));
+      }
       if (typeof folder_path_override !== 'undefined') updates.folder_path_override = normalizeFolderPath(folder_path_override);
       await test.update(updates);
 
@@ -925,6 +959,11 @@ router.patch('/projects/:projectId/tests/:testId', (req, res, next) => {
             diffs.push(`${field}: "${beforeVal}" -> "${afterVal}"`);
           }
         });
+        const beforeTickets = normalizeTicketUrlsList(before);
+        const afterTickets = normalizeTicketUrlsList(after);
+        if (JSON.stringify(beforeTickets) !== JSON.stringify(afterTickets)) {
+          diffs.push(`ticket_urls: "${beforeTickets.join(' | ')}" -> "${afterTickets.join(' | ')}"`);
+        }
         if (beforeLastStatus !== (afterStat.last_status || null)) {
           diffs.push(`last_status: "${beforeLastStatus || ''}" -> "${afterStat.last_status || ''}"`);
         }
@@ -944,7 +983,7 @@ router.patch('/projects/:projectId/tests/:testId', (req, res, next) => {
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
-  }, req.params.projectId, true);
+  }, req.params.projectId, false);
 });
 
 // Delete a single project test (manage required)
@@ -965,7 +1004,7 @@ router.delete('/projects/:projectId/tests/:testId', (req, res, next) => {
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
-  }, req.params.projectId, true);
+  }, req.params.projectId, false);
 });
 
 // Run a single catalogue test (API Postman item or UI recorded) — project access required
@@ -1134,8 +1173,11 @@ router.get('/tests/catalogue', async (req, res) => {
     const out = rows.map((r, idx) => {
       const plain = r.get ? r.get({ plain: true }) : r;
       const meta = singleRunMeta[idx] || { effective_source_path: plain.source_path, single_run_kind: null };
+      const ticket_urls = normalizeTicketUrlsList(plain);
       return {
         ...plain,
+        ticket_urls,
+        ticket_url: ticket_urls[0] || null,
         effective_folder_path: effectiveFolderPathForTest(plain),
         effective_source_path: meta.effective_source_path,
         single_run_kind: meta.single_run_kind
@@ -1330,7 +1372,7 @@ router.post('/projects/:projectId/api-specs/:apiSpecId', (req, res, next) => {
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
-  }, req.params.projectId, true);
+  }, req.params.projectId, false);
 });
 
 // Remove API spec from project (manage required)
@@ -1344,7 +1386,7 @@ router.delete('/projects/:projectId/api-specs/:apiSpecId', (req, res, next) => {
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
-  }, req.params.projectId, true);
+  }, req.params.projectId, false);
 });
 
 // Get recorded tests linked to a project (access required)
@@ -1375,7 +1417,7 @@ router.post('/projects/:projectId/recorded-tests/:recordedTestId', (req, res, ne
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
-  }, req.params.projectId, true);
+  }, req.params.projectId, false);
 });
 
 // Remove recorded test from project (manage required)
@@ -1389,7 +1431,7 @@ router.delete('/projects/:projectId/recorded-tests/:recordedTestId', (req, res, 
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
-  }, req.params.projectId, true);
+  }, req.params.projectId, false);
 });
 
 // ==================== FLOWS ====================
@@ -1421,7 +1463,7 @@ router.post('/projects/:id/flows', (req, res, next) => {
       }
       res.status(500).json({ error: error.message });
     }
-  }, req.params.id, true);
+  }, req.params.id, false);
 });
 
 router.get('/flows/:id', (req, res) => {
@@ -1468,7 +1510,7 @@ router.put('/flows/:id', (req, res) => {
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
-    }, flow.project_id, true);
+    }, flow.project_id, false);
   }).catch(err => res.status(500).json({ error: err.message }));
 });
 
@@ -1482,7 +1524,7 @@ router.delete('/flows/:id', (req, res) => {
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
-    }, flow.project_id, true);
+    }, flow.project_id, false);
   }).catch(err => res.status(500).json({ error: err.message }));
 });
 
@@ -1567,7 +1609,7 @@ router.post('/projects/:id/schedules', (req, res, next) => {
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
-  }, req.params.id, true);
+  }, req.params.id, false);
 });
 
 router.get('/schedules/:id', async (req, res) => {

@@ -257,21 +257,14 @@ window.editProject = async (projectId) => {
     const vis = project.visibility || 'private';
     const sharedIds = (project.shared_users || []).map(u => u.id);
     const ownerId = project.owner && project.owner.id;
+    const canChangeSharing = window.currentUser && (window.currentUser.is_admin || ownerId === window.currentUser.id);
     const otherUsers = (users || []).filter(u => u.id !== ownerId);
     const sharedOptions = otherUsers.map(u =>
       `<option value="${u.id}" ${sharedIds.includes(u.id) ? 'selected' : ''}>${escapeHtml(u.display_name || u.username)}</option>`
     ).join('');
 
-    const content = `
-      <form id="edit-project-form">
-        <div class="form-group">
-          <label for="edit-project-name">Project Name *</label>
-          <input type="text" id="edit-project-name" value="${escapeHtml(project.name)}" required>
-        </div>
-        <div class="form-group">
-          <label for="edit-project-description">Description</label>
-          <textarea id="edit-project-description">${escapeHtml(project.description || '')}</textarea>
-        </div>
+    const sharingBlock = canChangeSharing
+      ? `
         <div class="form-group">
           <label for="edit-project-visibility">Visibility</label>
           <select id="edit-project-visibility">
@@ -284,12 +277,29 @@ window.editProject = async (projectId) => {
           <label for="edit-project-shared-users">Shared with</label>
           <select id="edit-project-shared-users" multiple size="4">${sharedOptions}</select>
           <p class="form-hint">Hold Ctrl/Cmd to select multiple users. Only applies when visibility is Shared.</p>
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; flex-wrap: wrap; gap: 10px;">
-          <div>
+        </div>`
+      : '';
+
+    const deleteBlock = canChangeSharing
+      ? `<div>
             <button type="button" class="btn btn-danger" id="edit-project-delete-btn">Delete project</button>
-          </div>
-          <div style="display: flex; gap: 10px;">
+          </div>`
+      : '';
+
+    const content = `
+      <form id="edit-project-form">
+        <div class="form-group">
+          <label for="edit-project-name">Project Name *</label>
+          <input type="text" id="edit-project-name" value="${escapeHtml(project.name)}" required>
+        </div>
+        <div class="form-group">
+          <label for="edit-project-description">Description</label>
+          <textarea id="edit-project-description">${escapeHtml(project.description || '')}</textarea>
+        </div>
+        ${sharingBlock}
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; flex-wrap: wrap; gap: 10px;">
+          ${deleteBlock}
+          <div style="display: flex; gap: 10px; margin-left: auto;">
             <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
             <button type="submit" class="btn btn-primary">Save</button>
           </div>
@@ -316,10 +326,14 @@ window.editProject = async (projectId) => {
       const sharedEl = document.getElementById('edit-project-shared-users');
       const shared_user_ids = sharedEl ? Array.from(sharedEl.selectedOptions).map(o => Number(o.value)) : [];
 
+      const body = canChangeSharing
+        ? { name, description, visibility, shared_user_ids }
+        : { name, description };
+
       try {
         await apiRequest(`/projects/${projectId}`, {
           method: 'PUT',
-          body: { name, description, visibility, shared_user_ids }
+          body
         });
 
         hideModal();
@@ -335,18 +349,21 @@ window.editProject = async (projectId) => {
       }
     });
 
-    document.getElementById('edit-project-delete-btn').addEventListener('click', async () => {
-      if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) return;
-      try {
-        await apiRequest(`/projects/${projectId}`, { method: 'DELETE' });
-        hideModal();
-        showView('projects');
-        loadProjects();
-        alert('Project deleted successfully');
-      } catch (error) {
-        alert('Error deleting project: ' + error.message);
-      }
-    });
+    const delBtn = document.getElementById('edit-project-delete-btn');
+    if (delBtn) {
+      delBtn.addEventListener('click', async () => {
+        if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) return;
+        try {
+          await apiRequest(`/projects/${projectId}`, { method: 'DELETE' });
+          hideModal();
+          showView('projects');
+          loadProjects();
+          alert('Project deleted successfully');
+        } catch (error) {
+          alert('Error deleting project: ' + error.message);
+        }
+      });
+    }
   } catch (error) {
     alert('Error loading project: ' + error.message);
   }
@@ -358,6 +375,39 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = s;
   return div.innerHTML;
+}
+
+/** Matches server canAccessProject: admin, public, owner, or shared member. */
+function currentUserCanAccessProject(project) {
+  if (!window.currentUser || !project) return false;
+  const u = window.currentUser;
+  if (u.is_admin) return true;
+  const oid = project.owner && project.owner.id;
+  if (oid === u.id) return true;
+  const vis = project.visibility || 'private';
+  if (vis === 'public') return true;
+  if (vis === 'shared') {
+    const members = project.shared_users || project.members || [];
+    return members.some((m) => m.id === u.id);
+  }
+  return false;
+}
+
+function normalizeTicketUrlsFromTest(t) {
+  if (!t) return [];
+  if (Array.isArray(t.ticket_urls) && t.ticket_urls.length) {
+    return t.ticket_urls.map((u) => String(u).trim()).filter(Boolean);
+  }
+  if (t.ticket_url && String(t.ticket_url).trim()) return [String(t.ticket_url).trim()];
+  return [];
+}
+
+function ticketUrlsTextareaValue(t) {
+  return normalizeTicketUrlsFromTest(t).join('\n');
+}
+
+function parseTicketUrlsTextarea(text) {
+  return String(text || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
 }
 
 // View Project
@@ -385,8 +435,8 @@ window.viewProject = async (projectId) => {
       editBtn.onclick = null;
     }
 
-    const canManage = window.currentUser && (window.currentUser.is_admin || (project.owner && project.owner.id === window.currentUser.id));
-    if (editBtn && canManage) {
+    const canAccess = currentUserCanAccessProject(project);
+    if (editBtn && canAccess) {
       editBtn.style.display = 'inline-flex';
       editBtn.setAttribute('data-project-id', projectId);
       editBtn.onclick = () => editProject(projectId);
@@ -426,6 +476,9 @@ window.viewProject = async (projectId) => {
       if (uploadTestsBtn) uploadTestsBtn.style.display = displayStyle;
       editModeBtn.textContent = window.projectTestsEditMode ? 'Done editing' : 'Edit mode';
     }
+
+    // Switch view immediately so navigation is not blocked by slower follow-up requests (flows, collections, catalogue).
+    showView('project-detail');
 
     // Load flows for project
     const flowsList = document.getElementById('project-flows-list');
@@ -559,8 +612,6 @@ window.viewProject = async (projectId) => {
 
     // Load tests & coverage for project
     await loadProjectTests(projectId);
-
-    showView('project-detail');
   } catch (error) {
     console.error('Error loading project:', error);
     alert('Error loading project: ' + error.message);
@@ -877,7 +928,7 @@ function applyProjectTestsFilters(tests, inEditMode) {
   if (search) {
     result = result.filter(t => {
       const name = (t.name || '').toLowerCase();
-      const ticket = (t.ticket_url || '').toLowerCase();
+      const ticket = normalizeTicketUrlsFromTest(t).join(' ').toLowerCase();
       const folderPath = getEffectiveFolderPath(t).toLowerCase();
       return name.includes(search) || ticket.includes(search) || folderPath.includes(search);
     });
@@ -958,7 +1009,10 @@ function renderProjectTestsTable(projectId) {
       const lastRunAt = lastRunAtRaw ? formatDateTime(lastRunAtRaw) : '—';
       const totalRuns = stats.total_runs != null ? stats.total_runs : 0;
       const lastRunBy = stats.last_run_by_username ? escapeHtml(stats.last_run_by_username) : '—';
-      const ticketDisplay = t.ticket_url ? `<a class="ticket-link" href="${escapeHtml(t.ticket_url)}" target="_blank" rel="noopener" title="${escapeHtml(t.ticket_url)}">${escapeHtml(t.ticket_url)}</a>` : '—';
+      const ticketUrls = normalizeTicketUrlsFromTest(t);
+      const ticketDisplay = ticketUrls.length === 0
+        ? '—'
+        : ticketUrls.map((u) => `<a class="ticket-link" href="${escapeHtml(u)}" target="_blank" rel="noopener" title="${escapeHtml(u)}">${escapeHtml(u)}</a>`).join('<span class="ticket-link-sep"> · </span>');
       const typeLabel =
         t.source_kind === 'manual' ? 'Manual Test' :
         t.test_type === 'soap' ? 'SOAP' :
@@ -987,11 +1041,11 @@ function renderProjectTestsTable(projectId) {
               onclick="window.toggleProjectTestActive(${projectId}, ${t.id}, ${t.is_active ? 'true' : 'false'})"
            >${activeLabel}</button>`
         : activeLabel;
-      const actionsCell = inEditMode
+      const deleteCell = inEditMode
         ? `<button type="button" class="btn btn-danger btn-sm" onclick="window.deleteProjectTest(${projectId}, ${t.id})">Delete</button>`
         : '';
       const activeCol = inEditMode ? `<td>${activeCell}</td>` : '';
-      const actionsCol = inEditMode ? `<td>${actionsCell}</td>` : '';
+      const actionsCol = inEditMode ? `<td>${deleteCell}</td>` : '';
       const runKind = getCatalogueTestRunKind(t);
       const lastRunId = stats.last_run_id;
       const lastRunType = stats.last_run_type || stats.last_run_source || '';
@@ -1002,7 +1056,7 @@ function renderProjectTestsTable(projectId) {
       const runBtn = runKind
         ? `<button type="button" class="btn btn-outline btn-sm" onclick="window.runProjectCatalogueTest(${projectId}, ${t.id}, '${runKind}')" title="Run this test only">Run</button>`
         : `<span class="project-test-actions-placeholder muted" title="Run is only available for tests synced from API collections (Sync from specs) or linked UI recordings—not for manual-only catalogue rows.">—</span>`;
-      const actionsCell = `<td class="project-test-actions-cell"><div class="project-test-row-actions">${runBtn} ${historyBtn}</div></td>`;
+      const runHistoryCell = `<td class="project-test-actions-cell"><div class="project-test-row-actions">${runBtn} ${historyBtn}</div></td>`;
       const checkCell = `<td class="project-test-col-check"><input type="checkbox" class="project-test-row-check" data-project-test-id="${t.id}" aria-label="Select row" /></td>`;
       const nameCell = `<button type="button" class="link-button" onclick="window.viewProjectTestDetails(${projectId}, ${t.id})">${escapeHtml(t.name || '')}</button>`;
       const folderOrigin = t.folder_path_override
@@ -1022,7 +1076,7 @@ function renderProjectTestsTable(projectId) {
           <td>${totalRuns}</td>
           <td>${lastRunBy}</td>
           <td>${ticketDisplay}</td>
-          ${actionsCell}
+          ${runHistoryCell}
           ${activeCol}
           ${actionsCol}
         </tr>
@@ -1042,7 +1096,7 @@ function renderProjectTestsTable(projectId) {
               <th>Last run</th>
               <th>Total runs</th>
               <th>Last run by</th>
-              <th>Ticket ID</th>
+              <th>Tickets</th>
               <th>Actions</th>
               ${inEditMode ? '<th>Active</th><th>Delete</th>' : ''}
             </tr>
@@ -1347,7 +1401,7 @@ window.downloadProjectTestsReport = () => {
       t.test_type === 'manual' ? 'Manual Test' :
       t.test_type === 'other' ? 'Other' :
       'API';
-    const ticket = t.ticket_url || '';
+    const ticket = normalizeTicketUrlsFromTest(t).join(' ');
     const folder = getEffectiveFolderPath(t) || '';
     const statusClass =
       lastStatus === 'passed' ? 'passed' :
@@ -1372,7 +1426,11 @@ window.downloadProjectTestsReport = () => {
         <td>${safeHtml(lastRunAt)}</td>
         <td>${safeHtml(String(totalRuns))}</td>
         <td>${safeHtml(lastRunBy)}</td>
-        <td>${ticket ? `<a href="${safeHtml(ticket)}" target="_blank" rel="noopener">${safeHtml(ticket)}</a>` : '—'}</td>
+        <td>${(() => {
+          const urls = normalizeTicketUrlsFromTest(t);
+          if (!urls.length) return '—';
+          return urls.map((u) => `<a href="${safeHtml(u)}" target="_blank" rel="noopener">${safeHtml(u)}</a>`).join(' · ');
+        })()}</td>
       </tr>
     `;
   }).join('');
@@ -1661,7 +1719,7 @@ window.downloadProjectTestsReport = () => {
               <th>Last run</th>
               <th>Total runs</th>
               <th>Last run by</th>
-              <th>Ticket ID</th>
+              <th>Tickets</th>
             </tr>
           </thead>
           <tbody>
@@ -1774,8 +1832,9 @@ window.addProjectTest = (projectId) => {
         <textarea id="add-project-test-description" placeholder="Optional"></textarea>
       </div>
       <div class="form-group">
-        <label for="add-project-test-ticket-url">Ticket URL</label>
-        <input type="url" id="add-project-test-ticket-url" placeholder="https://jira.example.com/browse/KEY-123">
+        <label for="add-project-test-ticket-urls">Ticket URLs</label>
+        <textarea id="add-project-test-ticket-urls" rows="4" placeholder="https://jira.example.com/browse/KEY-123&#10;https://jira.example.com/browse/KEY-456"></textarea>
+        <p class="muted form-help" style="margin-top:6px;">One URL per line (e.g. Jira issues linked to this test).</p>
       </div>
       <div class="form-group">
         <label for="add-project-test-folder-path">Folder path</label>
@@ -1806,13 +1865,13 @@ window.addProjectTest = (projectId) => {
     const method = document.getElementById('add-project-test-method').value.trim();
     const endpoint = document.getElementById('add-project-test-endpoint').value.trim();
     const description = document.getElementById('add-project-test-description').value;
-    const ticket_url = document.getElementById('add-project-test-ticket-url').value.trim();
+    const ticket_urls = parseTicketUrlsTextarea(document.getElementById('add-project-test-ticket-urls').value);
     const folder_path_override = document.getElementById('add-project-test-folder-path').value.trim();
     const is_active = document.getElementById('add-project-test-active').checked;
     try {
       await apiRequest(`/projects/${projectId}/tests`, {
         method: 'POST',
-        body: { name, test_type, method, endpoint, description, is_active, ticket_url, folder_path_override }
+        body: { name, test_type, method, endpoint, description, is_active, ticket_urls, folder_path_override }
       });
       hideModal();
       await loadProjectTests(projectId);
@@ -1839,7 +1898,7 @@ window.showUploadProjectTestsModal = (projectId) => {
         <label>Upload CSV file</label>
         <div class="file-upload-area" id="project-tests-file-upload-area">
           <p id="project-tests-upload-prompt">Click to select or drag and drop</p>
-          <p class="file-upload-hint">Semicolon-delimited CSV (`;`) with columns: Name, Type, Method, Endpoint, Description, Ticket URL, Folder path, Active</p>
+          <p class="file-upload-hint">Semicolon-delimited CSV (`;`) with columns: Name, Type, Method, Endpoint, Description, Ticket URLs (use | between multiple URLs), Folder path, Active</p>
           <input type="file" id="project-tests-file" accept=".csv" style="display: none;">
         </div>
         <div id="project-tests-selected-file-card" class="selected-file-card" style="display: none;">
@@ -2030,8 +2089,9 @@ window.editProjectTest = async (projectId, projectTestId) => {
           <textarea id="edit-project-test-description" placeholder="Optional">${escapeHtml(test.description || '')}</textarea>
         </div>
       <div class="form-group">
-        <label for="edit-project-test-ticket-url">Ticket URL</label>
-        <input type="url" id="edit-project-test-ticket-url" value="${escapeHtml(test.ticket_url || '')}" placeholder="https://jira.example.com/browse/KEY-123">
+        <label for="edit-project-test-ticket-urls">Ticket URLs</label>
+        <textarea id="edit-project-test-ticket-urls" rows="4" placeholder="https://jira.example.com/browse/KEY-123">${escapeHtml(ticketUrlsTextareaValue(test))}</textarea>
+        <p class="muted form-help" style="margin-top:6px;">One URL per line.</p>
       </div>
         <div class="form-group">
           <label for="edit-project-test-folder-path">Folder path override</label>
@@ -2058,13 +2118,13 @@ window.editProjectTest = async (projectId, projectTestId) => {
       const method = document.getElementById('edit-project-test-method').value.trim();
       const endpoint = document.getElementById('edit-project-test-endpoint').value.trim();
       const description = document.getElementById('edit-project-test-description').value;
-      const ticket_url = document.getElementById('edit-project-test-ticket-url').value.trim();
+      const ticket_urls = parseTicketUrlsTextarea(document.getElementById('edit-project-test-ticket-urls').value);
       const folder_path_override = document.getElementById('edit-project-test-folder-path').value.trim();
       const is_active = document.getElementById('edit-project-test-active').checked;
       try {
         await apiRequest(`/projects/${projectId}/tests/${projectTestId}`, {
           method: 'PATCH',
-          body: { name, description, is_active, method, endpoint, test_type, ticket_url, folder_path_override }
+          body: { name, description, is_active, method, endpoint, test_type, ticket_urls, folder_path_override }
         });
         hideModal();
         await loadProjectTests(projectId);
@@ -2139,8 +2199,9 @@ window.viewProjectTestDetails = async (projectId, projectTestId) => {
             <textarea id="project-test-detail-description" placeholder="Optional">${escapeHtml(test.description || '')}</textarea>
           </div>
           <div class="form-group">
-            <label for="project-test-detail-ticket-url">Ticket URL</label>
-            <input type="url" id="project-test-detail-ticket-url" value="${escapeHtml(test.ticket_url || '')}" placeholder="https://jira.example.com/browse/KEY-123">
+            <label for="project-test-detail-ticket-urls">Ticket URLs</label>
+            <textarea id="project-test-detail-ticket-urls" rows="4" placeholder="https://jira.example.com/browse/KEY-123">${escapeHtml(ticketUrlsTextareaValue(test))}</textarea>
+            <p class="muted form-help" style="margin-top:6px;">One URL per line (e.g. Jira issues).</p>
           </div>
           <div class="form-group">
             <label for="project-test-detail-folder-path">Folder path override</label>
@@ -2210,14 +2271,14 @@ window.viewProjectTestDetails = async (projectId, projectTestId) => {
       const method = document.getElementById('project-test-detail-method').value.trim();
       const endpoint = document.getElementById('project-test-detail-endpoint').value.trim();
       const description = document.getElementById('project-test-detail-description').value;
-      const ticket_url = document.getElementById('project-test-detail-ticket-url').value.trim();
+      const ticket_urls = parseTicketUrlsTextarea(document.getElementById('project-test-detail-ticket-urls').value);
       const folder_path_override = document.getElementById('project-test-detail-folder-path').value.trim();
       const is_active = document.getElementById('project-test-detail-active').checked;
       const last_status = document.getElementById('project-test-detail-status').value || 'not_run';
       const runByEl = document.getElementById('project-test-detail-run-by');
       const last_run_by_user_id = runByEl ? (runByEl.value === '' ? null : parseInt(runByEl.value, 10)) : undefined;
       try {
-        const body = { name, description, is_active, method, endpoint, test_type, ticket_url, folder_path_override, last_status };
+        const body = { name, description, is_active, method, endpoint, test_type, ticket_urls, folder_path_override, last_status };
         if (last_run_by_user_id !== undefined) body.last_run_by_user_id = last_run_by_user_id;
         await apiRequest(`/projects/${projectId}/tests/${projectTestId}`, {
           method: 'PATCH',

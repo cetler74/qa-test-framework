@@ -130,6 +130,8 @@ select:focus {
     margin: 0 auto;
     background: var(--color-white);
     min-height: 100vh;
+    display: flex;
+    flex-direction: column;
     box-shadow: var(--shadow-lg);
 }
 
@@ -145,6 +147,7 @@ header {
     justify-content: space-between;
     align-items: center;
     box-shadow: var(--shadow-md);
+    flex-shrink: 0;
 }
 
 header h1 {
@@ -619,6 +622,8 @@ header h1 {
 main {
     padding: var(--spacing-2xl);
     background: #f5f5f5;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .view {
@@ -764,22 +769,14 @@ main {
     margin-bottom: var(--spacing-2xl);
 }
 
-/* Global Test Catalogue view layout refinements */
-#tests-catalogue-view .filters {
-    margin-top: var(--spacing-lg);
-    margin-bottom: var(--spacing-xl);
-    padding: var(--spacing-md) var(--spacing-lg);
-    border-radius: var(--radius-lg);
-    background: rgba(15, 23, 42, 0.85);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
+/* Global Test Catalogue: metrics + table spacing inside project-style section */
 .tests-catalogue-metrics {
-    margin-bottom: var(--spacing-2xl);
+    margin-bottom: var(--spacing-lg);
+    margin-top: var(--spacing-md);
 }
 
-#tests-catalogue-table {
-    margin-top: var(--spacing-xl);
+#tests-catalogue-view .project-detail-content .tests-catalogue-metrics .dashboard-stats {
+    margin-bottom: 0;
 }
 
 /* Dashboard two-column grid below stats */
@@ -951,6 +948,13 @@ main {
     margin: var(--spacing-md) 0 var(--spacing-lg);
     font-size: 13px;
     color: var(--color-text-secondary);
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+}
+
+.test-runs-pagination-left {
+    display: flex;
+    align-items: center;
     flex-wrap: wrap;
     gap: var(--spacing-md);
 }
@@ -1290,7 +1294,8 @@ p.run-status-in-progress {
 .project-api-specs h3,
 .project-collections h3,
 .project-flows h3,
-.project-schedules h3 {
+.project-schedules h3,
+.project-tests h3 {
     margin-bottom: var(--spacing-lg);
     color: var(--color-text-primary);
     font-size: 20px;
@@ -1390,18 +1395,18 @@ p.run-status-in-progress {
 }
 
 /* Row-level action buttons in Tests & Coverage table */
-#project-tests-table .btn-sm {
+.tests-table-host .btn-sm {
     border-radius: 999px;
     padding-inline: var(--spacing-md);
 }
 
-#project-tests-table .project-test-run-cell {
+.tests-table-host .project-test-run-cell {
     white-space: nowrap;
     width: 1%;
     vertical-align: middle;
 }
 
-#project-tests-table .project-test-run-btn {
+.tests-table-host .project-test-run-btn {
     min-width: auto;
 }
 
@@ -1450,9 +1455,14 @@ p.run-status-in-progress {
 
 .project-test-row-actions {
     display: inline-flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 6px;
+}
+
+.project-test-actions-cell {
+    white-space: nowrap;
+    vertical-align: middle;
 }
 
 .project-test-col-check {
@@ -1468,10 +1478,6 @@ p.run-status-in-progress {
 .folder-group-toggle .folder-group-icon {
     flex-shrink: 0;
     color: var(--color-primary-dark, #0d9488);
-}
-
-.tests-catalogue-filters-toolbar {
-    margin-bottom: var(--spacing-md);
 }
 
 .tests-catalogue-stats .stat-value-success {
@@ -1494,28 +1500,61 @@ p.run-status-in-progress {
     background: rgba(20, 184, 166, 0.12);
 }
 
-#project-tests-table .btn-sm + .btn-sm {
+.tests-table-host .btn-sm + .btn-sm {
     margin-left: var(--spacing-xs);
 }
 
 /* Keep table stretched even when only collapsed folder rows are visible */
-#project-tests-table .table-responsive {
+.tests-table-host .table-responsive {
     width: 100%;
+    border: 1px solid var(--color-gray-300, #d1d5db);
+    border-radius: var(--radius-md, 8px);
+    overflow: hidden;
+    background: var(--color-white, #fff);
 }
 
-#project-tests-table .table {
+.tests-table-host .table {
     width: 100%;
     min-width: 100%;
+    border-collapse: collapse;
+    border-spacing: 0;
+    font-size: 14px;
 }
 
-#project-tests-table .folder-group-row td {
+.tests-table-host .table thead th {
+    background: var(--color-gray-50, #f9fafb);
+    color: var(--color-text-primary);
+    font-weight: 600;
+    font-size: 13px;
+    text-align: left;
+    padding: 10px 12px;
+    border: 1px solid var(--color-gray-200, #e5e7eb);
+    vertical-align: middle;
+}
+
+.tests-table-host .table tbody td {
+    padding: 10px 12px;
+    border: 1px solid var(--color-gray-200, #e5e7eb);
+    vertical-align: middle;
+    background: var(--color-white);
+}
+
+/* Report-style zebra striping (folder header rows keep their own fill) */
+.tests-table-host .table tbody tr:nth-child(even):not(.folder-group-row) td {
+    background: var(--color-gray-50, #f9fafb);
+}
+
+.tests-table-host .table tbody td .link-button {
+    text-align: left;
+}
+
+.tests-table-host .folder-group-row td {
     background: linear-gradient(90deg, rgba(20, 184, 166, 0.12), rgba(20, 184, 166, 0.04));
-    border-top: 1px solid var(--color-gray-200);
-    border-bottom: 1px solid var(--color-gray-200);
+    border: 1px solid var(--color-gray-200, #e5e7eb);
     padding: 0;
 }
 
-#project-tests-table .folder-group-toggle {
+.tests-table-host .folder-group-toggle {
     width: 100%;
     display: flex;
     align-items: center;
@@ -1529,16 +1568,16 @@ p.run-status-in-progress {
     text-align: left;
 }
 
-#project-tests-table .folder-group-toggle:hover {
+.tests-table-host .folder-group-toggle:hover {
     background: rgba(20, 184, 166, 0.08);
 }
 
-#project-tests-table .folder-group-chevron {
+.tests-table-host .folder-group-chevron {
     width: 16px;
     color: var(--color-primary-dark);
 }
 
-#project-tests-table .folder-group-label {
+.tests-table-host .folder-group-label {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1679,7 +1718,7 @@ p.run-status-in-progress {
 }
 
 /* Ticket ID / URL links in Tests & Coverage table - align with design system */
-#project-tests-table .ticket-link {
+.tests-table-host .ticket-link {
     color: var(--color-primary);
     text-decoration: none;
     font-size: 14px;
@@ -1692,26 +1731,51 @@ p.run-status-in-progress {
     transition: color var(--transition-fast);
 }
 
-#project-tests-table .ticket-link:hover {
+.tests-table-host .ticket-link:hover {
     color: var(--color-primary-dark);
     text-decoration: underline;
 }
 
-.dark-theme #project-tests-table .ticket-link {
+.tests-table-host .ticket-link-sep {
+    color: var(--color-text-secondary);
+    font-weight: 400;
+    user-select: none;
+}
+
+.dark-theme .tests-table-host .ticket-link {
     color: var(--color-primary-light);
 }
 
-.dark-theme #project-tests-table .ticket-link:hover {
+.dark-theme .tests-table-host .ticket-link:hover {
     color: var(--color-primary);
 }
 
-.dark-theme #project-tests-table .folder-group-row td {
-    background: linear-gradient(90deg, rgba(45, 212, 191, 0.2), rgba(45, 212, 191, 0.06));
-    border-top-color: var(--color-gray-700);
-    border-bottom-color: var(--color-gray-700);
+.dark-theme .tests-table-host .table-responsive {
+    border-color: var(--color-gray-700);
+    background: var(--color-gray-900);
 }
 
-.dark-theme #project-tests-table .folder-group-toggle:hover {
+.dark-theme .tests-table-host .table thead th {
+    background: var(--color-gray-800, #1f2937);
+    border-color: var(--color-gray-700);
+    color: var(--color-text-primary);
+}
+
+.dark-theme .tests-table-host .table tbody td {
+    border-color: var(--color-gray-700);
+    background: var(--color-gray-900);
+}
+
+.dark-theme .tests-table-host .table tbody tr:nth-child(even):not(.folder-group-row) td {
+    background: var(--color-gray-850, #1a2332);
+}
+
+.dark-theme .tests-table-host .folder-group-row td {
+    background: linear-gradient(90deg, rgba(45, 212, 191, 0.2), rgba(45, 212, 191, 0.06));
+    border-color: var(--color-gray-700);
+}
+
+.dark-theme .tests-table-host .folder-group-toggle:hover {
     background: rgba(45, 212, 191, 0.14);
 }
 
@@ -2525,6 +2589,7 @@ p.run-status-in-progress {
     border-top: 1px solid var(--color-gray-200);
     background: var(--color-gray-50);
     padding: var(--spacing-md) var(--spacing-2xl);
+    flex-shrink: 0;
 }
 
 .app-footer-inner {
@@ -2590,26 +2655,6 @@ p.run-status-in-progress {
     text-decoration: underline;
 }
 
-.app-footer-brand {
-    display: inline-flex;
-    align-items: baseline;
-    gap: var(--spacing-xs);
-}
-
-.app-footer-powered {
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-size: 11px;
-    color: var(--color-text-tertiary);
-}
-
-.app-footer-signature {
-    font-family: "Segoe Script", "Lucida Handwriting", "Bradley Hand", cursive;
-    font-size: 20px;
-    font-weight: 600;
-    color: var(--color-primary-dark);
-}
-
 .dark-theme .app-footer {
     background: var(--color-bg-secondary, #1e293b);
     border-top-color: var(--color-border, #334155);
@@ -2620,10 +2665,6 @@ p.run-status-in-progress {
 }
 
 .dark-theme .app-footer-contact a {
-    color: var(--color-primary-light);
-}
-
-.dark-theme .app-footer-signature {
     color: var(--color-primary-light);
 }
 
