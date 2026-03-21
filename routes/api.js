@@ -627,37 +627,97 @@ router.get('/projects/:id/tests/coverage-summary', (req, res, next) => {
         };
       }).sort((a, b) => (a.folder_path || '').localeCompare(b.folder_path || ''));
 
-      // Time series: total / passed / failed tests run per day from API/SOAP and UI runs
+      // Time series: tests done per day over a fixed recent window,
+      // bucketed by resulting test status. Automated runs contribute passed/failed
+      // counts, and manual status edits from the coverage list contribute their
+      // edited last_status values.
       const sequelize = TestRun.sequelize;
+      const daysBack = 14;
       const rows = await sequelize.query(
         `
+          WITH days AS (
+            SELECT generate_series(
+              CURRENT_DATE - INTERVAL '1 day' * (:daysBack - 1),
+              CURRENT_DATE,
+              INTERVAL '1 day'
+            )::date AS day
+          ),
+          automated_activity AS (
+            SELECT
+              day::date AS day,
+              SUM(total_tests) AS total_tests,
+              SUM(passed_tests) AS passed_tests,
+              SUM(failed_tests) AS failed_tests
+            FROM (
+              SELECT
+                date_trunc('day', created_at) AS day,
+                COALESCE(total_tests, 0) AS total_tests,
+                COALESCE(passed_tests, 0) AS passed_tests,
+                COALESCE(failed_tests, 0) AS failed_tests
+              FROM test_runs
+              WHERE project_id = :projectId
+                AND created_at >= (CURRENT_DATE - INTERVAL '1 day' * (:daysBack - 1))
+              UNION ALL
+              SELECT
+                date_trunc('day', created_at) AS day,
+                COALESCE(total_tests, 0) AS total_tests,
+                COALESCE(passed_tests, 0) AS passed_tests,
+                COALESCE(failed_tests, 0) AS failed_tests
+              FROM playwright_runs
+              WHERE project_id = :projectId
+                AND created_at >= (CURRENT_DATE - INTERVAL '1 day' * (:daysBack - 1))
+              UNION ALL
+              SELECT
+                date_trunc('day', created_at) AS day,
+                COALESCE(total_tests, 0) AS total_tests,
+                COALESCE(passed_tests, 0) AS passed_tests,
+                COALESCE(failed_tests, 0) AS failed_tests
+              FROM fuzz_runs
+              WHERE project_id = :projectId
+                AND created_at >= (CURRENT_DATE - INTERVAL '1 day' * (:daysBack - 1))
+            ) AS automated_runs
+            GROUP BY day
+          ),
+          manual_activity AS (
+            SELECT
+              date_trunc('day', created_at)::date AS day,
+              COUNT(*) FILTER (
+                WHERE manual_status IS NOT NULL
+                  AND manual_status <> 'not_run'
+              ) AS total_tests,
+              COUNT(*) FILTER (WHERE manual_status = 'passed') AS passed_tests,
+              COUNT(*) FILTER (WHERE manual_status = 'failed') AS failed_tests,
+              COUNT(*) FILTER (WHERE manual_status = 'partial_failed') AS partial_failed_tests,
+              COUNT(*) FILTER (
+                WHERE manual_status NOT IN ('passed', 'failed', 'partial_failed', 'not_run')
+              ) AS other_tests
+            FROM (
+              SELECT
+                ptn.created_at,
+                substring(ptn.note from 'last_status: "[^"]*" -> "([^"]+)"') AS manual_status
+              FROM project_test_notes ptn
+              INNER JOIN project_tests pt ON pt.id = ptn.project_test_id
+              WHERE pt.project_id = :projectId
+                AND ptn.created_at >= (CURRENT_DATE - INTERVAL '1 day' * (:daysBack - 1))
+                AND ptn.note ILIKE 'Manual edit:%'
+                AND ptn.note LIKE '%last_status:%'
+            ) AS manual_changes
+            GROUP BY date_trunc('day', created_at)::date
+          )
           SELECT
-            day::date AS day,
-            SUM(total_tests) AS total_tests,
-            SUM(passed_tests) AS passed_tests,
-            SUM(failed_tests) AS failed_tests
-          FROM (
-            SELECT
-              date_trunc('day', created_at) AS day,
-              COALESCE(total_tests, 0) AS total_tests,
-              COALESCE(passed_tests, 0) AS passed_tests,
-              COALESCE(failed_tests, 0) AS failed_tests
-            FROM test_runs
-            WHERE project_id = :projectId
-            UNION ALL
-            SELECT
-              date_trunc('day', created_at) AS day,
-              COALESCE(total_tests, 0) AS total_tests,
-              COALESCE(passed_tests, 0) AS passed_tests,
-              COALESCE(failed_tests, 0) AS failed_tests
-            FROM playwright_runs
-            WHERE project_id = :projectId
-          ) AS combined
-          GROUP BY day
-          ORDER BY day ASC
+            days.day,
+            COALESCE(automated_activity.total_tests, 0) + COALESCE(manual_activity.total_tests, 0) AS total_tests,
+            COALESCE(automated_activity.passed_tests, 0) + COALESCE(manual_activity.passed_tests, 0) AS passed_tests,
+            COALESCE(automated_activity.failed_tests, 0) + COALESCE(manual_activity.failed_tests, 0) AS failed_tests,
+            COALESCE(manual_activity.partial_failed_tests, 0) AS partial_failed_tests,
+            COALESCE(manual_activity.other_tests, 0) AS other_tests
+          FROM days
+          LEFT JOIN automated_activity ON automated_activity.day = days.day
+          LEFT JOIN manual_activity ON manual_activity.day = days.day
+          ORDER BY days.day ASC
         `,
         {
-          replacements: { projectId },
+          replacements: { projectId, daysBack },
           type: sequelize.QueryTypes.SELECT
         }
       );
@@ -667,7 +727,9 @@ router.get('/projects/:id/tests/coverage-summary', (req, res, next) => {
             day: r.day instanceof Date ? r.day.toISOString().slice(0, 10) : String(r.day).slice(0, 10),
             total_tests: Number(r.total_tests) || 0,
             passed_tests: Number(r.passed_tests) || 0,
-            failed_tests: Number(r.failed_tests) || 0
+            failed_tests: Number(r.failed_tests) || 0,
+            partial_failed_tests: Number(r.partial_failed_tests) || 0,
+            other_tests: Number(r.other_tests) || 0
           }))
         : [];
 

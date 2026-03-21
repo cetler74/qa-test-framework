@@ -777,15 +777,13 @@ window.loadProjectCoverageSummary = async (projectId) => {
   const ctxForChart = canvasForChart?.getContext ? canvasForChart.getContext('2d') : null;
   if (!ctxForChart || typeof Chart === 'undefined') return;
 
-  // Build chart: historical timeseries (Passed / Failed / Other) + "Current" bar from active list (all statuses)
+  // Build chart: tests done per day over the recent fixed window, stacked by status.
   const timeseries = Array.isArray(data.timeseries) ? data.timeseries : [];
-  const labels = [...timeseries.map(p => p.day instanceof Date ? p.day.toISOString().slice(0, 10) : String(p.day).slice(0, 10)), 'Current'];
-  const passedValues = [...timeseries.map(p => p.passed_tests || 0), passed];
-  const failedValues = [...timeseries.map(p => p.failed_tests || 0), failed];
-  const partialValues = [...timeseries.map(p => 0), partial];
-  const notRunValues = [...timeseries.map(p => 0), notRun];
-  const totalValues = [...timeseries.map(p => p.total_tests || 0), totalTests];
-  const otherValues = totalValues.map((v, i) => Math.max(v - (passedValues[i] + failedValues[i] + partialValues[i] + notRunValues[i]), 0));
+  const labels = timeseries.map(p => p.day instanceof Date ? p.day.toISOString().slice(0, 10) : String(p.day).slice(0, 10));
+  const passedValues = timeseries.map(p => p.passed_tests || 0);
+  const failedValues = timeseries.map(p => p.failed_tests || 0);
+  const partialValues = timeseries.map(p => p.partial_failed_tests || 0);
+  const otherValues = timeseries.map(p => p.other_tests || 0);
 
   window._projectCoverageChart = new Chart(ctxForChart, {
     type: 'bar',
@@ -799,7 +797,7 @@ window.loadProjectCoverageSummary = async (projectId) => {
           borderColor: 'rgba(22, 163, 74, 1)',
           borderWidth: 1,
           borderRadius: 4,
-          stack: 'tests'
+          stack: 'activity'
         },
         {
           label: 'Failed',
@@ -808,7 +806,7 @@ window.loadProjectCoverageSummary = async (projectId) => {
           borderColor: 'rgba(220, 38, 38, 1)',
           borderWidth: 1,
           borderRadius: 4,
-          stack: 'tests'
+          stack: 'activity'
         },
         {
           label: 'Partial failed',
@@ -817,16 +815,7 @@ window.loadProjectCoverageSummary = async (projectId) => {
           borderColor: 'rgba(217, 119, 6, 1)',
           borderWidth: 1,
           borderRadius: 4,
-          stack: 'tests'
-        },
-        {
-          label: 'Not run',
-          data: notRunValues,
-          backgroundColor: 'rgba(148, 163, 184, 0.7)',
-          borderColor: 'rgba(100, 116, 139, 1)',
-          borderWidth: 1,
-          borderRadius: 4,
-          stack: 'tests'
+          stack: 'activity'
         },
         {
           label: 'Other',
@@ -835,7 +824,7 @@ window.loadProjectCoverageSummary = async (projectId) => {
           borderColor: 'rgba(75, 85, 99, 1)',
           borderWidth: 1,
           borderRadius: 4,
-          stack: 'tests'
+          stack: 'activity'
         }
       ]
     },
@@ -857,10 +846,18 @@ window.loadProjectCoverageSummary = async (projectId) => {
       },
       plugins: {
         legend: { display: true, position: 'bottom' },
+        title: {
+          display: true,
+          text: 'Tests Done Per Day by Status - Last 14 Days'
+        },
         tooltip: {
           callbacks: {
             label: function (context) {
               return `${context.dataset.label}: ${context.parsed.y} tests`;
+            },
+            footer: function (items) {
+              const total = items.reduce((sum, item) => sum + (item.parsed.y || 0), 0);
+              return `Total: ${total} tests`;
             }
           }
         }
@@ -2087,7 +2084,7 @@ window.showUploadProjectTestsModal = (projectId) => {
         <label>Upload CSV file</label>
         <div class="file-upload-area" id="project-tests-file-upload-area">
           <p id="project-tests-upload-prompt">Click to select or drag and drop</p>
-          <p class="file-upload-hint">Semicolon-delimited CSV (`;`) with columns: Name, Type, Method, Endpoint, Description, Ticket URLs (use | between multiple URLs), Folder path, Active</p>
+          <p class="file-upload-hint">Semicolon-delimited CSV (';') with columns: Name, Type, Method, Endpoint, Description, Ticket URLs (use | between multiple URLs), Folder path, Active</p>
           <input type="file" id="project-tests-file" accept=".csv" style="display: none;">
         </div>
         <div id="project-tests-selected-file-card" class="selected-file-card" style="display: none;">
@@ -2112,15 +2109,35 @@ window.showUploadProjectTestsModal = (projectId) => {
 
   showModal('Upload tests from file', content);
 
-  document.getElementById('download-project-tests-template-btn')?.addEventListener('click', () => {
+  const modalBody = document.getElementById('modal-body');
+  if (!modalBody) {
+    console.error('Upload tests modal: modal body not found');
+    return;
+  }
+
+  modalBody.querySelector('#download-project-tests-template-btn')?.addEventListener('click', () => {
     window.location.href = `/api/projects/${projectId}/tests/catalogue/template`;
   });
 
-  const fileInput = document.getElementById('project-tests-file');
-  const fileUploadArea = document.getElementById('project-tests-file-upload-area');
-  const selectedCard = document.getElementById('project-tests-selected-file-card');
-  const selectedFileName = document.getElementById('project-tests-selected-file-name');
-  const uploadPrompt = document.getElementById('project-tests-upload-prompt');
+  const fileInput = modalBody.querySelector('#project-tests-file');
+  const fileUploadArea = modalBody.querySelector('#project-tests-file-upload-area');
+  const selectedCard = modalBody.querySelector('#project-tests-selected-file-card');
+  const selectedFileName = modalBody.querySelector('#project-tests-selected-file-name');
+  const uploadPrompt = modalBody.querySelector('#project-tests-upload-prompt');
+  const uploadForm = modalBody.querySelector('#upload-project-tests-form');
+
+  if (!fileInput || !fileUploadArea || !selectedCard || !selectedFileName || !uploadPrompt || !uploadForm) {
+    console.error('Upload tests modal: required DOM elements missing', {
+      fileInput: !!fileInput,
+      fileUploadArea: !!fileUploadArea,
+      selectedCard: !!selectedCard,
+      selectedFileName: !!selectedFileName,
+      uploadPrompt: !!uploadPrompt,
+      uploadForm: !!uploadForm
+    });
+    alert('Could not open upload dialog correctly. Please refresh the page and try again.');
+    return;
+  }
 
   function updateFileDisplay() {
     const hasFile = fileInput.files && fileInput.files.length > 0;
@@ -2140,7 +2157,7 @@ window.showUploadProjectTestsModal = (projectId) => {
     if (!e.target.closest('#project-tests-change-file-btn')) fileInput.click();
   });
 
-  document.getElementById('project-tests-change-file-btn')?.addEventListener('click', (e) => {
+  modalBody.querySelector('#project-tests-change-file-btn')?.addEventListener('click', (e) => {
     e.stopPropagation();
     fileInput.value = '';
     updateFileDisplay();
@@ -2167,7 +2184,7 @@ window.showUploadProjectTestsModal = (projectId) => {
     }
   });
 
-  document.getElementById('upload-project-tests-form').addEventListener('submit', async (e) => {
+  uploadForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!fileInput.files || fileInput.files.length === 0) {
       alert('Please select a CSV file');
