@@ -152,44 +152,62 @@ function extractCollectionVariables(collection) {
     }
   }
 
+  function extractVariablesFromAuth(auth) {
+    if (!auth || typeof auth !== 'object') return;
+    Object.keys(auth).forEach(authType => {
+      const authEntries = auth[authType];
+      if (!Array.isArray(authEntries)) return;
+      authEntries.forEach(entry => {
+        if (entry && entry.key) extractVariablesFromString(entry.key);
+        if (entry && entry.value) extractVariablesFromString(entry.value);
+      });
+    });
+  }
+
+  function scanScriptLine(line) {
+    if (typeof line !== 'string') return;
+    const genericMatches = line.match(/pm\.(?:collectionVariables|environment|variables|globals)\.set\(["']([^"']+)["']/g);
+    if (genericMatches) {
+      genericMatches.forEach(match => {
+        const varName = match.match(/["']([^"']+)["']/)[1];
+        scriptSetVariables.add(varName);
+      });
+    }
+    const getterMatches = line.match(/pm\.(?:collectionVariables|environment|variables|globals)\.get\(["']([^"']+)["']/g);
+    if (getterMatches) {
+      getterMatches.forEach(match => {
+        const varName = match.match(/["']([^"']+)["']/)[1];
+        addVariableName(varName);
+      });
+    }
+    const altMatches = line.match(/pm\.collectionVariables\.set\([^,\n\r]+/g);
+    if (altMatches) {
+      altMatches.forEach(m => {
+        const mm = m.match(/["']([^"']+)["']/);
+        if (mm && mm[1]) scriptSetVariables.add(mm[1]);
+      });
+    }
+  }
+
+  function extractScriptSetVariablesFromEvents(events) {
+    if (!events || !Array.isArray(events)) return;
+    events.forEach(event => {
+      if (!event?.script?.exec) return;
+      const scriptLines = Array.isArray(event.script.exec) ? event.script.exec : [event.script.exec];
+      scriptLines.forEach(scanScriptLine);
+    });
+  }
+
   function extractScriptSetVariables(items) {
     if (!items || !Array.isArray(items)) return;
     items.forEach(item => {
-      if (item.event && Array.isArray(item.event)) {
-        item.event.forEach(event => {
-          if (event.script && event.script.exec) {
-            const scriptLines = Array.isArray(event.script.exec) ? event.script.exec : [event.script.exec];
-            scriptLines.forEach(line => {
-              if (typeof line === 'string') {
-                const genericMatches = line.match(/pm\.(?:collectionVariables|environment|variables|globals)\.set\(["']([^"']+)["']/g);
-                if (genericMatches) {
-                  genericMatches.forEach(match => {
-                    const varName = match.match(/["']([^"']+)["']/)[1];
-                    scriptSetVariables.add(varName);
-                  });
-                }
-                const getterMatches = line.match(/pm\.(?:collectionVariables|environment|variables|globals)\.get\(["']([^"']+)["']/g);
-                if (getterMatches) {
-                  getterMatches.forEach(match => {
-                    const varName = match.match(/["']([^"']+)["']/)[1];
-                    addVariableName(varName);
-                  });
-                }
-                const altMatches = line.match(/pm\.collectionVariables\.set\([^,\n\r]+/g);
-                if (altMatches) {
-                  altMatches.forEach(m => {
-                    const mm = m.match(/["']([^"']+)["']/);
-                    if (mm && mm[1]) scriptSetVariables.add(mm[1]);
-                  });
-                }
-              }
-            });
-          }
-        });
-      }
+      extractScriptSetVariablesFromEvents(item.event);
       if (item.item && Array.isArray(item.item)) extractScriptSetVariables(item.item);
     });
   }
+
+  extractVariablesFromAuth(collectionJson.auth);
+  extractScriptSetVariablesFromEvents(collectionJson.event);
 
   function searchItems(items) {
     if (!items || !Array.isArray(items)) return;
@@ -245,17 +263,7 @@ function extractCollectionVariables(collection) {
             }
           }
         }
-        if (item.request.auth && typeof item.request.auth === 'object') {
-          Object.keys(item.request.auth).forEach(authType => {
-            const authEntries = item.request.auth[authType];
-            if (Array.isArray(authEntries)) {
-              authEntries.forEach(entry => {
-                if (entry && entry.key) extractVariablesFromString(entry.key);
-                if (entry && entry.value) extractVariablesFromString(entry.value);
-              });
-            }
-          });
-        }
+        extractVariablesFromAuth(item.request.auth);
       }
       if (item.item && Array.isArray(item.item)) searchItems(item.item);
     });
@@ -1046,6 +1054,7 @@ function mergeSavedEnvironmentIntoEnvVars(projectId, envId, baseEnv = {}) {
 if (typeof window !== 'undefined') {
   window.getProjectSavedEnvironments = loadSavedEnvs;
   window.mergeSavedEnvironmentIntoEnvVars = mergeSavedEnvironmentIntoEnvVars;
+  window.extractCollectionVariables = extractCollectionVariables;
 }
 
 function saveSavedEnvs(projectId, envs) {

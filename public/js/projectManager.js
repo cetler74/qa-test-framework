@@ -1134,48 +1134,157 @@ window.runProjectCatalogueTest = (projectId, projectTestId, kind, testSnapshot) 
   const defaultName = test ? `[Single] ${test.name || 'test'}` : '[Single] test';
 
   if (kind === 'api') {
-    const envs = typeof window.getProjectSavedEnvironments === 'function'
-      ? window.getProjectSavedEnvironments(projectId)
-      : [];
-    const options = envs.map((e) => `<option value="${escapeHtml(String(e.id))}">${escapeHtml(e.name || '')}</option>`).join('');
-    const content = `
-      <form id="single-test-run-form">
-        <div class="form-group">
-          <label for="single-test-env-select">Environment</label>
-          <select id="single-test-env-select" class="form-control" style="width:100%;">
-            <option value="">None (collection defaults only)</option>
-            ${options}
-          </select>
-          <p class="muted form-help" style="margin-top:8px;">Uses the same saved environments as <strong>Run API Tests</strong> (stored in this browser).</p>
-        </div>
-        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
-          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Run</button>
-        </div>
-      </form>
-    `;
-    showModal('Run API test', content);
-    document.getElementById('single-test-run-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const envId = document.getElementById('single-test-env-select').value;
-      let envVars = {};
-      if (typeof window.mergeSavedEnvironmentIntoEnvVars === 'function') {
-        envVars = window.mergeSavedEnvironmentIntoEnvVars(projectId, envId, {});
-      }
-      hideModal();
+    (async () => {
+      const envs = typeof window.getProjectSavedEnvironments === 'function'
+        ? window.getProjectSavedEnvironments(projectId)
+        : [];
+      const options = envs.map((e) => `<option value="${escapeHtml(String(e.id))}">${escapeHtml(e.name || '')}</option>`).join('');
+
+      let detectedVariables = { userProvided: [], scriptSet: [], allVars: [] };
       try {
-        const body = { name: defaultName };
-        if (Object.keys(envVars).length > 0) body.envVars = envVars;
-        await apiRequest(`/projects/${projectId}/tests/${projectTestId}/run`, { method: 'POST', body });
-        alert('Run started. Results appear in Test Runs; coverage updates when the run finishes.');
-        await loadProjectTests(projectId);
-        if (typeof window.loadProjectCoverageSummary === 'function') {
-          window.loadProjectCoverageSummary(projectId);
+        const collections = await apiRequest(`/projects/${projectId}/collections`);
+        const parentCollection = collections.find((c) => String(c.id) === String(test?.source_id));
+        const collectionJson = parentCollection?.collection_json;
+        const sourcePath = (test?.effective_source_path || test?.source_path || '').toString().trim();
+
+        if (collectionJson && typeof window.extractCollectionVariables === 'function') {
+          let scopedCollection = parentCollection;
+          const pathParts = sourcePath
+            ? sourcePath.split('.').map((part) => parseInt(part, 10)).filter((part) => !Number.isNaN(part))
+            : [];
+
+          if (pathParts.length > 0) {
+            const buildScopedCollectionTree = (root, path) => {
+              if (!root || !Array.isArray(root.item)) return null;
+
+              const cloneItemBranch = (items, depth) => {
+                const part = path[depth];
+                if (!Array.isArray(items) || part < 0 || part >= items.length) return null;
+
+                const item = items[part];
+                if (depth === path.length - 1) return item;
+                if (!Array.isArray(item?.item)) return null;
+
+                const child = cloneItemBranch(item.item, depth + 1);
+                if (!child) return null;
+                return {
+                  ...item,
+                  item: [child]
+                };
+              };
+
+              const scopedRootItem = cloneItemBranch(root.item, 0);
+              if (!scopedRootItem) return null;
+
+              return {
+                ...root,
+                item: [scopedRootItem]
+              };
+            };
+
+            const scopedJson = buildScopedCollectionTree(collectionJson, pathParts);
+            if (scopedJson) {
+              scopedCollection = {
+                collection_json: {
+                  ...scopedJson
+                }
+              };
+            }
+          }
+
+          detectedVariables = window.extractCollectionVariables(scopedCollection);
         }
-      } catch (err) {
-        alert('Error: ' + (err.message || err));
+      } catch (_) {
+        detectedVariables = { userProvided: [], scriptSet: [], allVars: [] };
       }
-    });
+
+      const variableRows = (detectedVariables.allVars || []).map((varName) => `
+        <div class="single-test-var-item">
+          <label class="single-test-var-label" for="single-test-var-${escapeHtml(varName)}">${escapeHtml(varName)}</label>
+          <input
+            type="text"
+            class="single-test-var-value form-control"
+            id="single-test-var-${escapeHtml(varName)}"
+            data-var-name="${escapeHtml(varName)}"
+            placeholder="Value for ${escapeHtml(varName)}"
+          >
+        </div>
+      `).join('');
+
+      const content = `
+        <form id="single-test-run-form" class="single-test-run-form">
+          <div class="form-group">
+            <label for="single-test-env-select">Environment</label>
+            <select id="single-test-env-select" class="form-control">
+              <option value="">None (collection defaults only)</option>
+              ${options}
+            </select>
+            <p class="muted form-hint">Uses the same saved environments as <strong>Run API Tests</strong> (stored in this browser).</p>
+          </div>
+          <div class="form-group" id="single-test-vars-section" style="${detectedVariables.allVars?.length ? '' : 'display:none;'}">
+            <label>Variables used by this test</label>
+            <p class="muted form-hint">These values will be sent as envVars for the single test run.</p>
+            <div id="single-test-vars-list" class="single-test-vars-list">
+              ${variableRows || '<p class="muted single-test-vars-empty">No variables detected for this test.</p>'}
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+            <button type="submit" class="btn btn-primary">Run</button>
+          </div>
+        </form>
+      `;
+
+      showModal('Run API test', content);
+
+      const envSelect = document.getElementById('single-test-env-select');
+      const applyEnvToSingleTestVars = () => {
+        const envId = envSelect.value;
+        let merged = {};
+        if (typeof window.mergeSavedEnvironmentIntoEnvVars === 'function') {
+          merged = window.mergeSavedEnvironmentIntoEnvVars(projectId, envId, {});
+        }
+
+        document.querySelectorAll('.single-test-var-value').forEach((input) => {
+          const key = input.getAttribute('data-var-name');
+          input.value = merged[key] != null ? String(merged[key]) : '';
+        });
+      };
+
+      envSelect.addEventListener('change', applyEnvToSingleTestVars);
+
+      document.getElementById('single-test-run-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const envId = envSelect.value;
+        let envVars = {};
+        if (typeof window.mergeSavedEnvironmentIntoEnvVars === 'function') {
+          envVars = window.mergeSavedEnvironmentIntoEnvVars(projectId, envId, {});
+        }
+
+        document.querySelectorAll('.single-test-var-value').forEach((input) => {
+          const key = input.getAttribute('data-var-name');
+          const value = input.value.trim();
+          if (key && value) envVars[key] = value;
+        });
+
+        hideModal();
+        try {
+          const body = { name: defaultName };
+          if (Object.keys(envVars).length > 0) body.envVars = envVars;
+          await apiRequest(`/projects/${projectId}/tests/${projectTestId}/run`, { method: 'POST', body });
+          alert('Run started. Results appear in Test Runs; coverage updates when the run finishes.');
+          await loadProjectTests(projectId);
+          if (typeof window.loadProjectCoverageSummary === 'function') {
+            window.loadProjectCoverageSummary(projectId);
+          }
+        } catch (err) {
+          alert('Error: ' + (err.message || err));
+        }
+      });
+
+      applyEnvToSingleTestVars();
+    })();
     return;
   }
 

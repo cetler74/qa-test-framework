@@ -3406,6 +3406,54 @@ p.run-status-in-progress {
     border: 1px solid var(--color-gray-300);
     border-radius: var(--radius-md);
     font-size: 1rem;
+
+}
+
+.single-test-run-form .form-hint {
+    display: block;
+    margin-top: var(--spacing-xs, 4px);
+    font-size: 0.875rem;
+    color: var(--color-text-secondary, #6b7280);
+}
+
+.single-test-vars-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    padding: var(--spacing-lg);
+    border: 1px solid var(--color-gray-200);
+    border-radius: var(--radius-md);
+    background: var(--color-gray-50);
+}
+
+.dark-theme .single-test-vars-list {
+    background: var(--color-bg-tertiary) !important;
+    border-color: var(--color-border) !important;
+}
+
+.single-test-var-item {
+    display: grid;
+    grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+    gap: var(--spacing-md);
+    align-items: center;
+}
+
+.single-test-var-label {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.single-test-vars-empty {
+    margin: 0;
+}
+
+@media (max-width: 720px) {
+    .single-test-var-item {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-sm);
+    }
 }
 .run-ui-tests-form .form-actions {
     display: flex;
