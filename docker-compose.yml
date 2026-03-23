@@ -1,9 +1,8 @@
-# QA Test Hub – Docker Compose
+# QA Test Hub Docker Compose
 # Usage:
-#   cp .env.example .env   # then edit DB_PASSWORD
+#   cp .env.example .env   # depois editar DB_PASSWORD
 #   docker compose up --build -d
-#   Migrations run automatically on app startup (see scripts/docker-entry.sh).
-#   To run migrations only: docker compose exec app npm run migrate
+#   docker compose exec app npm run migrate   # first time only
 
 services:
   db:
@@ -24,35 +23,53 @@ services:
       retries: 5
 
   app:
-    build: .
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-      # noVNC WebSocket ports for remote Codegen sessions (one per concurrent session)
-      - "6080-6089:6080-6089"
-    # Optional: mount proxy config so the container uses your proxies.json (file is gitignored and not in image)
-    # volumes:
-    #   - ./config/proxies.json:/app/config/proxies.json:ro
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        HTTP_PROXY:  http://10.103.16.12:3128
+        HTTPS_PROXY: http://10.103.16.12:3128
+        NO_PROXY: "localhost,127.0.0.1,.meo.pt,.altice.pt,db,portal.uat.camara.prv.alpt.alticelabs.cloud"
+
+    # Permite ao container contactar o host (necessario para o PAM Auth Proxy)
+    extra_hosts:
+      #- "host.docker.internal:host-gateway"
+      - "10.131.65.136:host-gateway"
+
     environment:
+      # DB config
       DB_HOST: db
       DB_PORT: 5432
       DB_NAME: ${DB_NAME:-qa_framework}
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
+
+      # App runtime
       PORT: 3000
       NODE_ENV: production
       PLAYWRIGHT_HEADLESS: "true"
-      # Proxy: set QA_PROXY to override activeProxy from config (e.g. proxy_DEO). Mount config/proxies.json if not in image.
-      # QA_PROXY: ${QA_PROXY:-}
-      # Auth (set in .env; required for login and admin seed)
-      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
+      SESSION_SECRET: ${SESSION_SECRET:-your-session-secret-change-in-production}
       ENABLE_LOCAL_AUTH: ${ENABLE_LOCAL_AUTH:-true}
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-      # Remote Codegen session limits
+
+      # PAM Auth Proxy ACTIVADO
+      ENABLE_PAM_AUTH: "true"
+      #PAM_AUTH_URL: "http://host.docker.internal:9090"
+      PAM_AUTH_URL: "http://10.131.65.136:9090"
+
+
+      # Remote Codegen limits
       CODEGEN_MAX_SESSIONS: ${CODEGEN_MAX_SESSIONS:-3}
       CODEGEN_SESSION_TIMEOUT_MS: ${CODEGEN_SESSION_TIMEOUT_MS:-600000}
       CODEGEN_VNC_PORT_START: ${CODEGEN_VNC_PORT_START:-6080}
+
+    volumes:
+      - /opt/qa-app/corppt/corppt_bundle.pem:/usr/local/share/ca-certificates/corppt_bundle.crt:ro
+
+    ports:
+      - "3000:3000"
+      # Faixa de portas VNC usadas pelo noVNC
+      - "6080-6089:6080-6089"
+
     depends_on:
       db:
         condition: service_healthy

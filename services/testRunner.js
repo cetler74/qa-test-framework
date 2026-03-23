@@ -2,6 +2,7 @@ const newman = require('newman');
 const fs = require('fs');
 const path = require('path');
 const { Collection, TestRun, TestResult, ApiSpec, ProjectTest, ProjectTestStat } = require('../models');
+const { isInternalUrl } = require('../lib/urlUtils');
 
 // In-memory set of test run IDs that have been requested to cancel (API runs only).
 // Runner checks this so it can stop after the current collection and mark run as cancelled.
@@ -120,6 +121,111 @@ function normalizeNetworkError(message) {
   if (m.match(/\bESOCKETTIMEDOUT\b/i)) return `Network error: Socket timeout`;
   if (m.match(/\btimeout\b/i) && !m.match(/assertion|expected/i)) return `Network error: Request timeout`;
   return m;
+}
+
+function splitProxyBypassList(value) {
+  if (!value || typeof value !== 'string') return [];
+  return value
+    .split(/[\s,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function getCollectionVariableMap(collection) {
+  const map = {};
+  if (!collection || !Array.isArray(collection.variable)) return map;
+  for (const variable of collection.variable) {
+    if (!variable || typeof variable.key !== 'string') continue;
+    map[variable.key] = variable.value == null ? '' : String(variable.value);
+  }
+  return map;
+}
+
+function getEnvironmentVariableMap(environment) {
+  if (!environment) return {};
+
+  let source = environment;
+  if (typeof environment === 'string') {
+    try {
+      if (!fs.existsSync(environment)) return {};
+      source = JSON.parse(fs.readFileSync(environment, 'utf8'));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  if (!source || !Array.isArray(source.values)) return {};
+
+  const map = {};
+  for (const variable of source.values) {
+    if (!variable || variable.enabled === false || typeof variable.key !== 'string') continue;
+    map[variable.key] = variable.value == null ? '' : String(variable.value);
+  }
+  return map;
+}
+
+function resolvePostmanVariables(value, variableMap) {
+  if (!value || typeof value !== 'string') return '';
+  return value.replace(/{{\s*([^}]+?)\s*}}/g, (match, key) => {
+    if (Object.prototype.hasOwnProperty.call(variableMap, key)) {
+      return variableMap[key];
+    }
+    return match;
+  });
+}
+
+function getRequestRawUrl(requestUrl) {
+  if (!requestUrl) return '';
+  if (typeof requestUrl === 'string') return requestUrl;
+  if (typeof requestUrl.raw === 'string') return requestUrl.raw;
+  if (typeof requestUrl.toString === 'function') {
+    const value = requestUrl.toString();
+    if (typeof value === 'string' && value !== '[object Object]') return value;
+  }
+
+  const protocol = requestUrl.protocol ? `${requestUrl.protocol}://` : '';
+  const host = Array.isArray(requestUrl.host) ? requestUrl.host.join('.') : (requestUrl.host || '');
+  const pathValue = Array.isArray(requestUrl.path) ? `/${requestUrl.path.join('/')}` : (requestUrl.path || '');
+  return `${protocol}${host}${pathValue}`;
+}
+
+function collectInternalNoProxyHosts(collection, options = {}) {
+  const variableMap = {
+    ...getCollectionVariableMap(collection),
+    ...((options.envVars && typeof options.envVars === 'object') ? Object.fromEntries(Object.entries(options.envVars).map(([key, value]) => [key, value == null ? '' : String(value)])) : {}),
+    ...getEnvironmentVariableMap(options.environment)
+  };
+
+  const internalHosts = new Set();
+
+  function walk(items) {
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+      if (item && item.request && item.request.url) {
+        const rawUrl = getRequestRawUrl(item.request.url);
+        const resolvedUrl = resolvePostmanVariables(rawUrl, variableMap);
+        if (/^https?:\/\//i.test(resolvedUrl) && isInternalUrl(resolvedUrl)) {
+          try {
+            internalHosts.add(new URL(resolvedUrl).hostname.toLowerCase());
+          } catch (_) {
+            // Ignore malformed URLs and leave proxy behavior unchanged for them.
+          }
+        }
+      }
+      if (item && Array.isArray(item.item)) walk(item.item);
+    }
+  }
+
+  walk(collection?.item || []);
+  return Array.from(internalHosts);
+}
+
+function buildNoProxyValue(collection, options = {}, bypassValue = '') {
+  const entries = new Set(splitProxyBypassList(bypassValue));
+  for (const host of collectInternalNoProxyHosts(collection, options)) {
+    entries.add(host);
+  }
+  return Array.from(entries).join(',');
 }
 
 /**
@@ -401,30 +507,37 @@ function runNewmanTests(collection, options = {}) {
       }, 5000);
     }
 
-    // Apply project proxy for this run (Newman/postman-request respect HTTP_PROXY/HTTPS_PROXY)
+    // Isolate proxy env per run so Newman does not inherit shell/container proxy vars.
+    // This prevents internal URLs from being tunneled through a corporate proxy.
     const proxy = options.proxy && (options.proxy.http || options.proxy.https) ? options.proxy : null;
+    const proxyEnvKeys = ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy'];
     const savedEnv = {};
+    for (const key of proxyEnvKeys) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
     if (proxy) {
       const httpUrl = proxy.http || proxy.https || '';
       const httpsUrl = proxy.https || proxy.http || '';
-      for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy']) {
-        savedEnv[key] = process.env[key];
-      }
+      const noProxyValue = buildNoProxyValue(collection, options, proxy.bypass || '');
       process.env.HTTP_PROXY = httpUrl;
       process.env.HTTPS_PROXY = httpsUrl;
-      process.env.NO_PROXY = proxy.bypass || '';
+      process.env.NO_PROXY = noProxyValue;
       process.env.http_proxy = httpUrl;
       process.env.https_proxy = httpsUrl;
-      process.env.no_proxy = proxy.bypass || '';
+      process.env.no_proxy = noProxyValue;
+      console.log('[testRunner] Applied proxy for Newman run:', {
+        httpProxy: httpUrl,
+        httpsProxy: httpsUrl,
+        noProxy: noProxyValue
+      });
     }
 
     newman.run(newmanOptions, (err, summary) => {
       // Restore proxy env
-      if (proxy) {
-        for (const [key, val] of Object.entries(savedEnv)) {
-          if (val !== undefined) process.env[key] = val;
-          else delete process.env[key];
-        }
+      for (const [key, val] of Object.entries(savedEnv)) {
+        if (val !== undefined) process.env[key] = val;
+        else delete process.env[key];
       }
       // Restore original SSL verification setting
       if (originalRejectUnauthorized !== undefined) {
@@ -934,6 +1047,12 @@ async function executeTests(projectId, testRunName, options = {}) {
           info: mergedCollection.info || { name: testRunName },
           item: [JSON.parse(JSON.stringify(item))]
         };
+        if (Array.isArray(mergedCollection.variable)) {
+          singleCollection.variable = JSON.parse(JSON.stringify(mergedCollection.variable));
+        }
+        if (mergedCollection.auth) {
+          singleCollection.auth = JSON.parse(JSON.stringify(mergedCollection.auth));
+        }
 
         // Determine delay for this item (will be applied before next test)
         // Priority: per-item delay > global delay > no delay
