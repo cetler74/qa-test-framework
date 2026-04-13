@@ -1118,6 +1118,11 @@ async function executeTests(projectId, testRunName, options = {}) {
       const started = Date.now();
 
       for (let i = 0; i < (mergedCollection.item || []).length; i++) {
+        if (isTestRunCancelled(testRun.id)) {
+          console.log(`[testRunner] Cancellation detected before item ${i + 1}. Stopping sequential execution.`);
+          break;
+        }
+
         const item = mergedCollection.item[i];
         const singleCollection = {
           info: mergedCollection.info || { name: testRunName },
@@ -1423,8 +1428,17 @@ async function executeTests(projectId, testRunName, options = {}) {
           // Continue execution even if saving fails
         }
 
+        if (isTestRunCancelled(testRun.id)) {
+          console.log(`[testRunner] Cancellation detected after item ${i + 1}. Ending run before next item.`);
+          break;
+        }
+
         // Apply delay before next test (if not the last item)
         if (delaySec > 0 && i < (mergedCollection.item || []).length - 1) {
+          if (isTestRunCancelled(testRun.id)) {
+            console.log(`[testRunner] Cancellation detected before waiting after item ${i + 1}.`);
+            break;
+          }
           console.log(`[testRunner] Waiting ${delaySec} seconds before next test (per-item delay)`);
           await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
         }

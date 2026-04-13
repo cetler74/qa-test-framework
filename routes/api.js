@@ -3268,7 +3268,19 @@ router.get('/playwright-recorded-tests', async (req, res) => {
       order: [['created_at', 'DESC']],
       attributes: ['id', 'name', 'base_url', 'created_at']
     });
-    res.json(tests);
+    const links = testIds === null
+      ? await ProjectRecordedTest.findAll({ attributes: ['recorded_test_id', 'project_id'] })
+      : await ProjectRecordedTest.findAll({ where: { recorded_test_id: { [Op.in]: testIds } }, attributes: ['recorded_test_id', 'project_id'] });
+    const groupedProjectIds = new Map();
+    links.forEach((link) => {
+      const key = Number(link.recorded_test_id);
+      if (!groupedProjectIds.has(key)) groupedProjectIds.set(key, []);
+      groupedProjectIds.get(key).push(Number(link.project_id));
+    });
+    res.json(tests.map((test) => ({
+      ...test.toJSON(),
+      project_ids: groupedProjectIds.get(Number(test.id)) || []
+    })));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3445,7 +3457,10 @@ router.get('/playwright-recorded-tests/:id', async (req, res) => {
       if (await userCanAccessProjectId(req.user.id, false, pid)) { allowed = true; break; }
     }
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
-    res.json(test);
+    res.json({
+      ...test.toJSON(),
+      project_ids: projectIds
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3464,7 +3479,7 @@ router.put('/playwright-recorded-tests/:id', async (req, res) => {
       if (await userCanAccessProjectId(req.user.id, false, pid)) { allowed = true; break; }
     }
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
-    const { name, spec_content, base_url } = req.body;
+    const { name, spec_content, base_url, projectIds: requestedProjectIds } = req.body;
     if (name !== undefined) {
       if (typeof name !== 'string' || !name.trim()) {
         return res.status(400).json({ error: 'name must be a non-empty string' });
@@ -3486,7 +3501,44 @@ router.put('/playwright-recorded-tests/:id', async (req, res) => {
       test.base_url = base_url && typeof base_url === 'string' ? base_url.trim() || null : null;
     }
     await test.save();
-    res.json(test);
+
+    if (requestedProjectIds !== undefined) {
+      if (!Array.isArray(requestedProjectIds)) {
+        return res.status(400).json({ error: 'projectIds must be an array' });
+      }
+
+      const normalizedProjectIds = [...new Set(requestedProjectIds
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0))];
+
+      if (normalizedProjectIds.length === 0) {
+        return res.status(400).json({ error: 'At least one associated project is required' });
+      }
+
+      for (const projectId of normalizedProjectIds) {
+        const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, projectId);
+        if (!canManage) return res.status(403).json({ error: 'Forbidden: cannot associate recorded test to one or more selected projects' });
+      }
+
+      await ProjectRecordedTest.destroy({
+        where: {
+          recorded_test_id: test.id,
+          project_id: { [Op.notIn]: normalizedProjectIds }
+        }
+      });
+
+      for (const projectId of normalizedProjectIds) {
+        await ProjectRecordedTest.findOrCreate({
+          where: { project_id: projectId, recorded_test_id: test.id }
+        });
+      }
+    }
+
+    const updatedLinks = await ProjectRecordedTest.findAll({ where: { recorded_test_id: test.id }, attributes: ['project_id'] });
+    res.json({
+      ...test.toJSON(),
+      project_ids: updatedLinks.map((link) => Number(link.project_id))
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

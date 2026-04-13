@@ -4,6 +4,54 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('run-tests-btn')?.addEventListener('click', showRunTestsModal);
 });
 
+let runTestsModalRestoreState = null;
+
+function captureRunTestsModalState() {
+  const form = document.getElementById('run-tests-form');
+  if (!form) return null;
+
+  const testSelectionContainer = document.getElementById('test-selection-container');
+  const selectedTestsList = document.getElementById('selected-tests-list');
+
+  return {
+    testRunName: document.getElementById('test-run-name')?.value || '',
+    selectedCollectionId: document.getElementById('collection-select')?.value || '',
+    selectedEnvId: document.getElementById('env-select')?.value || '',
+    showEnvVars: !!document.getElementById('show-env-vars')?.checked,
+    delayBetweenTests: document.getElementById('delay-between-tests')?.value || '',
+    collectionVars: Array.from(document.querySelectorAll('.collection-var-value')).map((input) => ({
+      key: input.getAttribute('data-var-name') || '',
+      value: input.value || ''
+    })).filter((entry) => entry.key),
+    envVars: Array.from(document.querySelectorAll('#env-vars-list .env-var-item')).map((item) => ({
+      key: item.querySelector('.env-var-key')?.value || '',
+      value: item.querySelector('.env-var-value')?.value || ''
+    })),
+    selectedTestsOrder: Array.from(document.querySelectorAll('#selected-tests-list .selected-test-item')).map((item) => ({
+      collectionId: Number(item.getAttribute('data-collection-id')),
+      path: item.getAttribute('data-path') || '',
+      name: item.getAttribute('data-name') || '',
+      method: item.getAttribute('data-method') || 'GET',
+      testId: item.getAttribute('data-test-id') || ''
+    })).filter((entry) => entry.path),
+    expandedGroups: Array.from(document.querySelectorAll('.test-group-items')).filter((group) => group.style.display !== 'none').map((group) => group.id),
+    testSelectionScrollTop: testSelectionContainer ? testSelectionContainer.scrollTop : 0,
+    selectedTestsScrollTop: selectedTestsList ? selectedTestsList.scrollTop : 0
+  };
+}
+
+function restoreRunTestsModalState(overrides = {}) {
+  if (!runTestsModalRestoreState) {
+    hideModal();
+    return;
+  }
+
+  const state = { ...runTestsModalRestoreState, ...overrides };
+  runTestsModalRestoreState = null;
+  hideModal();
+  setTimeout(() => showRunTestsModal(state), 50);
+}
+
 // Helper function to flatten nested Postman collection items and track their paths
 function flattenCollectionItems(items, parentPath = [], collectionId, flatList = []) {
   items.forEach((item, index) => {
@@ -291,7 +339,7 @@ function extractCollectionVariables(collection) {
 }
 
 // Show Run Tests Modal
-function showRunTestsModal() {
+function showRunTestsModal(initialState = null) {
   const projectId = document.getElementById('run-tests-btn').getAttribute('data-project-id');
   
   if (!projectId) {
@@ -397,10 +445,109 @@ function showRunTestsModal() {
     
     showModal('Run Tests', content);
     populateEnvSelect();
+
+    if (initialState?.testRunName) {
+      document.getElementById('test-run-name').value = initialState.testRunName;
+    }
+
+    if (typeof initialState?.delayBetweenTests !== 'undefined' && initialState?.delayBetweenTests !== null) {
+      document.getElementById('delay-between-tests').value = initialState.delayBetweenTests;
+    }
+
+    if (initialState?.selectedEnvId) {
+      const envSelect = document.getElementById('env-select');
+      if (envSelect) envSelect.value = initialState.selectedEnvId;
+    }
     
     let selectedCollection = null;
     let selectedTestsOrder = []; // Array of {collectionId, path, name, method, testId}
     let testIdCounter = 1; // Counter for generating unique test IDs
+
+    function setOptionalEnvVarRows(rows = []) {
+      const envList = document.getElementById('env-vars-list');
+      if (!envList) return;
+      envList.innerHTML = '';
+      rows.forEach((row) => {
+        const newItem = document.createElement('div');
+        newItem.className = 'env-var-item';
+        newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+        newItem.innerHTML = `
+          <input type="text" placeholder="Variable name" class="env-var-key" style="flex: 1; padding: 8px; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);" value="${String(row.key || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}">
+          <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);" value="${String(row.value || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}">
+          <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
+        `;
+        envList.appendChild(newItem);
+      });
+
+      if (rows.length === 0) {
+        const newItem = document.createElement('div');
+        newItem.className = 'env-var-item';
+        newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
+        newItem.innerHTML = `
+          <input type="text" placeholder="Variable name" class="env-var-key" style="flex: 1; padding: 8px; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);">
+          <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);">
+          <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
+        `;
+        envList.appendChild(newItem);
+      }
+    }
+
+    function restoreSelectedTestsFromState() {
+      if (!initialState || String(initialState.selectedCollectionId || '') !== String(selectedCollection?.id || '')) return;
+
+      selectedTestsOrder = (initialState.selectedTestsOrder || []).map((test) => ({
+        collectionId: Number(test.collectionId),
+        path: test.path,
+        name: test.name,
+        method: test.method,
+        testId: test.testId
+      }));
+
+      selectedTestsOrder.forEach((test) => {
+        const checkbox = document.querySelector(`.test-checkbox[data-collection-id="${test.collectionId}"][data-path="${test.path}"]`);
+        if (checkbox) checkbox.checked = true;
+      });
+
+      const maxExistingTestId = selectedTestsOrder.reduce((maxValue, test) => {
+        const match = String(test.testId || '').match(/TEST-(\d+)/i);
+        return match ? Math.max(maxValue, Number(match[1])) : maxValue;
+      }, 0);
+      testIdCounter = maxExistingTestId + 1;
+      updateSelectedTestsList();
+
+      (initialState.collectionVars || []).forEach((entry) => {
+        const input = document.querySelector(`.collection-var-value[data-var-name="${entry.key}"]`);
+        if (input) input.value = entry.value || '';
+      });
+
+      const showEnvVarsCheckbox = document.getElementById('show-env-vars');
+      if (showEnvVarsCheckbox) {
+        showEnvVarsCheckbox.checked = !!initialState.showEnvVars;
+        toggleEnvVars();
+      }
+
+      setOptionalEnvVarRows(initialState.envVars || []);
+
+      if (initialState.selectedEnvId) {
+        const envSelect = document.getElementById('env-select');
+        if (envSelect) envSelect.value = initialState.selectedEnvId;
+      }
+
+      (initialState.expandedGroups || []).forEach((groupId) => {
+        const groupContainer = document.getElementById(groupId);
+        if (!groupContainer) return;
+        groupContainer.style.display = 'block';
+        const toggleBtn = document.querySelector(`.toggle-group[data-group-id="${groupId}"]`);
+        if (toggleBtn) toggleBtn.textContent = 'Collapse';
+      });
+
+      const testSelectionContainer = document.getElementById('test-selection-container');
+      if (testSelectionContainer) testSelectionContainer.scrollTop = Number(initialState.testSelectionScrollTop || 0);
+      const selectedTestsList = document.getElementById('selected-tests-list');
+      if (selectedTestsList) selectedTestsList.scrollTop = Number(initialState.selectedTestsScrollTop || 0);
+
+      initialState = null;
+    }
 
     // Handle collection selection
     document.getElementById('collection-select').addEventListener('change', (e) => {
@@ -521,7 +668,14 @@ function showRunTestsModal() {
       
       // Setup event listeners for groups and tests
       setupTestSelectionHandlers(collectionId);
+      restoreSelectedTestsFromState();
     });
+
+    if (initialState?.selectedCollectionId) {
+      const collectionSelect = document.getElementById('collection-select');
+      collectionSelect.value = initialState.selectedCollectionId;
+      collectionSelect.dispatchEvent(new Event('change'));
+    }
     
     // Setup test selection handlers
     function setupTestSelectionHandlers(collectionId) {
@@ -600,7 +754,7 @@ function showRunTestsModal() {
       }
       
       listContainer.innerHTML = selectedTestsOrder.map((test, index) => `
-        <div class="selected-test-item" data-index="${index}" style="display: flex; align-items: center; padding: 8px; margin: 5px 0; background: var(--color-gray-100, #f0f0f0); border-radius: 4px; cursor: move; border: 1px solid var(--color-gray-200, #e5e7eb);">
+        <div class="selected-test-item" data-index="${index}" data-collection-id="${test.collectionId}" data-path="${test.path}" data-name="${String(test.name || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}" data-method="${String(test.method || 'GET').replace(/"/g, '&quot;')}" data-test-id="${String(test.testId || `TEST-${index + 1}`).replace(/"/g, '&quot;')}" style="display: flex; align-items: center; padding: 8px; margin: 5px 0; background: var(--color-gray-100, #f0f0f0); border-radius: 4px; cursor: move; border: 1px solid var(--color-gray-200, #e5e7eb);">
           <span style="margin-right: 10px; font-weight: bold; color: #14b8a6;">${test.testId || `TEST-${index + 1}`}</span>
           <span class="method-badge ${test.method}">${test.method}</span>
           <span style="flex: 1; margin-left: 10px; color: var(--color-text-primary, #1f2937);">${test.name}</span>
@@ -1222,7 +1376,7 @@ function showCreateEnvModal(existingEnv = null) {
         </div>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
-        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+        <button type="button" class="btn btn-secondary" id="create-env-cancel-btn">Cancel</button>
         <button type="submit" class="btn btn-primary">Save</button>
       </div>
     </form>
@@ -1354,6 +1508,14 @@ function showCreateEnvModal(existingEnv = null) {
 
   document.getElementById('create-env-add-var').addEventListener('click', () => addVarRow());
 
+  document.getElementById('create-env-cancel-btn').addEventListener('click', () => {
+    if (runTestsModalRestoreState) {
+      restoreRunTestsModalState();
+      return;
+    }
+    hideModal();
+  });
+
   document.getElementById('create-env-form').addEventListener('submit', (ev) => {
     ev.preventDefault();
     const name = document.getElementById('env-name').value.trim();
@@ -1381,13 +1543,17 @@ function showCreateEnvModal(existingEnv = null) {
     }
 
     saveSavedEnvs(projectId, envs);
-    hideModal();
-    populateEnvSelect();
+    if (runTestsModalRestoreState) {
+      restoreRunTestsModalState({ selectedEnvId: id });
+    } else {
+      hideModal();
+      populateEnvSelect();
 
-    // Select newly created/updated env
-    const sel = document.getElementById('env-select');
-    if (sel) {
-      setTimeout(() => { sel.value = id; onEnvSelected({ target: sel }); }, 50);
+      // Select newly created/updated env
+      const sel = document.getElementById('env-select');
+      if (sel) {
+        setTimeout(() => { sel.value = id; onEnvSelected({ target: sel }); }, 50);
+      }
     }
   });
 }
@@ -1414,11 +1580,19 @@ function showManageEnvsModal() {
   const content = `
     <div>${list}</div>
     <div style="display:flex;justify-content:flex-end;margin-top:12px;">
-      <button class="btn btn-secondary" onclick="hideModal()">Close</button>
+      <button class="btn btn-secondary" id="manage-envs-close-btn">Close</button>
     </div>
   `;
 
   showModal('Manage Environments', content);
+
+  document.getElementById('manage-envs-close-btn').addEventListener('click', () => {
+    if (runTestsModalRestoreState) {
+      restoreRunTestsModalState();
+      return;
+    }
+    hideModal();
+  });
 
   document.querySelectorAll('.delete-env').forEach(b => {
     b.addEventListener('click', (ev) => {
@@ -1447,9 +1621,11 @@ function showManageEnvsModal() {
 // Wire up the manage/create buttons on the run modal (buttons are present when the modal is shown)
 document.addEventListener('click', (ev) => {
   if (ev.target && ev.target.id === 'create-env-btn') {
+    runTestsModalRestoreState = captureRunTestsModalState();
     showCreateEnvModal();
   }
   if (ev.target && ev.target.id === 'manage-envs-btn') {
+    runTestsModalRestoreState = captureRunTestsModalState();
     showManageEnvsModal();
   }
 });

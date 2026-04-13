@@ -561,7 +561,7 @@
     const addToProjectSelect = document.getElementById('recorded-test-add-to-project');
     if (!form) return;
 
-    if (addToProjectWrap) addToProjectWrap.style.display = editId ? 'none' : 'block';
+    if (addToProjectWrap) addToProjectWrap.style.display = 'block';
     if (addToProjectSelect) addToProjectSelect.innerHTML = '<option value="">None</option>';
 
     // Proxy is inferred from base URL by the backend (no dropdown)
@@ -578,12 +578,22 @@
     titleEl.textContent = editId ? 'Edit recorded test' : 'Add recorded test';
     nameInput.value = '';
     specInput.value = '';
+
+    apiRequest('/projects').then(projects => {
+      if (addToProjectSelect && Array.isArray(projects) && projects.length > 0) {
+        addToProjectSelect.innerHTML = '<option value="">None</option>' + projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+      }
+    }).catch(() => {});
+
     if (editId) {
       apiRequest(`/playwright-recorded-tests/${editId}`)
         .then(t => {
           nameInput.value = t.name || '';
           specInput.value = t.spec_content || '';
           codegenUrlInput.value = (t.base_url || '').trim() || codegenUrlInput.placeholder;
+          if (addToProjectSelect && Array.isArray(t.project_ids) && t.project_ids.length > 0) {
+            addToProjectSelect.value = String(t.project_ids[0]);
+          }
         })
         .catch(err => alert('Error loading recorded test: ' + err.message));
     } else {
@@ -594,11 +604,6 @@
       }).catch(() => {
         codegenUrlInput.value = 'https://example.com';
       });
-      apiRequest('/projects').then(projects => {
-        if (addToProjectSelect && Array.isArray(projects) && projects.length > 0) {
-          addToProjectSelect.innerHTML = '<option value="">None</option>' + projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
-        }
-      }).catch(() => {});
     }
     showView('add-recorded-test');
   }
@@ -707,7 +712,9 @@
     const editId = idInput?.value?.trim() || null;
     try {
       if (editId) {
-        await apiRequest(`/playwright-recorded-tests/${editId}`, { method: 'PUT', body: { name, spec_content: spec, base_url: null } });
+        const body = { name, spec_content: spec, base_url: null };
+        if (addToProjectId) body.projectIds = [Number(addToProjectId)];
+        await apiRequest(`/playwright-recorded-tests/${editId}`, { method: 'PUT', body });
         alert('Recorded test updated.');
       } else {
         const body = { name, spec_content: spec, base_url: null };
