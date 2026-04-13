@@ -228,6 +228,10 @@ function buildNoProxyValue(collection, options = {}, bypassValue = '') {
   return Array.from(entries).join(',');
 }
 
+function getRequestHeadersArray(request = {}) {
+  return request.headers || request.header || [];
+}
+
 /**
  * Merge multiple Postman collections into one
  * @param {Array<object>} collections - Array of Postman collection objects
@@ -392,6 +396,28 @@ async function updateProjectTestStatsForApiResult(testRun, testResult) {
   }
 }
 
+async function getStoredTestResultsForRun(testRunId) {
+  const baseQuery = {
+    where: { test_run_id: testRunId }
+  };
+
+  try {
+    return await TestResult.findAll({
+      ...baseQuery,
+      order: [['execution_order', 'ASC'], ['created_at', 'ASC']]
+    });
+  } catch (error) {
+    const message = error?.message || '';
+    if (/execution_order|column .* does not exist|unknown column/i.test(message)) {
+      return TestResult.findAll({
+        ...baseQuery,
+        order: [['created_at', 'ASC']]
+      });
+    }
+    throw error;
+  }
+}
+
 /**
  * Run Postman collection tests using Newman
  * @param {object} collection - Postman collection object
@@ -447,6 +473,7 @@ function runNewmanTests(collection, options = {}) {
       reporters: ['cli'],
       timeout: options.timeout || 60000, // Increased to 60 seconds
       timeoutRequest: options.timeoutRequest || 30000, // Increased to 30 seconds
+      timeoutScript: options.timeoutScript || 60000,
       insecure: true, // Allow self-signed certificates
       ...options.newmanOptions
     };
@@ -473,6 +500,7 @@ function runNewmanTests(collection, options = {}) {
       delayRequest: newmanOptions.delayRequest,
       timeout: newmanOptions.timeout,
       timeoutRequest: newmanOptions.timeoutRequest,
+      timeoutScript: newmanOptions.timeoutScript,
       hasEnvironment: !!newmanOptions.environment,
       insecure: newmanOptions.insecure
     });
@@ -798,6 +826,48 @@ function filterCollectionItems(collection, selectedPaths, testDelaysForCollectio
 }
 
 /**
+ * Apply envVars onto Postman URL path variables so request-level defaults
+ * (e.g. :resourceId with a hardcoded value) do not override user-provided run values.
+ * Matching is case-insensitive, while preserving original key casing in the collection.
+ * @param {object} collection - Postman collection JSON
+ * @param {object} envVars - Environment variables for this run
+ */
+function applyEnvVarsToRequestPathVariables(collection, envVars = {}) {
+  if (!collection || typeof collection !== 'object') return;
+  if (!envVars || typeof envVars !== 'object') return;
+
+  const envEntries = Object.entries(envVars)
+    .filter(([key]) => typeof key === 'string' && key.trim())
+    .map(([key, value]) => [key.trim(), String(value)]);
+
+  if (envEntries.length === 0) return;
+
+  const envMapLower = new Map(envEntries.map(([key, value]) => [key.toLowerCase(), value]));
+
+  const applyOnItem = (item) => {
+    if (!item || typeof item !== 'object') return;
+
+    if (item.request && item.request.url && Array.isArray(item.request.url.variable)) {
+      item.request.url.variable.forEach((urlVar) => {
+        if (!urlVar || typeof urlVar.key !== 'string') return;
+        const match = envMapLower.get(urlVar.key.toLowerCase());
+        if (typeof match !== 'undefined') {
+          urlVar.value = normalizeBaseUrl(match);
+        }
+      });
+    }
+
+    if (Array.isArray(item.item)) {
+      item.item.forEach(applyOnItem);
+    }
+  };
+
+  if (Array.isArray(collection.item)) {
+    collection.item.forEach(applyOnItem);
+  }
+}
+
+/**
  * Execute tests for selected collections and save results
  * @param {number} projectId - Project ID
  * @param {string} testRunName - Name for the test run
@@ -994,6 +1064,10 @@ async function executeTests(projectId, testRunName, options = {}) {
       total_tests: totalTestsToRun
     });
 
+    // Ensure envVars override request-level URL variable defaults (e.g. :resourceId)
+    // so single-test runs use values provided from saved environments or manual input.
+    applyEnvVarsToRequestPathVariables(mergedCollection, options.envVars);
+
     // Run tests with options (environment variables, etc.)
     // Use Newman's delayRequest option for delays between tests
     // Convert delayBetweenTests to number and validate
@@ -1009,9 +1083,11 @@ async function executeTests(projectId, testRunName, options = {}) {
     let newmanResults;
     let skipDuplicateSave = false; // Flag to skip duplicate save when results are saved incrementally
     
-    // Run sequentially if we have any delays (per-item or global) to enable progress tracking
-    // Otherwise, run all tests in parallel for speed
-    if (hasPerItemDelay || hasGlobalDelay) {
+    const shouldRunSequentially = hasPerItemDelay || hasGlobalDelay || (selectedTestsOrderedArray && selectedTestsOrderedArray.length > 0);
+
+    // Run sequentially when delay behavior or explicit execution order matters.
+    // This also prevents a single Newman callback timeout from discarding the whole run.
+    if (shouldRunSequentially) {
       // Sequential execution with delays - enables real-time progress tracking
       // IMPORTANT: Create a shared environment file so every sequential run has an environment.
       // This allows pm.environment.set() in scripts to persist between tests (we also sync from response body below).
@@ -1073,7 +1149,36 @@ async function executeTests(projectId, testRunName, options = {}) {
         const currentTestName = item.name || item.request?.method || 'Unnamed';
         console.log(`[testRunner] Executing item ${i + 1}/${(mergedCollection.item || []).length}:`, currentTestName);
         
-        const parsed = await runNewmanTests(singleCollection, testOptions);
+        let parsed = null;
+        let executionResult;
+        try {
+          parsed = await runNewmanTests(singleCollection, testOptions);
+        } catch (runError) {
+          const fullError = getFullErrorMessage(runError) || runError.message || String(runError);
+          executionResult = {
+            item: {
+              name: currentTestName,
+              request: {
+                method: item.request?.method || '',
+                url: getRequestRawUrl(item.request?.url),
+                headers: getRequestHeadersArray(item.request),
+                body: item.request?.body || ''
+              },
+              response: null,
+              assertions: [],
+              error: {
+                message: fullError,
+                name: runError.name || 'Error',
+                code: runError.code || runError.errno || null
+              }
+            },
+            assertions: [],
+            status: 'failed',
+            errorMessage: normalizeNetworkError(fullError)
+          };
+          combinedExecutions.push(executionResult);
+          console.error(`[testRunner] Newman failed for item ${i + 1}/${(mergedCollection.item || []).length}: ${currentTestName}`, runError);
+        }
         
         // After each test, try to extract variables from the response and update the shared environment
         // This allows variables set by test scripts to persist to the next test
@@ -1154,11 +1259,10 @@ async function executeTests(projectId, testRunName, options = {}) {
             }
           }
         }
-        let executionResult;
-        if (parsed && parsed.executions && parsed.executions.length > 0) {
+        if (!executionResult && parsed && parsed.executions && parsed.executions.length > 0) {
           executionResult = parsed.executions[0];
           combinedExecutions.push(executionResult);
-        } else {
+        } else if (!executionResult) {
           // Fallback execution record when Newman doesn't return expected execution
           executionResult = {
             item: { name: item.name || 'Unknown', request: item.request || {} },
@@ -1564,20 +1668,14 @@ async function executeTests(projectId, testRunName, options = {}) {
       
       // For sequential execution (per-item or global delays), fetch the already-saved results
       if (skipDuplicateSave) {
-        testResults = await TestResult.findAll({
-          where: { test_run_id: testRun.id },
-          order: [['execution_order', 'ASC'], ['created_at', 'ASC']]
-        });
+        testResults = await getStoredTestResultsForRun(testRun.id);
       }
     }
 
     // Calculate statistics from actual test results (not from Newman's summary)
     // If testResults is empty, fetch from database as fallback
     if (!testResults || testResults.length === 0) {
-      testResults = await TestResult.findAll({
-        where: { test_run_id: testRun.id },
-        order: [['execution_order', 'ASC'], ['created_at', 'ASC']]
-      });
+      testResults = await getStoredTestResultsForRun(testRun.id);
     }
     
     const totalTests = testResults.length;

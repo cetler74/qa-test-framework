@@ -2470,6 +2470,19 @@ router.get('/test-runs/:id', async (req, res) => {
     if (!testRun) {
       return res.status(404).json({ error: 'Test run not found' });
     }
+
+    const persistedResultCount = Array.isArray(testRun.testResults) ? testRun.testResults.length : 0;
+    const countedResults = Number(testRun.passed_tests || 0) + Number(testRun.failed_tests || 0);
+    const hasNoPersistedProgress = persistedResultCount === 0 && countedResults === 0 && Number(testRun.duration_ms || 0) === 0;
+    const isRecentRun = testRun.created_at && (Date.now() - new Date(testRun.created_at).getTime()) < (30 * 60 * 1000);
+
+    // Some background execution failures can mark the row as failed before Newman has actually stopped.
+    // Keep polling active when the row says "done" but there is still no persisted execution progress.
+    if (testRun.status !== 'running' && Number(testRun.total_tests || 0) > 0 && hasNoPersistedProgress && isRecentRun) {
+      testRun.setDataValue('status', 'running');
+      testRun.setDataValue('status_note', 'Execution is still in progress or finalization has not been persisted yet.');
+    }
+
     res.json(testRun);
   } catch (error) {
     console.error('Error loading test run:', error);
