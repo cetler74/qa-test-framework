@@ -27,6 +27,14 @@ const Project = sequelize.define('Project', {
     allowNull: false,
     defaultValue: 'private'
   },
+  status: {
+    type: DataTypes.STRING(20),
+    allowNull: false,
+    defaultValue: 'ongoing',
+    validate: {
+      isIn: [['ongoing', 'closed']]
+    }
+  },
   proxy_name: {
     type: DataTypes.STRING(100),
     allowNull: true

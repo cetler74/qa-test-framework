@@ -1331,7 +1331,7 @@ async function loadProjects() {
       projectsList.innerHTML = projects.map(project => `
         <div class="list-item" data-project-id="${project.id}" role="button" tabindex="0" aria-label="Open project ${String(project.name || '').replace(/"/g, '&quot;')}">
           <div class="list-item-info" style="cursor: pointer;">
-            <h3>${escapeHtmlLite(project.name)}</h3>
+            <h3 style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${escapeHtmlLite(project.name)} <span class="status-badge ${window.normalizeProjectStatus ? window.normalizeProjectStatus(project.status) : 'ongoing'}">${window.getProjectStatusLabel ? window.getProjectStatusLabel(project.status) : 'On going'}</span></h3>
             <p>${escapeHtmlLite(project.description || 'No description')}</p>
             <p style="font-size: 12px; color: #999; margin-top: 5px;">
               ${project.apiSpecs?.length || 0} API spec(s)
@@ -1352,6 +1352,36 @@ async function loadProjects() {
     console.error('Error loading projects:', error);
   }
 }
+
+window.normalizeProjectStatus = function normalizeProjectStatus(value) {
+  const normalized = String(value == null ? 'ongoing' : value).trim().toLowerCase().replace(/[\s_-]+/g, '');
+  return normalized === 'closed' ? 'closed' : 'ongoing';
+};
+
+window.getProjectStatusLabel = function getProjectStatusLabel(value) {
+  return window.normalizeProjectStatus(value) === 'closed' ? 'Closed' : 'On going';
+};
+
+window.isProjectClosed = function isProjectClosed(projectOrStatus) {
+  if (projectOrStatus && typeof projectOrStatus === 'object') {
+    return window.normalizeProjectStatus(projectOrStatus.status) === 'closed';
+  }
+  return window.normalizeProjectStatus(projectOrStatus) === 'closed';
+};
+
+window.getProjectRunBlockedMessage = function getProjectRunBlockedMessage(projectOrName) {
+  if (projectOrName && typeof projectOrName === 'object') {
+    const name = String(projectOrName.name || '').trim();
+    return name
+      ? `Project "${name}" is closed. New test runs are disabled.`
+      : 'This project is closed. New test runs are disabled.';
+  }
+
+  const name = String(projectOrName || '').trim();
+  return name
+    ? `Project "${name}" is closed. New test runs are disabled.`
+    : 'This project is closed. New test runs are disabled.';
+};
 
 // API Specs
 async function loadApiSpecs() {

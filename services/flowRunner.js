@@ -9,6 +9,7 @@ const { executeFuzz } = require('./fuzzRunner');
 const playwrightConfig = require('../config/playwright');
 const { getProxyForUrlAsync } = require('../lib/proxyConfig');
 const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
+const { ensureProjectIsRunnable } = require('./projectStatus');
 
 /**
  * Run a flow by id. Executes each flow task in order; each task creates one run (test_run or playwright_run) with flow_id.
@@ -25,6 +26,7 @@ async function executeFlow(flowId, options = {}) {
   }
 
   const projectId = flow.project_id;
+  await ensureProjectIsRunnable(projectId);
   const prefix = options.runNamePrefix || flow.name;
   const baseUrl = options.baseUrl || playwrightConfig.baseUrl || '';
   const envVars = options.envVars || null;

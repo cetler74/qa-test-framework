@@ -30,6 +30,13 @@ const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
 const { deleteTestRunArtifacts, deleteFuzzRunArtifacts, deletePlaywrightRunArtifacts } = require('../services/artifactCleanup');
 const { postmanToOpenApiYaml } = require('../services/postmanToOpenApi');
 const {
+  PROJECT_STATUS,
+  PROJECT_STATUS_VALUES,
+  ProjectClosedError,
+  ensureProjectIsRunnable,
+  normalizeProjectStatus
+} = require('../services/projectStatus');
+const {
   normalizeTicketUrlsList,
   persistTicketUrlsFromBody,
   ticketUrlsForDb,
@@ -88,6 +95,14 @@ function normalizeFolderPath(value) {
 function effectiveFolderPathForTest(test) {
   if (!test) return null;
   return test.folder_path_override || test.default_folder_path || null;
+}
+
+function handleProjectRunBlocked(res, error) {
+  if (error instanceof ProjectClosedError) {
+    res.status(409).json({ error: error.message, projectStatus: PROJECT_STATUS.CLOSED });
+    return true;
+  }
+  return false;
 }
 
 function normalizeRecordedSpecTitle(specContent, recordedName) {
@@ -276,13 +291,18 @@ router.get('/projects/:id', (req, res, next) => {
 // Create project (owner = current user)
 router.post('/projects', async (req, res) => {
   try {
-    const { name, description, visibility, shared_user_ids } = req.body;
+    const { name, description, visibility, shared_user_ids, status } = req.body;
     if (!name) return res.status(400).json({ error: 'Project name is required' });
+    const normalizedStatus = status === undefined ? PROJECT_STATUS.ONGOING : normalizeProjectStatus(status);
+    if (!normalizedStatus) {
+      return res.status(400).json({ error: `Project status must be one of: ${PROJECT_STATUS_VALUES.join(', ')}` });
+    }
     const project = await Project.create({
       name,
       description: description || null,
       owner_id: req.user.id,
-      visibility: visibility || 'private'
+      visibility: visibility || 'private',
+      status: normalizedStatus
     });
     if (Array.isArray(shared_user_ids) && shared_user_ids.length > 0 && project.visibility === 'shared') {
       await ProjectMember.bulkCreate(shared_user_ids.map(uid => ({ project_id: project.id, user_id: uid })));
@@ -313,7 +333,7 @@ router.put('/projects/:id', (req, res, next) => {
       const isOwner = project.owner_id === uid;
       const canChangeSharing = isAdmin || isOwner;
 
-      const { name, description, visibility, shared_user_ids, proxy_name } = req.body;
+      const { name, description, visibility, shared_user_ids, proxy_name, status } = req.body;
       const updates = {};
       if (name !== undefined) updates.name = name;
       if (description !== undefined) updates.description = description;
@@ -322,6 +342,16 @@ router.put('/projects/:id', (req, res, next) => {
           return res.status(403).json({ error: 'Only the project owner can change visibility' });
         }
         updates.visibility = visibility;
+      }
+      if (status !== undefined) {
+        if (!canChangeSharing) {
+          return res.status(403).json({ error: 'Only the project owner can change project status' });
+        }
+        const normalizedStatus = normalizeProjectStatus(status);
+        if (!normalizedStatus) {
+          return res.status(400).json({ error: `Project status must be one of: ${PROJECT_STATUS_VALUES.join(', ')}` });
+        }
+        updates.status = normalizedStatus;
       }
       // proxy_name is ignored; proxy is inferred from URL per run (getProxyForUrl)
       await project.update(updates);
@@ -1074,6 +1104,7 @@ router.post('/projects/:projectId/tests/:testId/run', (req, res, next) => {
   loadProjectAndCheckAccess(req, res, async () => {
     try {
       const projectId = req.project.id;
+      await ensureProjectIsRunnable(projectId);
       const testId = parseInt(req.params.testId, 10);
       if (!testId) return res.status(400).json({ error: 'Invalid test id' });
 
@@ -1206,6 +1237,7 @@ router.post('/projects/:projectId/tests/:testId/run', (req, res, next) => {
 
       return res.status(400).json({ error: 'This test type cannot be run from the catalogue (manual tests or unsupported source)' });
     } catch (error) {
+      if (handleProjectRunBlocked(res, error)) return;
       res.status(500).json({ error: error.message });
     }
   }, req.params.projectId, false);
@@ -1595,6 +1627,7 @@ router.post('/flows/:id/execute', (req, res) => {
     if (!flow) return res.status(404).json({ error: 'Flow not found' });
     loadProjectAndCheckAccess(req, res, async () => {
       try {
+        await ensureProjectIsRunnable(flow.project_id);
         const flowId = parseInt(req.params.id, 10);
         const { runNamePrefix, baseUrl, envVars } = req.body;
         const result = await executeFlow(flowId, {
@@ -1610,6 +1643,7 @@ router.post('/flows/:id/execute', (req, res) => {
           uiRunIds: result.uiRunIds
         });
       } catch (error) {
+        if (handleProjectRunBlocked(res, error)) return;
         res.status(500).json({ error: error.message });
       }
     }, flow.project_id, false);
@@ -1740,6 +1774,7 @@ router.post('/schedules/:id/trigger', async (req, res) => {
     if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
     const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, schedule.project_id);
     if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
+    await ensureProjectIsRunnable(schedule.project_id);
     await runScheduledJob(schedule);
     const updated = await Schedule.findByPk(schedule.id);
     const plain = updated.toJSON();
@@ -1749,6 +1784,7 @@ router.post('/schedules/:id/trigger', async (req, res) => {
     }
     res.json(plain);
   } catch (error) {
+    if (handleProjectRunBlocked(res, error)) return;
     res.status(500).json({ error: error.message });
   }
 });
@@ -2505,6 +2541,7 @@ router.post('/test-runs/execute', async (req, res) => {
     }
     const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, projectId);
     if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
+    await ensureProjectIsRunnable(projectId);
 
     if (!name) {
       return res.status(400).json({ error: 'Test run name is required' });
@@ -2617,6 +2654,7 @@ router.post('/test-runs/execute', async (req, res) => {
       message: 'Test execution started'
     });
   } catch (error) {
+    if (handleProjectRunBlocked(res, error)) return;
     res.status(500).json({ error: error.message });
   }
 });
@@ -2630,6 +2668,7 @@ router.post('/soap-runs/execute', async (req, res) => {
     }
     const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, projectId);
     if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
+    await ensureProjectIsRunnable(projectId);
     const apiSpec = await ApiSpec.findByPk(apiSpecId, { attributes: ['id', 'file_path', 'format'] });
     if (!apiSpec || apiSpec.format !== 'wsdl') {
       return res.status(400).json({ error: 'API spec not found or not WSDL' });
@@ -2665,6 +2704,7 @@ router.post('/soap-runs/execute', async (req, res) => {
       message: 'SOAP test execution started'
     });
   } catch (error) {
+    if (handleProjectRunBlocked(res, error)) return;
     res.status(500).json({ error: error.message });
   }
 });
@@ -2680,6 +2720,7 @@ router.post('/fuzz-runs/execute', async (req, res) => {
     }
     const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, projectId);
     if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
+    await ensureProjectIsRunnable(projectId);
     const baseUrl = serverUrl.trim().replace(/\/$/, '');
     const fuzzRun = await FuzzRun.create({
       name,
@@ -2712,6 +2753,7 @@ router.post('/fuzz-runs/execute', async (req, res) => {
       message: 'Fuzz execution started'
     });
   } catch (error) {
+    if (handleProjectRunBlocked(res, error)) return;
     res.status(500).json({ error: error.message });
   }
 });
@@ -2976,6 +3018,7 @@ router.post('/playwright-runs/execute', async (req, res) => {
     if (projectId) {
       const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, projectId);
       if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
+      await ensureProjectIsRunnable(projectId);
     }
     if (!projectId) {
       return res.status(400).json({ error: 'projectId is required for UI test runs' });
@@ -3033,6 +3076,7 @@ router.post('/playwright-runs/execute', async (req, res) => {
       });
     res.status(201).json({ playwrightRun: { id: run.id }, status: 'running', message: 'UI test execution started' });
   } catch (error) {
+    if (handleProjectRunBlocked(res, error)) return;
     res.status(500).json({ error: error.message });
   }
 });

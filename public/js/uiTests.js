@@ -217,6 +217,10 @@
   }
 
   function showRunUiTestsPage(projectId) {
+    if (window.currentProject && String(window.currentProject.id) === String(projectId) && typeof window.isProjectClosed === 'function' && window.isProjectClosed(window.currentProject)) {
+      alert(window.getProjectRunBlockedMessage ? window.getProjectRunBlockedMessage(window.currentProject) : 'This project is closed. New test runs are disabled.');
+      return;
+    }
     window._runUiTestsProjectId = projectId || null;
     showView('run-ui-tests');
     loadRunUiTestsPage();
