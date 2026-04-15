@@ -2,6 +2,64 @@
 
 // Global flag for Tests & Coverage edit mode
 window.projectTestsEditMode = false;
+window.currentProject = null;
+
+function projectRunsAreClosed(project) {
+  return typeof window.isProjectClosed === 'function' ? window.isProjectClosed(project) : false;
+}
+
+function getProjectClosedMessage(project) {
+  return typeof window.getProjectRunBlockedMessage === 'function'
+    ? window.getProjectRunBlockedMessage(project)
+    : 'This project is closed. New test runs are disabled.';
+}
+
+function ensureCurrentProjectRunsAllowed(projectId) {
+  if (!window.currentProject || String(window.currentProject.id) !== String(projectId)) return true;
+  if (!projectRunsAreClosed(window.currentProject)) return true;
+  alert(getProjectClosedMessage(window.currentProject));
+  return false;
+}
+
+function setProjectRunButtonState(button, disabled, title) {
+  if (!button) return;
+  button.disabled = !!disabled;
+  button.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+  if (title) button.title = title;
+  else button.removeAttribute('title');
+}
+
+function applyProjectRunAvailability(project) {
+  const isClosed = projectRunsAreClosed(project);
+  const blockedTitle = isClosed ? getProjectClosedMessage(project) : '';
+  setProjectRunButtonState(document.getElementById('run-tests-btn'), isClosed, blockedTitle);
+  setProjectRunButtonState(document.getElementById('run-ui-test-btn'), isClosed, blockedTitle);
+  setProjectRunButtonState(document.getElementById('run-fuzz-btn'), isClosed, blockedTitle);
+  setProjectRunButtonState(document.getElementById('run-soap-btn'), isClosed, blockedTitle);
+  setProjectRunButtonState(document.getElementById('project-tests-run-selected-btn'), isClosed, blockedTitle);
+
+  const statusEl = document.getElementById('project-detail-status');
+  if (statusEl) {
+    const statusClass = typeof window.normalizeProjectStatus === 'function'
+      ? window.normalizeProjectStatus(project?.status)
+      : 'ongoing';
+    const label = typeof window.getProjectStatusLabel === 'function'
+      ? window.getProjectStatusLabel(project?.status)
+      : 'On going';
+    statusEl.innerHTML = `Status: <span class="status-badge ${statusClass}">${label}</span>`;
+  }
+
+  const closedNoteEl = document.getElementById('project-detail-closed-note');
+  if (closedNoteEl) {
+    if (isClosed) {
+      closedNoteEl.textContent = getProjectClosedMessage(project);
+      closedNoteEl.style.display = 'block';
+    } else {
+      closedNoteEl.style.display = 'none';
+      closedNoteEl.textContent = '';
+    }
+  }
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   // Create project button
@@ -31,6 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
       alert('Please select a project first.');
       return;
     }
+    if (!ensureCurrentProjectRunsAllowed(projectId)) return;
     if (typeof window.showRunUiTestsPage === 'function') {
       window.showRunUiTestsPage(Number(projectId));
     }
@@ -198,6 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
       alert('Please open a project first.');
       return;
     }
+    if (!ensureCurrentProjectRunsAllowed(projectId)) return;
     if (typeof window.runBatchProjectCatalogueTests === 'function') {
       window.runBatchProjectCatalogueTests(Number(projectId));
     }
@@ -216,6 +276,13 @@ function showCreateProjectModal() {
         <label for="project-description">Description</label>
         <textarea id="project-description"></textarea>
       </div>
+      <div class="form-group">
+        <label for="project-status">Project status</label>
+        <select id="project-status">
+          <option value="ongoing" selected>On going</option>
+          <option value="closed">Closed</option>
+        </select>
+      </div>
       <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
         <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
         <button type="submit" class="btn btn-primary">Create</button>
@@ -230,11 +297,12 @@ function showCreateProjectModal() {
     
     const name = document.getElementById('project-name').value;
     const description = document.getElementById('project-description').value;
+    const status = document.getElementById('project-status').value;
     
     try {
       await apiRequest('/projects', {
         method: 'POST',
-        body: { name, description }
+        body: { name, description, status }
       });
       
       hideModal();
@@ -254,6 +322,7 @@ window.editProject = async (projectId) => {
       users = await apiRequest('/users') || [];
     } catch (e) {}
     const vis = project.visibility || 'private';
+    const status = (typeof window.normalizeProjectStatus === 'function' ? window.normalizeProjectStatus(project.status) : (project.status || 'ongoing'));
     const sharedIds = (project.shared_users || []).map(u => u.id);
     const ownerId = project.owner && project.owner.id;
     const canChangeSharing = window.currentUser && (window.currentUser.is_admin || ownerId === window.currentUser.id);
@@ -264,6 +333,14 @@ window.editProject = async (projectId) => {
 
     const sharingBlock = canChangeSharing
       ? `
+        <div class="form-group">
+          <label for="edit-project-status">Project status</label>
+          <select id="edit-project-status">
+            <option value="ongoing" ${status === 'ongoing' ? 'selected' : ''}>On going</option>
+            <option value="closed" ${status === 'closed' ? 'selected' : ''}>Closed</option>
+          </select>
+          <p class="form-hint">Closed projects keep their data visible but block new API, UI, SOAP, fuzz, flow, and schedule-triggered runs.</p>
+        </div>
         <div class="form-group">
           <label for="edit-project-visibility">Visibility</label>
           <select id="edit-project-visibility">
@@ -321,12 +398,13 @@ window.editProject = async (projectId) => {
 
       const name = document.getElementById('edit-project-name').value;
       const description = document.getElementById('edit-project-description').value;
+      const status = document.getElementById('edit-project-status')?.value || 'ongoing';
       const visibility = document.getElementById('edit-project-visibility')?.value || 'private';
       const sharedEl = document.getElementById('edit-project-shared-users');
       const shared_user_ids = sharedEl ? Array.from(sharedEl.selectedOptions).map(o => Number(o.value)) : [];
 
       const body = canChangeSharing
-        ? { name, description, visibility, shared_user_ids }
+        ? { name, description, status, visibility, shared_user_ids }
         : { name, description };
 
       try {
@@ -413,6 +491,7 @@ function parseTicketUrlsTextarea(text) {
 window.viewProject = async (projectId) => {
   try {
     const project = await apiRequest(`/projects/${projectId}`);
+    window.currentProject = project;
     
     document.getElementById('project-detail-name').textContent = project.name;
     document.getElementById('project-detail-description').textContent = project.description || 'No description';
@@ -421,6 +500,7 @@ window.viewProject = async (projectId) => {
     if (proxyEl) {
       proxyEl.textContent = 'Proxy: Inferred from URL per run';
     }
+    applyProjectRunAvailability(project);
 
     // Load project-level coverage summary and chart
     if (typeof window.loadProjectCoverageSummary === 'function') {
@@ -498,7 +578,7 @@ window.viewProject = async (projectId) => {
                 <p>${f.description || 'No description'}</p>
               </div>
               <div class="list-item-actions">
-                <button class="btn btn-primary" onclick="runFlow(${f.id}, '${(f.name || '').replace(/'/g, "\\'")}')">Run flow</button>
+                <button class="btn btn-primary" onclick="runFlow(${f.id}, '${(f.name || '').replace(/'/g, "\\'")}')" ${projectRunsAreClosed(project) ? `disabled title="${escapeHtml(getProjectClosedMessage(project))}"` : ''}>Run flow</button>
                 <button class="btn btn-secondary" onclick="editFlow(${f.id}, ${projectId})">Edit</button>
                 <button class="btn btn-danger" onclick="deleteFlow(${f.id}, ${projectId})">Delete</button>
               </div>
@@ -532,7 +612,7 @@ window.viewProject = async (projectId) => {
                 <p>${when} • Next: ${next} • ${s.enabled ? 'Enabled' : 'Disabled'}</p>
               </div>
               <div class="list-item-actions">
-                <button class="btn btn-primary" onclick="triggerSchedule(${s.id})">Run now</button>
+                <button class="btn btn-primary" onclick="triggerSchedule(${s.id})" ${projectRunsAreClosed(project) ? `disabled title="${escapeHtml(getProjectClosedMessage(project))}"` : ''}>Run now</button>
                 <button class="btn btn-secondary" onclick="editSchedule(${s.id}, ${projectId})">Edit</button>
                 <button class="btn btn-danger" onclick="deleteSchedule(${s.id}, ${projectId})">Delete</button>
               </div>
@@ -1049,8 +1129,10 @@ function renderProjectTestsTable(projectId) {
       const historyBtn = lastRunId
         ? `<button type="button" class="btn btn-outline btn-sm" onclick='window.openLastRunForTest(${lastRunId}, ${JSON.stringify(String(lastRunType))})' title="${historyTitle}">History</button>`
         : `<button type="button" class="btn btn-outline btn-sm" disabled title="${historyTitle}">History</button>`;
+      const isClosed = projectRunsAreClosed(window.currentProject);
+      const runTitle = isClosed ? escapeHtml(getProjectClosedMessage(window.currentProject)) : 'Run this test only';
       const runBtn = runKind
-        ? `<button type="button" class="btn btn-outline btn-sm" onclick="window.runProjectCatalogueTest(${projectId}, ${t.id}, '${runKind}')" title="Run this test only">Run</button>`
+        ? `<button type="button" class="btn btn-outline btn-sm" onclick="window.runProjectCatalogueTest(${projectId}, ${t.id}, '${runKind}')" title="${runTitle}" ${isClosed ? 'disabled' : ''}>Run</button>`
         : `<span class="project-test-actions-placeholder muted" title="Run is only available for tests synced from API collections (Sync from specs) or linked UI recordings—not for manual-only catalogue rows.">—</span>`;
       const runHistoryCell = `<td class="project-test-actions-cell"><div class="project-test-row-actions">${runBtn} ${historyBtn}</div></td>`;
       const checkCell = `<td class="project-test-col-check"><input type="checkbox" class="project-test-row-check" data-project-test-id="${t.id}" aria-label="Select row" /></td>`;
@@ -1130,6 +1212,7 @@ async function loadProjectTests(projectId) {
 }
 
 window.runProjectCatalogueTest = (projectId, projectTestId, kind, testSnapshot) => {
+  if (!ensureCurrentProjectRunsAllowed(projectId)) return;
   const test = testSnapshot || (window.currentProjectTests || []).find((x) => x.id === projectTestId);
   const defaultName = test ? `[Single] ${test.name || 'test'}` : '[Single] test';
 
@@ -1329,6 +1412,7 @@ window.runProjectCatalogueTestFromGlobal = (projectId, projectTestId, kind, test
 };
 
 window.runBatchProjectCatalogueTests = async (projectId) => {
+  if (!ensureCurrentProjectRunsAllowed(projectId)) return;
   const checked = document.querySelectorAll('#project-tests-table .project-test-row-check:checked');
   const ids = [...checked].map((cb) => parseInt(cb.getAttribute('data-project-test-id'), 10));
   if (ids.length === 0) {
@@ -3099,6 +3183,7 @@ async function showRunFuzzModal() {
     alert('Please select a project first.');
     return;
   }
+  if (!ensureCurrentProjectRunsAllowed(projectId)) return;
   try {
     const project = await apiRequest(`/projects/${projectId}`);
     const openApiSpecs = (project.apiSpecs || []).filter(s => s.format !== 'wsdl');
@@ -3180,6 +3265,7 @@ async function showRunSoapModal() {
     alert('Please select a project first.');
     return;
   }
+  if (!ensureCurrentProjectRunsAllowed(projectId)) return;
   try {
     const project = await apiRequest(`/projects/${projectId}`);
     const wsdlSpecs = (project.apiSpecs || []).filter(s => s.format === 'wsdl');
@@ -3485,6 +3571,10 @@ window.deleteFlow = async (flowId, projectId) => {
 };
 
 window.runFlow = async (flowId, flowName) => {
+  if (window.currentProject && projectRunsAreClosed(window.currentProject)) {
+    alert(getProjectClosedMessage(window.currentProject));
+    return;
+  }
   const content = `
     <form id="run-flow-form">
       <div class="form-group">
@@ -3858,6 +3948,10 @@ window.deleteSchedule = async (scheduleId, projectId) => {
 };
 
 window.triggerSchedule = async (scheduleId) => {
+  if (window.currentProject && projectRunsAreClosed(window.currentProject)) {
+    alert(getProjectClosedMessage(window.currentProject));
+    return;
+  }
   try {
     await apiRequest(`/schedules/${scheduleId}/trigger`, { method: 'POST' });
     alert('Schedule run started. Check Test Runs for progress.');

@@ -341,6 +341,11 @@ function extractCollectionVariables(collection) {
 // Show Run Tests Modal
 function showRunTestsModal(initialState = null) {
   const projectId = document.getElementById('run-tests-btn').getAttribute('data-project-id');
+
+  if (window.currentProject && String(window.currentProject.id) === String(projectId) && typeof window.isProjectClosed === 'function' && window.isProjectClosed(window.currentProject)) {
+    alert(window.getProjectRunBlockedMessage ? window.getProjectRunBlockedMessage(window.currentProject) : 'This project is closed. New test runs are disabled.');
+    return;
+  }
   
   if (!projectId) {
     alert('Please select a project first');

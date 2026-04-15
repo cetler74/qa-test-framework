@@ -10,6 +10,7 @@ const { executeTests } = require('./testRunner');
 const { runPlaywrightTests } = require('./playwrightRunner');
 const playwrightConfig = require('../config/playwright');
 const { getProxyForUrlAsync } = require('../lib/proxyConfig');
+const { ProjectClosedError, ensureProjectIsRunnable } = require('./projectStatus');
 
 const cronJobs = new Map();
 const intervalIds = new Map();
@@ -35,6 +36,19 @@ async function runScheduledJob(schedule) {
   const flowId = schedule.flow_id;
 
   try {
+    try {
+      await ensureProjectIsRunnable(projectId);
+    } catch (err) {
+      if (err instanceof ProjectClosedError) {
+        console.log('[scheduler] Skipping schedule', schedule.id, 'because project is closed');
+        const now = new Date();
+        const next = computeNextRunAt({ ...schedule.toJSON(), last_run_at: now });
+        await schedule.update({ last_run_at: now, next_run_at: next });
+        return;
+      }
+      throw err;
+    }
+
     if (flowId) {
       await executeFlow(flowId, { runNamePrefix: `Scheduled: ${schedule.id}` });
     } else {

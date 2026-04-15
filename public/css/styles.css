@@ -1066,6 +1066,16 @@ main {
     color: var(--color-text-inverse);
 }
 
+.status-badge.ongoing {
+    background: var(--color-success, #10b981);
+    color: var(--color-text-inverse, #ffffff);
+}
+
+.status-badge.closed {
+    background: #475569;
+    color: var(--color-text-inverse, #ffffff);
+}
+
 p.run-status-in-progress {
     margin-top: 6px;
     font-size: 13px;
@@ -1234,6 +1244,17 @@ p.run-status-in-progress {
     border-radius: var(--radius-lg);
     margin-bottom: var(--spacing-xl);
     border: 1px solid var(--color-gray-200);
+}
+
+.project-status-notice {
+    margin-top: var(--spacing-md);
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    color: #9a3412;
+    font-size: 14px;
+    line-height: 1.5;
 }
 
 .project-actions {
