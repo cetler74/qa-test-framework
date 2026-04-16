@@ -1047,37 +1047,46 @@ function renderProjectTestsTable(projectId) {
   }
 
   const groupedRows = [];
-  let lastFolderLabel = null;
+  const folderGroups = new Map();
   tests.forEach((t) => {
       const folderPath = getEffectiveFolderPath(t);
+      const folderKey = folderPath || '__NO_FOLDER__';
+      if (!folderGroups.has(folderKey)) {
+        folderGroups.set(folderKey, {
+          folderPath,
+          folderLabel: folderPath || 'No folder',
+          tests: []
+        });
+      }
+      folderGroups.get(folderKey).tests.push(t);
+    });
+
+  folderGroups.forEach(({ folderPath, folderLabel, tests: folderTests }) => {
       const folderPathArg = (folderPath || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-      const folderLabel = folderPath || 'No folder';
       const folderKey = folderPath || '__NO_FOLDER__';
       const collapseKey = `${projectId}::${folderKey}`;
       const isCollapsed = !!window.projectTestsCollapsedFolders[collapseKey];
-      if (folderLabel !== lastFolderLabel) {
-        groupedRows.push(`
-          <tr class="folder-group-row">
-            <td colspan="${inEditMode ? '12' : '10'}">
-              <button
-                type="button"
-                class="folder-group-toggle"
-                onclick="window.toggleProjectTestsFolderGroup(${projectId}, '${folderPathArg}')"
-                aria-expanded="${isCollapsed ? 'false' : 'true'}"
-                title="${isCollapsed ? 'Expand folder' : 'Collapse folder'}"
-              >
-                <span class="folder-group-chevron">${isCollapsed ? '&#9656;' : '&#9662;'}</span>
-                <svg class="folder-group-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-                <span class="folder-group-label">Folder: ${escapeHtml(folderLabel)}</span>
-              </button>
-            </td>
-          </tr>
-        `);
-        lastFolderLabel = folderLabel;
-      }
+      groupedRows.push(`
+        <tr class="folder-group-row">
+          <td colspan="${inEditMode ? '12' : '10'}">
+            <button
+              type="button"
+              class="folder-group-toggle"
+              onclick="window.toggleProjectTestsFolderGroup(${projectId}, '${folderPathArg}')"
+              aria-expanded="${isCollapsed ? 'false' : 'true'}"
+              title="${isCollapsed ? 'Expand folder' : 'Collapse folder'}"
+            >
+              <span class="folder-group-chevron">${isCollapsed ? '&#9656;' : '&#9662;'}</span>
+              <svg class="folder-group-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+              <span class="folder-group-label">Folder: ${escapeHtml(folderLabel)}</span>
+            </button>
+          </td>
+        </tr>
+      `);
       if (isCollapsed) {
         return;
       }
+      folderTests.forEach((t) => {
       const stats = t.stats || {};
       const lastStatus = stats.last_status || 'not_run';
       const hasStatusSet = lastStatus && lastStatus !== 'not_run';
@@ -1159,6 +1168,7 @@ function renderProjectTestsTable(projectId) {
           ${actionsCol}
         </tr>
       `);
+      });
     });
 
   tableEl.innerHTML = `

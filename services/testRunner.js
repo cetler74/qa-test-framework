@@ -369,8 +369,7 @@ async function updateProjectTestStatsForApiResult(testRun, testResult) {
     await projectTest.update({
       name,
       endpoint: testResult.endpoint || projectTest.endpoint,
-      method,
-      is_active: true
+      method
     });
 
     const [stats] = await ProjectTestStat.findOrCreate({

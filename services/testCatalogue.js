@@ -222,8 +222,7 @@ async function syncProjectTests(projectId) {
         source_kind: t.source_kind,
         source_order: t.source_order ?? null,
         source_path: t.source_path ?? null,
-        default_folder_path: t.default_folder_path ?? null,
-        is_active: true
+        default_folder_path: t.default_folder_path ?? null
       };
       await existingRow.update(updates);
     } else {
