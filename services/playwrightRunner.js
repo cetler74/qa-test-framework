@@ -15,6 +15,60 @@ const TRACES_DIR = path.join(REPORTS_DIR, 'playwright-traces');
 
 const BROWSERS = { chromium, firefox, webkit };
 
+function detectUiVariableNamesFromSpec(specContent) {
+  if (!specContent || typeof specContent !== 'string') return [];
+  const names = new Set();
+  const re = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+  let match;
+  while ((match = re.exec(specContent)) !== null) {
+    if (match[1]) names.add(match[1]);
+  }
+  return Array.from(names).sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeUiVariablesMap(input) {
+  if (!input || typeof input !== 'object') return {};
+  const out = {};
+  Object.entries(input).forEach(([key, value]) => {
+    const normalizedKey = String(key || '').trim();
+    if (!normalizedKey || value == null) return;
+    out[normalizedKey] = String(value);
+  });
+  return out;
+}
+
+function escapeUiVariableReplacement(value) {
+  return String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/\$\{/g, '\\${')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/`/g, '\\`')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n');
+}
+
+function applyUiVariablesToSpec(specContent, uiVariables = {}) {
+  const variableNames = detectUiVariableNamesFromSpec(specContent);
+  const normalizedVariables = normalizeUiVariablesMap(uiVariables);
+  const missingVariables = variableNames.filter((name) => !(name in normalizedVariables) || normalizedVariables[name] === '');
+  if (missingVariables.length > 0) {
+    const err = new Error(`Missing UI test variables: ${missingVariables.join(', ')}`);
+    err.code = 'MISSING_UI_TEST_VARIABLES';
+    throw err;
+  }
+
+  let effectiveSpecContent = String(specContent || '');
+  variableNames.forEach((name) => {
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    effectiveSpecContent = effectiveSpecContent.replace(
+      new RegExp(`\\$\\{${escapedName}\\}`, 'g'),
+      escapeUiVariableReplacement(normalizedVariables[name])
+    );
+  });
+  return { effectiveSpecContent, variableNames };
+}
+
 /** RunId -> { cancelled: boolean, child?: ChildProcess, browser?: Browser }. Used to cancel running UI tests. */
 const runningPlaywrightState = {};
 
@@ -161,7 +215,7 @@ async function getPlaywrightTestListWithRecorded(projectId = null) {
   try {
     const options = {
       order: [['created_at', 'DESC']],
-      attributes: ['id', 'name', 'base_url']
+      attributes: ['id', 'name', 'base_url', 'spec_content']
     };
     if (projectId) {
       const links = await ProjectRecordedTest.findAll({
@@ -178,7 +232,8 @@ async function getPlaywrightTestListWithRecorded(projectId = null) {
     recorded = rows.map(r => ({
       id: `recorded-${r.id}`,
       name: r.name,
-      base_url: r.base_url || undefined
+      base_url: r.base_url || undefined,
+      variable_names: detectUiVariableNamesFromSpec(r.spec_content || '')
     }));
   } catch (err) {
     console.error('[playwrightRunner] Failed to load recorded tests:', err.message);
@@ -210,6 +265,7 @@ async function runPlaywrightTests(options = {}) {
   const traceOpt = options.trace || 'off';
   const browserName = options.browserName && BROWSERS[options.browserName] ? options.browserName : 'chromium';
   const slowMo = typeof options.slowMo === 'number' && options.slowMo >= 0 ? options.slowMo : 0;
+  const uiVariables = normalizeUiVariablesMap(options.uiVariables);
 
   const recordedIds = runOnly ? runOnly.filter(id => String(id).startsWith('recorded-')).map(id => String(id).replace('recorded-', '')) : [];
   const builtInRunOnly = null;
@@ -602,7 +658,10 @@ async function runPlaywrightTests(options = {}) {
     try {
       const startOrder = order + 1;
       const runOpts = { timeoutMs, headless, video: videoOpt, trace: traceOpt, browserName, slowMo, proxy };
-      const out = await runRecordedSpec(runId, recId, baseUrl, startOrder, runOpts);
+      const out = await runRecordedSpec(runId, recId, baseUrl, startOrder, {
+        ...runOpts,
+        uiVariables
+      });
       if (out.cancelled) {
         await updateRunSummary(runId, total, passed, failed, Date.now() - startTime, 'cancelled');
         return { summary: { total, passed, failed }, results };
@@ -752,7 +811,8 @@ async function runRecordedSpec(runId, recordedId, baseUrl, startOrder, runOption
   const resultPath = path.join(REPORTS_DIR, `${slug}-result.json`);
   const testResultsDir = path.join(REPORTS_DIR, 'playwright-test-results', slug);
   try {
-    fs.writeFileSync(specPath, test.spec_content, 'utf8');
+    const { effectiveSpecContent } = applyUiVariablesToSpec(test.spec_content || '', runOptions.uiVariables || {});
+    fs.writeFileSync(specPath, effectiveSpecContent, 'utf8');
     const specFileName = path.basename(specPath);
     const launchArgs = playwrightConfig.launchArgs || [];
     const userAgent = playwrightConfig.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -909,7 +969,7 @@ module.exports = {
     if (!fs.existsSync(SCREENSHOTS_DIR)) fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 
     // Parse spec content to get step descriptions (navigation, clicks, fills, etc.) for validations
-    const parsedSteps = parseRecordedSpecSteps(test.spec_content || '');
+    const parsedSteps = parseRecordedSpecSteps(effectiveSpecContent || '');
 
     const results = [];
     let failedScreenshotIndex = 0;
@@ -1243,4 +1303,10 @@ async function cancelPlaywrightRun(runId) {
   return true;
 }
 
-module.exports = { runPlaywrightTests, getPlaywrightTestList, getPlaywrightTestListWithRecorded, cancelPlaywrightRun };
+module.exports = {
+  runPlaywrightTests,
+  getPlaywrightTestList,
+  getPlaywrightTestListWithRecorded,
+  cancelPlaywrightRun,
+  detectUiVariableNamesFromSpec
+};

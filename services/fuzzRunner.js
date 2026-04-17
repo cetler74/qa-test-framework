@@ -56,6 +56,17 @@ const PROGRESS_UPDATE_INTERVAL_MS = 2000;
 /** FuzzRun id -> child process. Used to cancel running fuzz runs. */
 const runningFuzzChildren = {};
 
+function getMaxRequestsPerMinuteFromDelay(delayBetweenRequests) {
+  const delaySeconds = Number(delayBetweenRequests);
+  if (!Number.isFinite(delaySeconds) || delaySeconds <= 0) {
+    return null;
+  }
+
+  // CATS already supports request throttling in requests/minute; convert the requested
+  // delay into the closest lower-or-equal rate so we do not exceed the user's pace.
+  return Math.max(1, Math.floor(60 / delaySeconds));
+}
+
 /**
  * Run CATS CLI with given options. Optionally streams stdout/stderr to onProgress for live progress.
  * @param {object} options - { contractPath, serverUrl, outputDir, onProgress?(message: string), fuzzRunId? }
@@ -489,13 +500,16 @@ async function executeFuzz(projectId, apiSpecId, name, options = {}) {
     outputDir = path.join(tempDir, `cats-output-${fuzzRun.id}-${Date.now()}`);
     fs.mkdirSync(outputDir, { recursive: true });
 
+    const maxRequestsPerMinute = getMaxRequestsPerMinuteFromDelay(options.delayBetweenRequests)
+      || options.maxRequestsPerMinute;
+
     const { exitCode, junitPath } = await runCats({
       contractPath,
       serverUrl: baseUrl,
       outputDir,
       paths: options.paths,
       skipPaths: options.skipPaths,
-      maxRequestsPerMinute: options.maxRequestsPerMinute,
+      maxRequestsPerMinute,
       proxy: options.proxy,
       fuzzRunId: fuzzRun.id,
       onProgress: options.onProgress

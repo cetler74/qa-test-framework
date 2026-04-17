@@ -763,6 +763,11 @@ test('test', async ({ page }) => {
                             </div>
                             <textarea id="recorded-test-spec" rows="14" placeholder="Paste the test code from Playwright Inspector here, or click 'Launch Codegen' and then 'Load generated code' to automatically load it (test(..., async ({ page }) => { ... }))" spellcheck="false"></textarea>
                         </div>
+                        <div class="form-group" id="recorded-test-detected-vars-wrap" style="display:none;">
+                            <label>Detected UI variables</label>
+                            <div id="recorded-test-detected-vars" class="single-test-vars-list"></div>
+                            <span class="form-hint">Placeholders such as ${suffix} are resolved at run time from the selected UI Test Variable group.</span>
+                        </div>
                         <div class="form-actions">
                             <button type="button" class="btn btn-secondary" id="recorded-test-cancel">Cancel</button>
                             <button type="submit" class="btn btn-primary" id="recorded-test-save">Save</button>
@@ -827,6 +832,20 @@ test('test', async ({ page }) => {
                             <select id="run-ui-tests-project-select">
                                 <option value="">Select project...</option>
                             </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="run-ui-tests-variable-group">UI Test Variable group</label>
+                            <div class="input-with-button">
+                                <select id="run-ui-tests-variable-group">
+                                    <option value="">None</option>
+                                </select>
+                                <button type="button" class="btn btn-secondary" id="manage-ui-test-variable-groups-btn">Manage groups</button>
+                            </div>
+                            <span class="form-hint">Saved in this browser and reused across all projects.</span>
+                        </div>
+                        <div class="form-group" id="run-ui-tests-variables-section" style="display:none;">
+                            <label>Variables used by selected tests</label>
+                            <div id="run-ui-tests-variables-list" class="single-test-vars-list"></div>
                         </div>
                         <div class="form-group">
                             <label for="run-ui-tests-name">Run name</label>

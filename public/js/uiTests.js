@@ -96,6 +96,325 @@
 }
 
   let testList = [];
+  const UI_TEST_VARIABLES_STORAGE_KEY = 'qa_ui_test_variable_groups';
+
+  function extractUiVariableNamesFromSpecText(specContent) {
+    if (!specContent || typeof specContent !== 'string') return [];
+    const names = new Set();
+    const re = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+    let match;
+    while ((match = re.exec(specContent)) !== null) {
+      if (match[1]) names.add(match[1]);
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }
+
+  function normalizeUiVariableKey(key) {
+    const raw = String(key || '').trim();
+    if (!raw) return '';
+    const tokenMatch = raw.match(/^\$\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}$/);
+    if (tokenMatch) return tokenMatch[1];
+    return raw;
+  }
+
+  function loadSavedUiTestVariableGroups() {
+    try {
+      const raw = localStorage.getItem(UI_TEST_VARIABLES_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((group) => group && group.id && group.name) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveUiTestVariableGroups(groups) {
+    localStorage.setItem(UI_TEST_VARIABLES_STORAGE_KEY, JSON.stringify(Array.isArray(groups) ? groups : []));
+  }
+
+  function getSavedUiTestVariableGroupById(groupId) {
+    if (!groupId) return null;
+    return loadSavedUiTestVariableGroups().find((item) => item.id === groupId) || null;
+  }
+
+  function mergeSavedUiTestVariableGroup(groupId, baseValues = {}) {
+    const merged = { ...(baseValues && typeof baseValues === 'object' ? baseValues : {}) };
+    if (!groupId) return merged;
+    const group = loadSavedUiTestVariableGroups().find((item) => item.id === groupId);
+    if (!group || !group.variables || typeof group.variables !== 'object') return merged;
+
+    const resolved = {};
+    const groupEntries = Object.entries(group.variables || {});
+    const groupByLower = new Map(groupEntries.map(([key, value]) => [String(key || '').trim().toLowerCase(), value]));
+    const baseEntries = Object.entries(merged || {});
+
+    groupEntries.forEach(([key, value]) => {
+      const normalizedKey = String(key || '').trim();
+      if (!normalizedKey) return;
+      resolved[normalizedKey] = value == null ? '' : String(value);
+    });
+
+    baseEntries.forEach(([key, value]) => {
+      const normalizedKey = String(key || '').trim();
+      if (!normalizedKey) return;
+      const currentValue = value == null ? '' : String(value);
+      const matchingGroupValue = groupByLower.get(normalizedKey.toLowerCase());
+      if (currentValue.trim() !== '') {
+        resolved[normalizedKey] = currentValue;
+      } else if (matchingGroupValue != null && typeof resolved[normalizedKey] === 'undefined') {
+        resolved[normalizedKey] = String(matchingGroupValue);
+      } else if (typeof resolved[normalizedKey] === 'undefined') {
+        resolved[normalizedKey] = currentValue;
+      }
+    });
+
+    return resolved;
+  }
+
+  function resolveUiVariableValues(variableNames, groupId, currentValues = {}) {
+    const resolved = {};
+    const group = getSavedUiTestVariableGroupById(groupId);
+    const groupEntries = group && group.variables && typeof group.variables === 'object'
+      ? Object.entries(group.variables)
+      : [];
+    const groupByLower = new Map(groupEntries.map(([key, value]) => [normalizeUiVariableKey(key).toLowerCase(), value == null ? '' : String(value)]));
+
+    (Array.isArray(variableNames) ? variableNames : []).forEach((name) => {
+      const normalizedName = normalizeUiVariableKey(name);
+      if (!normalizedName) return;
+      const currentValue = currentValues && Object.prototype.hasOwnProperty.call(currentValues, normalizedName)
+        ? String(currentValues[normalizedName] == null ? '' : currentValues[normalizedName])
+        : '';
+      if (currentValue.trim() !== '') {
+        resolved[normalizedName] = currentValue;
+        return;
+      }
+      resolved[normalizedName] = groupByLower.get(normalizedName.toLowerCase()) || '';
+    });
+
+    return resolved;
+  }
+
+  function getUiVariableNamesForTests(tests) {
+    return Array.from(new Set((tests || []).flatMap((test) => Array.isArray(test.variable_names) ? test.variable_names : [])))
+      .sort((a, b) => a.localeCompare(b));
+  }
+
+  function populateUiVariableGroupSelect(selectEl, selectedId = '') {
+    if (!selectEl) return;
+    const groups = loadSavedUiTestVariableGroups();
+    selectEl.innerHTML = '<option value="">None</option>' + groups.map((group) => (
+      `<option value="${escapeHtml(String(group.id))}">${escapeHtml(group.name || '')}</option>`
+    )).join('');
+    selectEl.value = groups.some((group) => group.id === selectedId) ? selectedId : '';
+  }
+
+  function collectUiVariableInputValues(containerEl, selector = '.ui-test-variable-value') {
+    if (!containerEl) return {};
+    const values = {};
+    containerEl.querySelectorAll(selector).forEach((input) => {
+      const key = input.getAttribute('data-var-name');
+      if (!key) return;
+      values[key] = input.value || '';
+    });
+    return values;
+  }
+
+  function renderUiVariableInputs(containerEl, variableNames, values = {}, options = {}) {
+    if (!containerEl) return;
+    const inputClass = options.inputClass || 'ui-test-variable-value';
+    const emptyMessage = options.emptyMessage || 'No UI variables detected.';
+    if (!Array.isArray(variableNames) || variableNames.length === 0) {
+      containerEl.innerHTML = `<p class="muted single-test-vars-empty">${escapeHtml(emptyMessage)}</p>`;
+      return;
+    }
+    containerEl.innerHTML = variableNames.map((varName) => `
+      <div class="single-test-var-item">
+        <label class="single-test-var-label" for="${escapeHtml(options.idPrefix || 'ui-var')}-${escapeHtml(varName)}">${escapeHtml(varName)}</label>
+        <input
+          type="text"
+          class="${escapeHtml(inputClass)} form-control"
+          id="${escapeHtml(options.idPrefix || 'ui-var')}-${escapeHtml(varName)}"
+          data-var-name="${escapeHtml(varName)}"
+          placeholder="Value for ${escapeHtml(varName)}"
+          value="${escapeHtml(values[varName] != null ? String(values[varName]) : '')}"
+        >
+      </div>
+    `).join('');
+  }
+
+  function updateRecordedTestDetectedVariablesPreview() {
+    const wrap = document.getElementById('recorded-test-detected-vars-wrap');
+    const list = document.getElementById('recorded-test-detected-vars');
+    const specInput = document.getElementById('recorded-test-spec');
+    if (!wrap || !list || !specInput) return;
+    const variableNames = extractUiVariableNamesFromSpecText(specInput.value || '');
+    if (variableNames.length === 0) {
+      wrap.style.display = 'none';
+      list.innerHTML = '';
+      return;
+    }
+    wrap.style.display = 'block';
+    list.innerHTML = variableNames.map((name) => `<span class="status-badge pending" style="margin-right:8px;">${escapeHtml(name)}</span>`).join('');
+  }
+
+  function showUiTestVariableGroupEditor(group = null, onDone = null) {
+    const existing = group || { id: null, name: '', variables: {} };
+    const rowsHtml = Object.entries(existing.variables || {}).map(([key, value]) => `
+      <div class="ui-variable-group-row" style="display:flex; gap:10px; margin-bottom:10px;">
+        <input type="text" class="form-control ui-variable-group-key" placeholder="Variable name" value="${escapeHtml(key)}">
+        <input type="text" class="form-control ui-variable-group-value" placeholder="Value" value="${escapeHtml(String(value || ''))}">
+        <button type="button" class="btn btn-secondary ui-variable-group-remove">Remove</button>
+      </div>
+    `).join('');
+    showModal(group ? 'Edit UI Test Variable group' : 'Add UI Test Variable group', `
+      <form id="ui-variable-group-form">
+        <div class="form-group">
+          <label for="ui-variable-group-name">Group name</label>
+          <input type="text" id="ui-variable-group-name" class="form-control" value="${escapeHtml(existing.name || '')}" placeholder="e.g. Customer data set A" required>
+        </div>
+        <div class="form-group">
+          <label>Variables</label>
+          <div id="ui-variable-group-rows">${rowsHtml || ''}</div>
+          <button type="button" class="btn btn-secondary" id="ui-variable-group-add-row">Add variable</button>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="ui-variable-group-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    `);
+
+    const rowsEl = document.getElementById('ui-variable-group-rows');
+    const addRow = (key = '', value = '') => {
+      const row = document.createElement('div');
+      row.className = 'ui-variable-group-row';
+      row.style.cssText = 'display:flex; gap:10px; margin-bottom:10px;';
+      row.innerHTML = `
+        <input type="text" class="form-control ui-variable-group-key" placeholder="Variable name" value="${escapeHtml(key)}">
+        <input type="text" class="form-control ui-variable-group-value" placeholder="Value" value="${escapeHtml(value)}">
+        <button type="button" class="btn btn-secondary ui-variable-group-remove">Remove</button>
+      `;
+      rowsEl.appendChild(row);
+      row.querySelector('.ui-variable-group-remove')?.addEventListener('click', () => row.remove());
+    };
+
+    rowsEl.querySelectorAll('.ui-variable-group-remove').forEach((button) => {
+      button.addEventListener('click', () => button.closest('.ui-variable-group-row')?.remove());
+    });
+    document.getElementById('ui-variable-group-add-row')?.addEventListener('click', () => addRow());
+    document.getElementById('ui-variable-group-cancel')?.addEventListener('click', () => {
+      if (typeof onDone === 'function') onDone(false);
+      hideModal();
+    });
+    document.getElementById('ui-variable-group-form')?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const name = document.getElementById('ui-variable-group-name')?.value?.trim();
+      if (!name) {
+        alert('Group name is required.');
+        return;
+      }
+      const variables = {};
+      rowsEl.querySelectorAll('.ui-variable-group-row').forEach((row) => {
+        const key = normalizeUiVariableKey(row.querySelector('.ui-variable-group-key')?.value?.trim());
+        const value = row.querySelector('.ui-variable-group-value')?.value ?? '';
+        if (key) variables[key] = value;
+      });
+      const groups = loadSavedUiTestVariableGroups();
+      const nextGroup = {
+        id: existing.id || `ui-var-group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name,
+        variables
+      };
+      const nextGroups = existing.id
+        ? groups.map((item) => item.id === existing.id ? nextGroup : item)
+        : [...groups, nextGroup];
+      saveUiTestVariableGroups(nextGroups);
+      if (typeof onDone === 'function') onDone(true, nextGroup.id);
+      showUiTestVariableGroupsManager(onDone, nextGroup.id);
+    });
+    if (!rowsHtml) addRow();
+  }
+
+  function showUiTestVariableGroupsManager(onDone = null, preferredId = '') {
+    const groups = loadSavedUiTestVariableGroups();
+    const listHtml = groups.length
+      ? groups.map((group) => `
+          <div class="list-item" data-ui-variable-group-id="${escapeHtml(String(group.id))}">
+            <div class="list-item-info">
+              <h3>${escapeHtml(group.name || '')}</h3>
+              <p>${Object.keys(group.variables || {}).length} variable(s)</p>
+            </div>
+            <div class="list-item-actions">
+              <button type="button" class="btn btn-secondary ui-variable-group-edit">Edit</button>
+              <button type="button" class="btn btn-danger ui-variable-group-delete">Delete</button>
+            </div>
+          </div>
+        `).join('')
+      : '<div class="empty-state"><p>No UI Test Variable groups saved in this browser.</p></div>';
+    showModal('UI Test Variable groups', `
+      <div>
+        <p class="muted" style="margin-bottom:12px;">These groups are stored locally in this browser and can be reused across all projects.</p>
+        <div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:12px;">
+          <button type="button" class="btn btn-primary" id="ui-variable-group-create">Add group</button>
+          <button type="button" class="btn btn-secondary" id="ui-variable-group-close">Close</button>
+        </div>
+        <div id="ui-variable-group-list">${listHtml}</div>
+      </div>
+    `);
+    document.getElementById('ui-variable-group-close')?.addEventListener('click', () => {
+      if (typeof onDone === 'function') onDone(false, preferredId || '');
+      hideModal();
+    });
+    document.getElementById('ui-variable-group-create')?.addEventListener('click', () => {
+      showUiTestVariableGroupEditor(null, onDone);
+    });
+    document.querySelectorAll('.ui-variable-group-edit').forEach((button) => {
+      button.addEventListener('click', () => {
+        const row = button.closest('[data-ui-variable-group-id]');
+        const groupId = row?.getAttribute('data-ui-variable-group-id');
+        const group = loadSavedUiTestVariableGroups().find((item) => item.id === groupId);
+        if (group) showUiTestVariableGroupEditor(group, onDone);
+      });
+    });
+    document.querySelectorAll('.ui-variable-group-delete').forEach((button) => {
+      button.addEventListener('click', () => {
+        const row = button.closest('[data-ui-variable-group-id]');
+        const groupId = row?.getAttribute('data-ui-variable-group-id');
+        if (!groupId || !confirm('Delete this UI Test Variable group?')) return;
+        const nextGroups = loadSavedUiTestVariableGroups().filter((item) => item.id !== groupId);
+        saveUiTestVariableGroups(nextGroups);
+        showUiTestVariableGroupsManager(onDone, preferredId && preferredId !== groupId ? preferredId : '');
+      });
+    });
+  }
+
+  function getSelectedRunUiTests() {
+    const listType = document.querySelector('input[name="test-list-type"]:checked')?.value || 'selected';
+    if (listType === 'full') return testList.slice();
+    const selectedIds = new Set(Array.from(document.querySelectorAll('.playwright-test-cb:checked')).map((cb) => cb.getAttribute('data-test-id')));
+    return testList.filter((test) => selectedIds.has(String(test.id)));
+  }
+
+  function updateRunUiTestVariablesUI(options = {}) {
+    const section = document.getElementById('run-ui-tests-variables-section');
+    const listEl = document.getElementById('run-ui-tests-variables-list');
+    const groupSelect = document.getElementById('run-ui-tests-variable-group');
+    if (!section || !listEl || !groupSelect) return;
+    const variableNames = getUiVariableNamesForTests(getSelectedRunUiTests());
+    if (variableNames.length === 0) {
+      section.style.display = 'none';
+      listEl.innerHTML = '';
+      return;
+    }
+    const currentValues = options.preserveValues ? collectUiVariableInputValues(listEl) : {};
+    const mergedValues = resolveUiVariableValues(variableNames, groupSelect.value, currentValues);
+    section.style.display = 'block';
+    renderUiVariableInputs(listEl, variableNames, mergedValues, {
+      inputClass: 'ui-test-variable-value',
+      idPrefix: 'run-ui-test-variable',
+      emptyMessage: 'No UI variables detected.'
+    });
+  }
 
   function filterTestsBySuite(list, _suite) {
     return list;
@@ -135,17 +454,24 @@
       const showBrowserOptions = document.querySelector('.run-ui-tests-show-browser-options');
       const noDisplayMsg = document.getElementById('run-ui-tests-no-display-msg');
       const showBrowserCb = document.getElementById('run-ui-tests-show-browser');
+      const variableGroupSelect = document.getElementById('run-ui-tests-variable-group');
       const hasDisplay = config.hasDisplay !== false;
       if (showBrowserOptions) showBrowserOptions.style.display = hasDisplay ? '' : 'none';
       if (noDisplayMsg) noDisplayMsg.style.display = hasDisplay ? 'none' : 'block';
       if (showBrowserCb && typeof config.headless === 'boolean') showBrowserCb.checked = !config.headless;
+      populateUiVariableGroupSelect(variableGroupSelect, variableGroupSelect?.value || '');
       const showCheckboxes = document.querySelector('input[name="test-list-type"]:checked')?.value === 'selected';
       renderTestList(showCheckboxes);
+      updateRunUiTestVariablesUI();
       const radios = document.querySelectorAll('input[name="test-list-type"]');
       radios.forEach(r => r.addEventListener('change', () => {
         const sel = document.querySelector('input[name="test-list-type"]:checked').value === 'selected';
         renderTestList(sel);
+        updateRunUiTestVariablesUI();
       }));
+      if (variableGroupSelect) {
+        variableGroupSelect.onchange = () => updateRunUiTestVariablesUI({ preserveValues: false });
+      }
       // When user changes project, reload test list for the new project (one handler via onchange to avoid stacking).
       if (sel) {
         sel.onchange = async () => {
@@ -160,6 +486,7 @@
             testList = await apiRequest(`/playwright-tests/list?projectId=${pid}`);
             const showCb = document.querySelector('input[name="test-list-type"]:checked')?.value === 'selected';
             renderTestList(showCb);
+            updateRunUiTestVariablesUI();
           } catch (err) {
             console.error('Error loading test list for project:', err);
           }
@@ -207,11 +534,16 @@
 
     if (showCheckboxes) {
       container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = true; });
+      container.querySelectorAll('.playwright-test-cb').forEach((cb) => {
+        cb.addEventListener('change', () => updateRunUiTestVariablesUI({ preserveValues: true }));
+      });
       container.querySelector('#select-all-tests')?.addEventListener('click', () => {
         container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = true; });
+        updateRunUiTestVariablesUI({ preserveValues: true });
       });
       container.querySelector('#deselect-all-tests')?.addEventListener('click', () => {
         container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = false; });
+        updateRunUiTestVariablesUI({ preserveValues: true });
       });
     }
   }
@@ -247,6 +579,10 @@
     const runOnlyIds = listType === 'selected'
       ? Array.from(document.querySelectorAll('.playwright-test-cb:checked')).map(cb => cb.getAttribute('data-test-id'))
       : filtered.map(t => t.id);
+    const selectedTests = listType === 'selected'
+      ? filtered.filter((test) => runOnlyIds.includes(String(test.id)))
+      : filtered.slice();
+    const requiredUiVariables = getUiVariableNamesForTests(selectedTests);
     if (runOnlyIds.length === 0) {
       alert(listType === 'selected' ? 'Select at least one test.' : 'No tests in this suite.');
       return;
@@ -266,6 +602,15 @@
     body.trace = traceSelect ? traceSelect.value : 'off';
     body.browser = browserSelect ? browserSelect.value : 'chromium';
     if (typeof slowMo === 'number' && slowMo >= 0) body.slowMo = slowMo;
+    if (requiredUiVariables.length > 0) {
+      const uiVariables = collectUiVariableInputValues(document.getElementById('run-ui-tests-variables-list'));
+      const missingVariables = requiredUiVariables.filter((name) => !uiVariables[name] || !String(uiVariables[name]).trim());
+      if (missingVariables.length > 0) {
+        alert(`Provide values for all UI test variables before running: ${missingVariables.join(', ')}`);
+        return;
+      }
+      body.uiVariables = Object.fromEntries(Object.entries(uiVariables).map(([key, value]) => [key, String(value).trim()]));
+    }
     if (listType === 'full' && runOnlyIds.length === filtered.length) {
       body.suite = 'full';
     } else {
@@ -375,6 +720,14 @@
     loadPlaywrightRuns();
   });
 
+  document.getElementById('manage-ui-test-variable-groups-btn')?.addEventListener('click', () => {
+    const groupSelect = document.getElementById('run-ui-tests-variable-group');
+    showUiTestVariableGroupsManager((_changed, preferredId) => {
+      populateUiVariableGroupSelect(groupSelect, preferredId || groupSelect?.value || '');
+      updateRunUiTestVariablesUI({ preserveValues: false });
+    }, groupSelect?.value || '');
+  });
+
   document.getElementById('back-from-run-ui-tests')?.addEventListener('click', () => {
     const returnView = window._uiTestsReturnView || 'ui-tests';
     showView(returnView);
@@ -421,6 +774,7 @@
       const specInput = document.getElementById('recorded-test-spec');
       if (specInput && res.content) {
         specInput.value = res.content;
+        updateRecordedTestDetectedVariablesPreview();
         if (showAlert) {
           alert('Generated code loaded successfully!');
         }
@@ -508,6 +862,7 @@
       const specInput = document.getElementById('recorded-test-spec');
       if (specInput && res.specContent) {
         specInput.value = res.specContent;
+        updateRecordedTestDetectedVariablesPreview();
         alert('Recording stopped. Generated code has been loaded into the spec field. Review and save your test.');
       } else {
         alert('Recording stopped. No generated code was captured — the Codegen window may have been closed before saving. You can paste code manually.');
@@ -582,6 +937,7 @@
     titleEl.textContent = editId ? 'Edit recorded test' : 'Add recorded test';
     nameInput.value = '';
     specInput.value = '';
+    specInput.oninput = () => updateRecordedTestDetectedVariablesPreview();
 
     apiRequest('/projects').then(projects => {
       if (addToProjectSelect && Array.isArray(projects) && projects.length > 0) {
@@ -594,6 +950,7 @@
         .then(t => {
           nameInput.value = t.name || '';
           specInput.value = t.spec_content || '';
+          updateRecordedTestDetectedVariablesPreview();
           codegenUrlInput.value = (t.base_url || '').trim() || codegenUrlInput.placeholder;
           if (addToProjectSelect && Array.isArray(t.project_ids) && t.project_ids.length > 0) {
             addToProjectSelect.value = String(t.project_ids[0]);
@@ -608,6 +965,7 @@
       }).catch(() => {
         codegenUrlInput.value = 'https://example.com';
       });
+      updateRecordedTestDetectedVariablesPreview();
     }
     showView('add-recorded-test');
   }
@@ -1096,4 +1454,10 @@ document.addEventListener('DOMContentLoaded', () => {
   window.loadPlaywrightRuns = loadPlaywrightRuns;
   window.showRunUiTestsPage = showRunUiTestsPage;
   window.showProjectRecordedTestsView = showProjectRecordedTestsView;
+  window.getSavedUiTestVariableGroups = loadSavedUiTestVariableGroups;
+  window.getSavedUiTestVariableGroupById = getSavedUiTestVariableGroupById;
+  window.mergeSavedUiTestVariableGroup = mergeSavedUiTestVariableGroup;
+  window.resolveUiVariableValues = resolveUiVariableValues;
+  window.extractUiVariableNamesFromSpecText = extractUiVariableNamesFromSpecText;
+  window.showUiTestVariableGroupsManager = showUiTestVariableGroupsManager;
 })();
