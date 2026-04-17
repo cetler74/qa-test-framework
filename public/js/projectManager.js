@@ -1221,6 +1221,70 @@ async function loadProjectTests(projectId) {
   }
 }
 
+function getSavedUiVariableGroupsForFrontend() {
+  return typeof window.getSavedUiTestVariableGroups === 'function'
+    ? window.getSavedUiTestVariableGroups()
+    : [];
+}
+
+function getUiVariableGroupOptionsHtml() {
+  return getSavedUiVariableGroupsForFrontend()
+    .map((group) => `<option value="${escapeHtml(String(group.id))}">${escapeHtml(group.name || '')}</option>`)
+    .join('');
+}
+
+function getUiVariableNamesForCatalogueTests(tests) {
+  return Array.from(new Set((tests || []).flatMap((test) => Array.isArray(test.variable_names) ? test.variable_names : [])))
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function renderUiVariableFieldsInto(container, variableNames, values = {}) {
+  if (!container) return;
+  if (!Array.isArray(variableNames) || variableNames.length === 0) {
+    container.innerHTML = '<p class="muted single-test-vars-empty">No UI variables detected.</p>';
+    return;
+  }
+  container.innerHTML = variableNames.map((varName) => `
+    <div class="single-test-var-item">
+      <label class="single-test-var-label" for="catalogue-ui-var-${escapeHtml(varName)}">${escapeHtml(varName)}</label>
+      <input
+        type="text"
+        class="single-test-var-value form-control"
+        id="catalogue-ui-var-${escapeHtml(varName)}"
+        data-var-name="${escapeHtml(varName)}"
+        value="${escapeHtml(values[varName] != null ? String(values[varName]) : '')}"
+        placeholder="Value for ${escapeHtml(varName)}"
+      >
+    </div>
+  `).join('');
+}
+
+function collectUiVariableValuesFromContainer(container) {
+  const values = {};
+  if (!container) return values;
+  container.querySelectorAll('[data-var-name]').forEach((input) => {
+    const key = input.getAttribute('data-var-name');
+    if (!key) return;
+    values[key] = input.value || '';
+  });
+  return values;
+}
+
+function initializeUiVariableForm(form, variableNames, projectId) {
+  const groupSelect = form?.querySelector('.ui-variable-group-select');
+  const fieldsContainer = form?.querySelector('.ui-variable-fields');
+  if (!groupSelect || !fieldsContainer) return;
+  const render = (preserveValues) => {
+    const currentValues = preserveValues ? collectUiVariableValuesFromContainer(fieldsContainer) : {};
+    const resolvedValues = typeof window.resolveUiVariableValues === 'function'
+      ? window.resolveUiVariableValues(variableNames, groupSelect.value, currentValues)
+      : currentValues;
+    renderUiVariableFieldsInto(fieldsContainer, variableNames, resolvedValues);
+  };
+  groupSelect.addEventListener('change', () => render(false));
+  render(false);
+}
+
 window.runProjectCatalogueTest = (projectId, projectTestId, kind, testSnapshot) => {
   if (!ensureCurrentProjectRunsAllowed(projectId)) return;
   const test = testSnapshot || (window.currentProjectTests || []).find((x) => x.id === projectTestId);
@@ -1383,6 +1447,7 @@ window.runProjectCatalogueTest = (projectId, projectTestId, kind, testSnapshot) 
 
   if (kind === 'ui_recorded') {
     const urlVal = test && test.endpoint ? escapeHtml(test.endpoint) : '';
+    const variableNames = getUiVariableNamesForCatalogueTests(test ? [test] : []);
     const content = `
       <form id="single-ui-test-run-form">
         <div class="form-group">
@@ -1390,6 +1455,20 @@ window.runProjectCatalogueTest = (projectId, projectTestId, kind, testSnapshot) 
           <input type="url" id="single-ui-base-url" class="form-control" placeholder="https://…" value="${urlVal}">
           <p class="muted form-help" style="margin-top:8px;">Leave empty to use the URL from the recorded test or project defaults.</p>
         </div>
+        ${variableNames.length > 0 ? `
+          <div class="form-group">
+            <label for="single-ui-variable-group">UI Test Variable group</label>
+            <select id="single-ui-variable-group" class="form-control ui-variable-group-select">
+              <option value="">None</option>
+              ${getUiVariableGroupOptionsHtml()}
+            </select>
+            <p class="muted form-help" style="margin-top:8px;">Saved locally in this browser and reused across all projects.</p>
+          </div>
+          <div class="form-group">
+            <label>Variables used by this test</label>
+            <div class="ui-variable-fields"></div>
+          </div>
+        ` : ''}
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
           <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
           <button type="submit" class="btn btn-primary">Run</button>
@@ -1397,13 +1476,23 @@ window.runProjectCatalogueTest = (projectId, projectTestId, kind, testSnapshot) 
       </form>
     `;
     showModal('Run UI test', content);
+    initializeUiVariableForm(document.getElementById('single-ui-test-run-form'), variableNames, projectId);
     document.getElementById('single-ui-test-run-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const raw = document.getElementById('single-ui-base-url').value.trim();
+      const uiVariables = collectUiVariableValuesFromContainer(document.querySelector('#single-ui-test-run-form .ui-variable-fields'));
+      const missingVariables = variableNames.filter((name) => !uiVariables[name] || !String(uiVariables[name]).trim());
+      if (missingVariables.length > 0) {
+        alert(`Provide values for all UI test variables before running: ${missingVariables.join(', ')}`);
+        return;
+      }
       hideModal();
       try {
         const body = { name: defaultName };
         if (raw) body.baseUrl = raw;
+        if (variableNames.length > 0) {
+          body.uiVariables = Object.fromEntries(Object.entries(uiVariables).map(([key, value]) => [key, String(value).trim()]));
+        }
         await apiRequest(`/projects/${projectId}/tests/${projectTestId}/run`, { method: 'POST', body });
         alert('Run started. Results appear in Test Runs; coverage updates when the run finishes.');
         await loadProjectTests(projectId);
@@ -1497,6 +1586,19 @@ window.runBatchProjectCatalogueTests = async (projectId) => {
         <label for="batch-ui-base-url">Base URL (optional, applies to all if set)</label>
         <input type="url" id="batch-ui-base-url" class="form-control" placeholder="Leave empty to use each test’s URL">
       </div>
+      ${getUiVariableNamesForCatalogueTests(runnable).length > 0 ? `
+        <div class="form-group">
+          <label for="batch-ui-variable-group">UI Test Variable group</label>
+          <select id="batch-ui-variable-group" class="form-control ui-variable-group-select">
+            <option value="">None</option>
+            ${getUiVariableGroupOptionsHtml()}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Variables used by selected UI tests</label>
+          <div class="ui-variable-fields"></div>
+        </div>
+      ` : ''}
       <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
         <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
         <button type="submit" class="btn btn-primary">Run all</button>
@@ -1504,9 +1606,17 @@ window.runBatchProjectCatalogueTests = async (projectId) => {
     </form>
   `;
   showModal('Run all selected UI tests', content);
+  const batchUiVariableNames = getUiVariableNamesForCatalogueTests(runnable);
+  initializeUiVariableForm(document.getElementById('batch-ui-test-run-form'), batchUiVariableNames, projectId);
   document.getElementById('batch-ui-test-run-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const raw = document.getElementById('batch-ui-base-url').value.trim();
+    const uiVariables = collectUiVariableValuesFromContainer(document.querySelector('#batch-ui-test-run-form .ui-variable-fields'));
+    const missingVariables = batchUiVariableNames.filter((name) => !uiVariables[name] || !String(uiVariables[name]).trim());
+    if (missingVariables.length > 0) {
+      alert(`Provide values for all UI test variables before running: ${missingVariables.join(', ')}`);
+      return;
+    }
     hideModal();
     let started = 0;
     for (const t of runnable) {
@@ -1514,6 +1624,9 @@ window.runBatchProjectCatalogueTests = async (projectId) => {
         const body = { name: `[Batch] ${t.name || 'test'}` };
         if (raw) body.baseUrl = raw;
         else if (t.endpoint && String(t.endpoint).trim()) body.baseUrl = String(t.endpoint).trim();
+        if (batchUiVariableNames.length > 0) {
+          body.uiVariables = Object.fromEntries(Object.entries(uiVariables).map(([key, value]) => [key, String(value).trim()]));
+        }
         await apiRequest(`/projects/${projectId}/tests/${t.id}/run`, { method: 'POST', body });
         started++;
       } catch (err) {
@@ -3234,6 +3347,11 @@ async function showRunFuzzModal() {
           <label for="fuzz-run-name">Run name *</label>
           <input type="text" id="fuzz-run-name" required placeholder="e.g. Fuzz run 1">
         </div>
+        <div class="form-group">
+          <label for="fuzz-delay-between-requests">Delay between test requests (seconds)</label>
+          <input type="number" id="fuzz-delay-between-requests" min="0" step="0.1" placeholder="e.g. 1.5">
+          <p class="form-hint">Optional. This applies an approximate throttle to reduce how frequently CATS sends test requests.</p>
+        </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
           <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
           <button type="submit" class="btn btn-primary">Run Fuzz</button>
@@ -3246,14 +3364,28 @@ async function showRunFuzzModal() {
       const apiSpecId = document.getElementById('fuzz-api-spec').value;
       const serverUrl = document.getElementById('fuzz-base-url').value.trim();
       const name = document.getElementById('fuzz-run-name').value.trim();
+      const delayRaw = document.getElementById('fuzz-delay-between-requests').value.trim();
       if (!apiSpecId || !serverUrl || !name) {
         alert('Please fill API Spec, Base URL, and Run name.');
         return;
       }
+      let delayBetweenRequests = undefined;
+      if (delayRaw) {
+        const parsedDelay = Number(delayRaw);
+        if (!Number.isFinite(parsedDelay) || parsedDelay < 0) {
+          alert('Delay between test requests must be a non-negative number.');
+          return;
+        }
+        delayBetweenRequests = parsedDelay;
+      }
       try {
+        const requestBody = { projectId: Number(projectId), apiSpecId: Number(apiSpecId), name, serverUrl };
+        if (typeof delayBetweenRequests !== 'undefined') {
+          requestBody.delayBetweenRequests = delayBetweenRequests;
+        }
         await apiRequest('/fuzz-runs/execute', {
           method: 'POST',
-          body: { projectId: Number(projectId), apiSpecId: Number(apiSpecId), name, serverUrl }
+          body: requestBody
         });
         hideModal();
         showView('test-runs');
@@ -3585,6 +3717,20 @@ window.runFlow = async (flowId, flowName) => {
     alert(getProjectClosedMessage(window.currentProject));
     return;
   }
+  let flowVariableNames = [];
+  try {
+    const flow = await apiRequest(`/flows/${flowId}`);
+    const recordedIds = Array.from(new Set((flow.flowTasks || [])
+      .filter((task) => task.task_type === 'ui' && task.task_ref && task.task_ref.recordedTestId)
+      .map((task) => Number(task.task_ref.recordedTestId))
+      .filter(Boolean)));
+    const testByRecordedId = new Map((window.currentProjectTests || [])
+      .filter((test) => test.test_type === 'ui_recorded' && test.source_id)
+      .map((test) => [Number(test.source_id), test]));
+    flowVariableNames = getUiVariableNamesForCatalogueTests(recordedIds.map((id) => testByRecordedId.get(id)).filter(Boolean));
+  } catch (_) {
+    flowVariableNames = [];
+  }
   const content = `
     <form id="run-flow-form">
       <div class="form-group">
@@ -3595,6 +3741,19 @@ window.runFlow = async (flowId, flowName) => {
         <label for="run-flow-base-url">Base URL (for UI tests)</label>
         <input type="url" id="run-flow-base-url" placeholder="https://example.com">
       </div>
+      ${flowVariableNames.length > 0 ? `
+        <div class="form-group">
+          <label for="run-flow-ui-variable-group">UI Test Variable group</label>
+          <select id="run-flow-ui-variable-group" class="form-control ui-variable-group-select">
+            <option value="">None</option>
+            ${getUiVariableGroupOptionsHtml()}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Variables used by UI tasks in this flow</label>
+          <div class="ui-variable-fields"></div>
+        </div>
+      ` : ''}
       <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
         <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
         <button type="submit" class="btn btn-primary">Run</button>
@@ -3602,14 +3761,25 @@ window.runFlow = async (flowId, flowName) => {
     </form>
   `;
   showModal('Run flow', content);
+  initializeUiVariableForm(document.getElementById('run-flow-form'), flowVariableNames, window.currentProject?.id);
   document.getElementById('run-flow-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const runNamePrefix = document.getElementById('run-flow-name').value.trim() || flowName;
     const baseUrl = document.getElementById('run-flow-base-url').value.trim() || undefined;
+    const uiVariables = collectUiVariableValuesFromContainer(document.querySelector('#run-flow-form .ui-variable-fields'));
+    const missingVariables = flowVariableNames.filter((name) => !uiVariables[name] || !String(uiVariables[name]).trim());
+    if (missingVariables.length > 0) {
+      alert(`Provide values for all UI test variables before running: ${missingVariables.join(', ')}`);
+      return;
+    }
     try {
+      const body = { runNamePrefix, baseUrl };
+      if (flowVariableNames.length > 0) {
+        body.uiVariables = Object.fromEntries(Object.entries(uiVariables).map(([key, value]) => [key, String(value).trim()]));
+      }
       const result = await apiRequest(`/flows/${flowId}/execute`, {
         method: 'POST',
-        body: { runNamePrefix, baseUrl }
+        body
       });
       hideModal();
       alert(`Flow execution started. ${(result.apiRunIds?.length || 0) + (result.uiRunIds?.length || 0)} run(s) queued. View Test Runs for progress.`);

@@ -479,7 +479,7 @@ const reportTemplate = `
                                 <small style="color:#666;">Request evidence</small>
                                 <a href="{{this.request_download}}" download="{{this.test_name}}-request.txt" class="btn" style="font-size:12px;">Download</a>
                             </div>
-                            <div class="detail-value">{{#if this.request_body_pretty}}{{this.request_body_pretty}}{{else}}Method: {{this.method}}\nURL: {{this.endpoint}}{{/if}}</div>
+                            <div class="detail-value">{{this.request_evidence_pretty}}</div>
                             {{#if this.request_headers}}
                             <div style="margin-top:8px; font-size:12px; color:#666;">Headers:</div>
                             <div class="detail-value" style="margin-top:6px;">{{this.request_headers}}</div>
@@ -671,6 +671,13 @@ async function generateReport(testRunId, options = {}) {
         // Prepare download Data URIs and pretty-printing for request/response
         const reqRaw = result.request_body || '';
         const respRaw = result.response_body || '';
+                const requestStartLine = typeof reqRaw === 'string'
+                    ? (reqRaw.split(/\r?\n/).find((line) => line.trim()) || '')
+                    : '';
+                const requestStartMatch = requestStartLine.match(/^([A-Z]+)\s+(.+)$/);
+                const requestMethod = requestStartMatch?.[1] || result.method || '';
+                const requestEndpoint = requestStartMatch?.[2] || result.endpoint || '';
+                let hasStructuredRequestBody = false;
 
         try {
           // Attempt to extract and pretty-print request body if it's JSON
@@ -678,6 +685,7 @@ async function generateReport(testRunId, options = {}) {
           const bodyMarker = '\nBody:\n';
           const bodyPos = reqRaw.indexOf(bodyMarker);
           if (bodyPos >= 0) {
+                        hasStructuredRequestBody = true;
             reqBody = reqRaw.substring(bodyPos + bodyMarker.length).trim();
             try {
               const parsedReq = JSON.parse(reqBody);
@@ -699,6 +707,22 @@ async function generateReport(testRunId, options = {}) {
         } catch (e) {
           result.request_body_pretty = reqRaw || null;
         }
+
+                const requestEvidenceParts = [];
+                if (requestMethod) {
+                    requestEvidenceParts.push(`Method: ${requestMethod}`);
+                }
+                if (requestEndpoint) {
+                    requestEvidenceParts.push(`Endpoint: ${requestEndpoint}`);
+                }
+                if (result.request_body_pretty && (hasStructuredRequestBody || !requestStartMatch)) {
+                    if (requestEvidenceParts.length > 0) {
+                        requestEvidenceParts.push('');
+                    }
+                    requestEvidenceParts.push('Body:');
+                    requestEvidenceParts.push(result.request_body_pretty);
+                }
+                result.request_evidence_pretty = requestEvidenceParts.join('\n') || reqRaw || null;
 
         try {
           // Try to detect JSON response and pretty-print

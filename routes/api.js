@@ -14,7 +14,7 @@ const { convertToPostmanCollection, parsePostmanCollection } = require('../servi
 const { upload, uploadTestsImport, validateAndParseApiSpec, validatePostmanCollection, parseWSDLToOperations } = require('../services/fileUpload');
 const { executeTests, requestCancelTestRun } = require('../services/testRunner');
 const { generateReport, getStableReportPath: getTestRunStableReportPath } = require('../services/reportGenerator');
-const { runPlaywrightTests, getPlaywrightTestListWithRecorded } = require('../services/playwrightRunner');
+const { runPlaywrightTests, getPlaywrightTestListWithRecorded, detectUiVariableNamesFromSpec } = require('../services/playwrightRunner');
 const { executeFlow } = require('../services/flowRunner');
 const { computeNextRunAt, runScheduledJob } = require('../services/scheduler');
 const { executeSoapTests } = require('../services/soapRunner');
@@ -60,6 +60,17 @@ function normalizeBaseUrl(value) {
   const s = value.trim();
   if (/^(https?:\/\/)\s*(https?:\/\/)/i.test(s)) return s.replace(/^(https?:\/\/)\s*(https?:\/\/)/i, '$2');
   return s;
+}
+
+function normalizeUiVariables(bodyUiVariables) {
+  if (!bodyUiVariables || typeof bodyUiVariables !== 'object') return {};
+  const out = {};
+  for (const [key, value] of Object.entries(bodyUiVariables)) {
+    const normalizedKey = String(key || '').trim();
+    if (!normalizedKey || value == null) continue;
+    out[normalizedKey] = String(value);
+  }
+  return out;
 }
 
 /** True if collection is standalone on project or linked via ProjectApiSpec (same rules as test catalogue). */
@@ -457,6 +468,19 @@ router.get('/projects/:id/tests/catalogue', (req, res, next) => {
           userByMap[u.id] = u.display_name || u.username || '';
         });
       }
+      const recordedTestIds = [...new Set(rows
+        .map((row) => (row.test_type === 'ui_recorded' && row.source_id ? Number(row.source_id) : null))
+        .filter(Boolean))];
+      let recordedVariablesMap = {};
+      if (recordedTestIds.length > 0) {
+        const recordedTests = await PlaywrightRecordedTest.findAll({
+          where: { id: { [Op.in]: recordedTestIds } },
+          attributes: ['id', 'spec_content']
+        });
+        recordedTests.forEach((recordedTest) => {
+          recordedVariablesMap[recordedTest.id] = detectUiVariableNamesFromSpec(recordedTest.spec_content || '');
+        });
+      }
       const out = rows.map((r, idx) => {
         const plain = r.get ? r.get({ plain: true }) : r;
         const stats = plain.stats || {};
@@ -472,7 +496,10 @@ router.get('/projects/:id/tests/catalogue', (req, res, next) => {
           stats,
           effective_folder_path: effectiveFolderPathForTest(plain),
           effective_source_path: meta.effective_source_path,
-          single_run_kind: meta.single_run_kind
+          single_run_kind: meta.single_run_kind,
+          variable_names: plain.test_type === 'ui_recorded' && plain.source_id
+            ? (recordedVariablesMap[plain.source_id] || [])
+            : []
         };
       });
       res.json(out);
@@ -1187,6 +1214,7 @@ router.post('/projects/:projectId/tests/:testId/run', (req, res, next) => {
         const videoOpt = ['off', 'on', 'retain-on-failure'].includes(req.body.video) ? req.body.video : 'off';
         const traceOpt = ['off', 'on', 'retain-on-failure'].includes(req.body.trace) ? req.body.trace : 'off';
         const slowMo = typeof req.body.slowMo === 'number' && req.body.slowMo >= 0 ? req.body.slowMo : 0;
+        const uiVariables = normalizeUiVariables(req.body.uiVariables);
 
         const proxy = await getProxyForUrlAsync(url || playwrightConfig.baseUrl || '');
         let headless = typeof req.body.headless === 'boolean' ? req.body.headless : playwrightConfig.headless;
@@ -1218,7 +1246,8 @@ router.post('/projects/:projectId/tests/:testId/run', (req, res, next) => {
           trace: traceOpt,
           browserName,
           slowMo,
-          proxy
+          proxy,
+          uiVariables
         })
           .then(() => console.log(`[api] Single UI test run ${run.id} completed`))
           .catch(async (err) => {
@@ -1630,10 +1659,12 @@ router.post('/flows/:id/execute', (req, res) => {
         await ensureProjectIsRunnable(flow.project_id);
         const flowId = parseInt(req.params.id, 10);
         const { runNamePrefix, baseUrl, envVars } = req.body;
+        const uiVariables = normalizeUiVariables(req.body.uiVariables);
         const result = await executeFlow(flowId, {
           runNamePrefix: runNamePrefix || flow.name,
           baseUrl,
           envVars,
+          uiVariables,
           runByUserId: req.user?.id ?? null
         });
         res.status(201).json({
@@ -2718,6 +2749,14 @@ router.post('/fuzz-runs/execute', async (req, res) => {
     if (!projectId || !apiSpecId || !name || !serverUrl) {
       return res.status(400).json({ error: 'projectId, apiSpecId, name, and serverUrl are required' });
     }
+    let delayBetweenRequests;
+    if (typeof req.body.delayBetweenRequests !== 'undefined') {
+      const parsedDelay = Number(req.body.delayBetweenRequests);
+      if (!Number.isFinite(parsedDelay) || parsedDelay < 0) {
+        return res.status(400).json({ error: 'delayBetweenRequests must be a non-negative number' });
+      }
+      delayBetweenRequests = parsedDelay;
+    }
     const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, projectId);
     if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
     await ensureProjectIsRunnable(projectId);
@@ -2741,6 +2780,7 @@ router.post('/fuzz-runs/execute', async (req, res) => {
       flowId: flowId || null,
       paths: paths || null,
       skipPaths: skipPaths || null,
+      delayBetweenRequests,
       proxy
     }).catch((err) => {
       console.error(`[api] Fuzz run ${fuzzRun.id} failed:`, err);
@@ -3014,6 +3054,7 @@ router.get('/playwright-tests/list', async (req, res) => {
 router.post('/playwright-runs/execute', async (req, res) => {
   try {
     const { projectId, name, baseUrl, suite, selectedTestIds, headless: bodyHeadless, timeoutMs: bodyTimeoutMs, timeoutSeconds: bodyTimeoutSeconds, video: bodyVideo, trace: bodyTrace, browser: bodyBrowser, slowMo: bodySlowMo } = req.body;
+    const uiVariables = normalizeUiVariables(req.body.uiVariables);
     if (!name) return res.status(400).json({ error: 'name is required' });
     if (projectId) {
       const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, projectId);
@@ -3065,7 +3106,8 @@ router.post('/playwright-runs/execute', async (req, res) => {
       trace: traceOpt,
       browserName,
       slowMo,
-      proxy
+      proxy,
+      uiVariables
     })
       .then(() => console.log(`[api] Playwright run ${run.id} completed`))
       .catch(async (err) => {
@@ -3310,7 +3352,7 @@ router.get('/playwright-recorded-tests', async (req, res) => {
     const tests = await PlaywrightRecordedTest.findAll({
       where,
       order: [['created_at', 'DESC']],
-      attributes: ['id', 'name', 'base_url', 'created_at']
+      attributes: ['id', 'name', 'base_url', 'created_at', 'spec_content']
     });
     const links = testIds === null
       ? await ProjectRecordedTest.findAll({ attributes: ['recorded_test_id', 'project_id'] })
@@ -3321,10 +3363,16 @@ router.get('/playwright-recorded-tests', async (req, res) => {
       if (!groupedProjectIds.has(key)) groupedProjectIds.set(key, []);
       groupedProjectIds.get(key).push(Number(link.project_id));
     });
-    res.json(tests.map((test) => ({
-      ...test.toJSON(),
-      project_ids: groupedProjectIds.get(Number(test.id)) || []
-    })));
+    res.json(tests.map((test) => {
+      const plain = test.toJSON();
+      const variable_names = detectUiVariableNamesFromSpec(plain.spec_content || '');
+      delete plain.spec_content;
+      return {
+        ...plain,
+        project_ids: groupedProjectIds.get(Number(test.id)) || [],
+        variable_names
+      };
+    }));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3503,7 +3551,8 @@ router.get('/playwright-recorded-tests/:id', async (req, res) => {
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
     res.json({
       ...test.toJSON(),
-      project_ids: projectIds
+      project_ids: projectIds,
+      variable_names: detectUiVariableNamesFromSpec(test.spec_content || '')
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -30,6 +30,7 @@ async function executeFlow(flowId, options = {}) {
   const prefix = options.runNamePrefix || flow.name;
   const baseUrl = options.baseUrl || playwrightConfig.baseUrl || '';
   const envVars = options.envVars || null;
+  const uiVariables = options.uiVariables || null;
 
   const tasks = (flow.flowTasks || []).sort((a, b) => (a.position || 0) - (b.position || 0));
   if (tasks.length === 0) {
@@ -108,7 +109,8 @@ async function executeFlow(flowId, options = {}) {
         headless: playwrightConfig.headless,
         timeoutMs: playwrightConfig.timeoutMs,
         runOnly: ['recorded-' + recordedTestId],
-        proxy: uiProxy
+        proxy: uiProxy,
+        uiVariables
       }).catch((err) => {
         console.error(`[flowRunner] UI task ${task.id} failed:`, err);
         PlaywrightRun.update({ status: 'failed' }, { where: { id: run.id } }).catch(() => {});
