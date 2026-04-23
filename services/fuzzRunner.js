@@ -320,6 +320,11 @@ function normalizePathForMatching(pathOrUrl) {
   return s;
 }
 
+function extractTestNumber(value) {
+  const match = String(value || '').match(/Test\s*(\d+)/i);
+  return match ? parseInt(match[1], 10) : null;
+}
+
 /**
  * Extract fuzzer name from CATS JSON or from request (e.g. User-Agent "Test N - FuzzerName").
  */
@@ -359,11 +364,21 @@ function loadRequestResponseFromCatsOutput(outputDir) {
       jsonFiles.push(path.join(dir, f));
     }
   }
-  jsonFiles.sort();
+  jsonFiles.sort((left, right) => {
+    const leftName = path.basename(left);
+    const rightName = path.basename(right);
+    const leftNum = extractTestNumber(leftName);
+    const rightNum = extractTestNumber(rightName);
+    if (leftNum != null && rightNum != null && leftNum !== rightNum) return leftNum - rightNum;
+    if (leftNum != null && rightNum == null) return -1;
+    if (leftNum == null && rightNum != null) return 1;
+    return leftName.localeCompare(rightName);
+  });
   for (const filePath of jsonFiles) {
     try {
       const raw = fs.readFileSync(filePath, 'utf8');
       const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const fileName = path.basename(filePath);
       const req = data.requestPayload ?? data.request ?? data.requestBody ?? data.requestContent ?? data.requestPayloadContent ?? data.requestBodyContent ?? (data.request && data.request.payload) ?? (data.request && data.request.body) ?? null;
       const res = data.responsePayload ?? data.response ?? data.responseBody ?? data.responseContent ?? data.responsePayloadContent ?? data.responseBodyContent ?? (data.response && data.response.payload) ?? (data.response && data.response.body) ?? null;
       const reqObj = data.request ?? (typeof req === 'object' ? req : null);
@@ -380,6 +395,7 @@ function loadRequestResponseFromCatsOutput(outputDir) {
       const path_normalized = normalizePathForMatching(endpoint);
       const fuzzer_name = extractFuzzerFromCatsJson(data, reqObj);
       entries.push({
+        test_number: extractTestNumber(data.testCaseName ?? data.name ?? fileName),
         request_body: requestBody || null,
         response_body: responseBody || null,
         endpoint: endpoint ? String(endpoint).slice(0, 500) : null,
@@ -419,6 +435,23 @@ function resultMatchingKey(result) {
 function matchCatsEntriesToResults(dbResults, catsEntries) {
   const indexByKey = new Map();
   const assignedCats = new Set();
+  const resultIndexToEntry = new Map();
+
+  const catsByTestNumber = new Map();
+  catsEntries.forEach((entry, idx) => {
+    if (entry.test_number != null && !catsByTestNumber.has(entry.test_number)) {
+      catsByTestNumber.set(entry.test_number, { entry, idx });
+    }
+  });
+
+  for (let i = 0; i < dbResults.length; i++) {
+    const testNumber = extractTestNumber(dbResults[i].test_name);
+    if (testNumber == null) continue;
+    const numbered = catsByTestNumber.get(testNumber);
+    if (!numbered || assignedCats.has(numbered.idx)) continue;
+    resultIndexToEntry.set(i, numbered.entry);
+    assignedCats.add(numbered.idx);
+  }
 
   function entryKey(entry) {
     const pathNorm = (entry.path_normalized || normalizePathForMatching(entry.endpoint) || '').trim();
@@ -427,9 +460,8 @@ function matchCatsEntriesToResults(dbResults, catsEntries) {
     return `${pathNorm}|${method}|${fuzzer}`;
   }
 
-  const resultIndexToEntry = new Map();
-
   for (let i = 0; i < dbResults.length; i++) {
+    if (resultIndexToEntry.has(i)) continue;
     const result = dbResults[i];
     const key = resultMatchingKey(result);
     if (!indexByKey.has(key)) indexByKey.set(key, 0);
