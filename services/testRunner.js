@@ -337,39 +337,56 @@ function findCollectionForExecution(collections, executionItemName) {
 /**
  * Ensure a ProjectTest and ProjectTestStat exist for a given API TestResult
  * and update aggregated stats.
- * Stable key for API tests: api:<method>:<test_name>
  * @param {import('../models/TestRun')} testRun
  * @param {import('../models/TestResult')} testResult
+ * @param {{ sourceId?: number|null, sourcePath?: string|null }|null} [catalogueLocator]
  * @returns {Promise<void>}
  */
-async function updateProjectTestStatsForApiResult(testRun, testResult) {
+async function updateProjectTestStatsForApiResult(testRun, testResult, catalogueLocator = null) {
   try {
     if (!testRun || !testRun.project_id) return;
     const method = (testResult.method || '').toString().trim() || 'GET';
     const name = (testResult.test_name || '').toString().trim() || testResult.endpoint || 'Request';
     const stableKey = `api:${method}:${name}`;
 
-    const [projectTest] = await ProjectTest.findOrCreate({
-      where: {
-        project_id: testRun.project_id,
-        stable_key: stableKey
-      },
-      defaults: {
-        test_type: 'api',
-        name,
-        endpoint: testResult.endpoint || null,
-        method,
-        source_id: null,
-        source_kind: 'postman_item',
-        is_active: true
-      }
-    });
+    let projectTest = null;
+    if (catalogueLocator?.sourceId && catalogueLocator?.sourcePath) {
+      projectTest = await ProjectTest.findOne({
+        where: {
+          project_id: testRun.project_id,
+          source_kind: 'postman_item',
+          source_id: catalogueLocator.sourceId,
+          source_path: catalogueLocator.sourcePath
+        }
+      });
+    }
+
+    if (!projectTest) {
+      [projectTest] = await ProjectTest.findOrCreate({
+        where: {
+          project_id: testRun.project_id,
+          stable_key: stableKey
+        },
+        defaults: {
+          test_type: 'api',
+          name,
+          endpoint: testResult.endpoint || null,
+          method,
+          source_id: catalogueLocator?.sourceId || null,
+          source_kind: 'postman_item',
+          source_path: catalogueLocator?.sourcePath || null,
+          is_active: true
+        }
+      });
+    }
 
     // Keep basic fields up to date in case name/endpoint changed
     await projectTest.update({
       name,
       endpoint: testResult.endpoint || projectTest.endpoint,
-      method
+      method,
+      ...(catalogueLocator?.sourceId ? { source_id: catalogueLocator.sourceId } : {}),
+      ...(catalogueLocator?.sourcePath ? { source_path: catalogueLocator.sourcePath } : {})
     });
 
     const [stats] = await ProjectTestStat.findOrCreate({
@@ -947,6 +964,7 @@ async function executeTests(projectId, testRunName, options = {}) {
     // Map to track test_id and execution_order for each test item
     // Maps item name -> { testId, executionOrder }
     const testIdMap = new Map();
+    const orderedExecutionMeta = [];
     const selectedTestsOrderedArray = options.selectedTestsOrdered || [];
     
     if (selectedTestsOrderedArray && Array.isArray(selectedTestsOrderedArray) && selectedTestsOrderedArray.length > 0) {
@@ -974,9 +992,17 @@ async function executeTests(projectId, testRunName, options = {}) {
           cloned._delaySeconds = Number(delaysForCollection[pathString]);
         }
         
-        // Store test_id and execution_order mapping
+        // Store ordered metadata so result persistence can use explicit user order.
         const itemName = cloned.name || cloned.request?.url || `Item-${orderIndex}`;
         testIdMap.set(itemName, { testId, executionOrder: orderIndex + 1 });
+        orderedExecutionMeta.push({
+          collectionId: coll.id,
+          apiSpecId: coll.api_spec_id,
+          pathString,
+          itemName,
+          testId,
+          executionOrder: orderIndex + 1
+        });
 
         ordered.push(cloned);
       }
@@ -1279,22 +1305,26 @@ async function executeTests(projectId, testRunName, options = {}) {
         // Save this test result immediately for progress tracking
         // This allows frontend to see progress incrementally during sequential execution
         try {
+          const explicitOrderMeta = orderedExecutionMeta[i] || null;
+
           // Find collection and apiSpecId for this test
-          let collection = null;
-          let apiSpecId = null;
-          for (const coll of collections) {
-            const items = coll.collection_json?.item || [];
-            const itemName = executionResult.item.name;
-            if (items.some(i => itemName.includes(i.name) || i.name === itemName)) {
-              collection = coll;
-              apiSpecId = coll.api_spec_id;
-              break;
+          let apiSpecId = explicitOrderMeta?.apiSpecId || null;
+          if (!apiSpecId) {
+            for (const coll of collections) {
+              const items = coll.collection_json?.item || [];
+              const itemName = executionResult.item.name;
+              if (items.some(item => itemName.includes(item.name) || item.name === itemName)) {
+                apiSpecId = coll.api_spec_id;
+                break;
+              }
             }
           }
           
           // Get test_id and execution_order from the mapping
           const itemName = executionResult.item.name;
-          let testInfo = testIdMap.get(itemName);
+          let testInfo = explicitOrderMeta
+            ? { testId: explicitOrderMeta.testId, executionOrder: explicitOrderMeta.executionOrder }
+            : testIdMap.get(itemName);
           if (!testInfo && selectedTestsOrderedArray && i < selectedTestsOrderedArray.length) {
             const entry = selectedTestsOrderedArray[i];
             testInfo = { testId: entry.testId || `TEST-${i + 1}`, executionOrder: i + 1 };
@@ -1406,7 +1436,11 @@ async function executeTests(projectId, testRunName, options = {}) {
           }
           
           // Update catalogue stats and progress after each test completes
-          await updateProjectTestStatsForApiResult(testRun, testResult);
+          await updateProjectTestStatsForApiResult(
+            testRun,
+            testResult,
+            explicitOrderMeta ? { sourceId: explicitOrderMeta.collectionId, sourcePath: explicitOrderMeta.pathString } : null
+          );
           // Count passed/failed based on saved test results, not execution results
           // This ensures we use the correct status determination logic
           const savedResults = await TestResult.findAll({
@@ -1482,12 +1516,16 @@ async function executeTests(projectId, testRunName, options = {}) {
       for (let execIndex = 0; execIndex < newmanResults.executions.length; execIndex++) {
       const execution = newmanResults.executions[execIndex];
       // Find which collection (api_spec_id) this test belongs to (flatten folders so we match request names)
-      const { apiSpecId } = findCollectionForExecution(collections, execution.item.name);
+      const explicitOrderMeta = orderedExecutionMeta[execIndex] || null;
+      const { apiSpecId: matchedApiSpecId } = findCollectionForExecution(collections, execution.item.name);
+      const apiSpecId = explicitOrderMeta?.apiSpecId || matchedApiSpecId;
 
       // Get test_id and execution_order from the mapping
       // Try to match by item name first, then fall back to execution index
       const itemName = execution.item.name;
-      let testInfo = testIdMap.get(itemName);
+      let testInfo = explicitOrderMeta
+        ? { testId: explicitOrderMeta.testId, executionOrder: explicitOrderMeta.executionOrder }
+        : testIdMap.get(itemName);
       
       // If not found by exact name, try to get from selectedTestsOrdered array by index
       if (!testInfo && selectedTestsOrderedArray && execIndex < selectedTestsOrderedArray.length) {
@@ -1668,7 +1706,11 @@ async function executeTests(projectId, testRunName, options = {}) {
       testResults.push(testResult);
       
       // Update catalogue stats and progress after each test completes
-      await updateProjectTestStatsForApiResult(testRun, testResult);
+      await updateProjectTestStatsForApiResult(
+        testRun,
+        testResult,
+        explicitOrderMeta ? { sourceId: explicitOrderMeta.collectionId, sourcePath: explicitOrderMeta.pathString } : null
+      );
       const completedTests = testResults.length;
       const passedCount = testResults.filter(tr => tr.status === 'passed').length;
       const failedCount = testResults.filter(tr => tr.status === 'failed').length;

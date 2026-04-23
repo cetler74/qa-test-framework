@@ -72,8 +72,7 @@ async function discoverApiTestsForProject(projectId) {
         const baseName = item.name || url || pathString;
         results.push({
           test_type: 'api',
-          // Stable key derived only from method + name so it can be recomputed from TestResult rows.
-          stable_key: `api:${method}:${baseName}`,
+          stable_key: `api:${collectionId}:${pathString}`,
           name: baseName,
           endpoint: url,
           method,
@@ -350,21 +349,27 @@ async function getGlobalTestCatalogue(filters = {}) {
 }
 
 /**
- * Parse stable_key like api:GET:Request name (name may contain colons).
+ * Parse stable_key like api:<collectionId>:<pathString>.
+ * Legacy keys api:<method>:<request name> are still supported for old rows.
  * @param {string} stableKey
- * @returns {{ method: string, name: string }|null}
+ * @returns {{ kind: 'path', collectionId: number, path: number[] }|{ kind: 'legacy', method: string, name: string }|null}
  */
 function parseApiStableKey(stableKey) {
   if (!stableKey || typeof stableKey !== 'string') return null;
   const parts = stableKey.split(':');
   if (parts[0] !== 'api' || parts.length < 3) return null;
+  if (/^\d+$/.test(parts[1] || '')) {
+    const pathString = parts.slice(2).join(':');
+    const path = pathString.split('.').map((part) => parseInt(part, 10)).filter((part) => !Number.isNaN(part));
+    return { kind: 'path', collectionId: parseInt(parts[1], 10), path };
+  }
   const method = (parts[1] || 'GET').toUpperCase();
   const name = parts.slice(2).join(':');
-  return { method, name };
+  return { kind: 'legacy', method, name };
 }
 
 /**
- * Find nested Postman item path for a catalogue stable_key by matching method + request name.
+ * Find nested Postman item path for a catalogue stable_key.
  * @param {object} collectionJson
  * @param {string} stableKey
  * @returns {number[]|null}
@@ -372,6 +377,9 @@ function parseApiStableKey(stableKey) {
 function findPostmanItemPathInCollection(collectionJson, stableKey) {
   const parsed = parseApiStableKey(stableKey);
   if (!parsed) return null;
+  if (parsed.kind === 'path') {
+    return parsed.path.length > 0 ? parsed.path : null;
+  }
   const wantMethod = parsed.method;
   const wantName = parsed.name;
   let found = null;

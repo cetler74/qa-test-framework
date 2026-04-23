@@ -1164,6 +1164,11 @@ router.post('/projects/:projectId/tests/:testId/run', (req, res, next) => {
         if (pathParts.length === 0) return res.status(400).json({ error: 'Invalid test source path' });
 
         const selectedTests = { [test.source_id]: [pathParts] };
+        const selectedTestsOrdered = [{
+          collectionId: test.source_id,
+          path: pathParts,
+          testId: 'TEST-1'
+        }];
         const derivedUrl = deriveUrlFromEnvVars(testOptions.envVars);
         const proxy = await getProxyForUrlAsync(derivedUrl);
 
@@ -1178,7 +1183,7 @@ router.post('/projects/:projectId/tests/:testId/run', (req, res, next) => {
           run_by_user_id: req.user?.id ?? null
         });
 
-        executeTests(projectId, runName, { ...testOptions, testRunId: testRun.id, selectedTests, proxy })
+        executeTests(projectId, runName, { ...testOptions, testRunId: testRun.id, selectedTests, selectedTestsOrdered, proxy })
           .then(() => {
             setImmediate(() => {
               generateReport(testRun.id, { skipCache: true, writeToStablePath: true })

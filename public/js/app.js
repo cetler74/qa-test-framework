@@ -1627,11 +1627,29 @@ async function viewTestRun(testRunId) {
     `;
     
     const resultsList = document.getElementById('test-results-list');
-    if (testRun.testResults && testRun.testResults.length > 0) {
+    const parseTestIdOrder = (testId) => {
+      const match = String(testId || '').match(/TEST-(\d+)/i);
+      return match ? parseInt(match[1], 10) : Number.POSITIVE_INFINITY;
+    };
+
+    const sortRunResults = (results) => (results || []).slice().sort((left, right) => {
+      const leftExecution = Number.isFinite(Number(left?.execution_order)) ? Number(left.execution_order) : Number.POSITIVE_INFINITY;
+      const rightExecution = Number.isFinite(Number(right?.execution_order)) ? Number(right.execution_order) : Number.POSITIVE_INFINITY;
+      if (leftExecution !== rightExecution) return leftExecution - rightExecution;
+
+      const leftTestId = parseTestIdOrder(left?.test_id);
+      const rightTestId = parseTestIdOrder(right?.test_id);
+      if (leftTestId !== rightTestId) return leftTestId - rightTestId;
+
+      return String(left?.test_name || '').localeCompare(String(right?.test_name || ''));
+    });
+
+    const orderedResults = sortRunResults(testRun.testResults);
+    if (orderedResults.length > 0) {
       // Recalculate statistics from actual test results if database counts are wrong
-      const actualTotal = testRun.testResults.length;
-      const actualPassed = testRun.testResults.filter(r => r.status === 'passed').length;
-      const actualFailed = testRun.testResults.filter(r => r.status === 'failed').length;
+      const actualTotal = orderedResults.length;
+      const actualPassed = orderedResults.filter(r => r.status === 'passed').length;
+      const actualFailed = orderedResults.filter(r => r.status === 'failed').length;
       
       // Update stats if they don't match
       if (testRun.total_tests !== actualTotal || testRun.passed_tests !== actualPassed || testRun.failed_tests !== actualFailed) {
@@ -1655,7 +1673,7 @@ async function viewTestRun(testRunId) {
         `;
       }
       
-      resultsList.innerHTML = testRun.testResults.map(result => `
+      resultsList.innerHTML = orderedResults.map(result => `
         <div class="test-result-item">
           <div class="test-result-header">
             <div>
