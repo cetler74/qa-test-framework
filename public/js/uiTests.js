@@ -246,15 +246,22 @@
     const wrap = document.getElementById('recorded-test-detected-vars-wrap');
     const list = document.getElementById('recorded-test-detected-vars');
     const specInput = document.getElementById('recorded-test-spec');
-    if (!wrap || !list || !specInput) return;
+    const groupSelect = document.getElementById('recorded-test-variable-group');
+    if (!wrap || !list || !specInput || !groupSelect) return;
     const variableNames = extractUiVariableNamesFromSpecText(specInput.value || '');
     if (variableNames.length === 0) {
       wrap.style.display = 'none';
       list.innerHTML = '';
       return;
     }
+    const currentValues = collectUiVariableInputValues(list, '.recorded-test-variable-value');
+    const mergedValues = resolveUiVariableValues(variableNames, groupSelect.value, currentValues);
     wrap.style.display = 'block';
-    list.innerHTML = variableNames.map((name) => `<span class="status-badge pending" style="margin-right:8px;">${escapeHtml(name)}</span>`).join('');
+    renderUiVariableInputs(list, variableNames, mergedValues, {
+      inputClass: 'recorded-test-variable-value',
+      idPrefix: 'recorded-test-variable',
+      emptyMessage: 'No UI variables detected.'
+    });
   }
 
   function showUiTestVariableGroupEditor(group = null, onDone = null) {
@@ -728,6 +735,15 @@
     }, groupSelect?.value || '');
   });
 
+  document.getElementById('manage-recorded-test-variable-groups-btn')?.addEventListener('click', () => {
+    const groupSelect = document.getElementById('recorded-test-variable-group');
+    showUiTestVariableGroupsManager((_changed, preferredId) => {
+      populateUiVariableGroupSelect(groupSelect, preferredId || groupSelect?.value || '');
+      updateRecordedTestDetectedVariablesPreview();
+      clearRecordedTestValidationResults();
+    }, groupSelect?.value || '');
+  });
+
   document.getElementById('back-from-run-ui-tests')?.addEventListener('click', () => {
     const returnView = window._uiTestsReturnView || 'ui-tests';
     showView(returnView);
@@ -741,6 +757,177 @@
   let remoteSessionTimerInterval = null;
   let remoteSessionStartTime = null;
   let remoteSessionTimeoutMs = 600000;
+
+  function clearRecordedTestValidationResults() {
+    const resultsEl = document.getElementById('recorded-test-validation-results');
+    const validateBtn = document.getElementById('recorded-test-validate');
+    if (resultsEl) {
+      resultsEl.style.display = 'none';
+      resultsEl.innerHTML = '';
+    }
+    if (validateBtn) {
+      validateBtn.disabled = false;
+      validateBtn.textContent = 'Test recorded test';
+    }
+  }
+
+  function setRecordedTestValidationPending(isPending) {
+    const validateBtn = document.getElementById('recorded-test-validate');
+    const saveBtn = document.getElementById('recorded-test-save');
+    if (validateBtn) {
+      validateBtn.disabled = !!isPending;
+      validateBtn.textContent = isPending ? 'Testing...' : 'Test recorded test';
+    }
+    if (saveBtn) saveBtn.disabled = !!isPending;
+  }
+
+  function renderRecordedTestValidationResults(payload) {
+    const resultsEl = document.getElementById('recorded-test-validation-results');
+    if (!resultsEl) return;
+    const summary = payload && payload.summary ? payload.summary : { total: 0, passed: 0, failed: 0 };
+    const results = Array.isArray(payload && payload.results) ? payload.results : [];
+    const options = payload && payload.options ? payload.options : {};
+    const artifacts = payload && payload.artifacts ? payload.artifacts : {};
+    const output = payload && payload.output ? String(payload.output) : '';
+    const isFailure = !!(payload && payload.error) || summary.failed > 0;
+    const statusLabel = payload && payload.error
+      ? 'Validation error'
+      : (isFailure ? 'Validation finished with failures' : 'Validation passed');
+    const statusColor = payload && payload.error ? '#991b1b' : (isFailure ? '#92400e' : '#065f46');
+    const statusBackground = payload && payload.error ? '#fee2e2' : (isFailure ? '#fef3c7' : '#d1fae5');
+    const validationsHtml = results.length > 0
+      ? results.map((result) => {
+          const rowValidations = (result.assertions && Array.isArray(result.assertions.validations))
+            ? result.assertions.validations.map((validation) => `
+              <li style="display:flex; align-items:flex-start; gap:8px; padding:8px 10px; margin-bottom:4px; border-radius:6px; background:#fff; border:1px solid #e5e7eb; border-left:4px solid ${validation.passed ? '#10b981' : '#ef4444'};">
+                <span style="flex-shrink:0; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:600; background:${validation.passed ? '#d1fae5' : '#fee2e2'}; color:${validation.passed ? '#065f46' : '#991b1b'};">${validation.passed ? 'Passed' : 'Failed'}</span>
+                <div><span style="font-size:13px;">${escapeHtml(validation.description || 'Validation')}</span>${validation.detail ? `<div style="font-size:11px; color:#6b7280; margin-top:2px; white-space:pre-wrap;">${escapeHtml(validation.detail)}</div>` : ''}</div>
+              </li>`).join('')
+            : '';
+          const evidence = result && result.evidence ? result.evidence : {};
+          const evidenceLinks = (evidence.screenshot_url || evidence.error_context_url)
+            ? `<div class="validation-artifact-actions">
+                ${evidence.screenshot_url ? `<a class="btn btn-secondary btn-sm validation-artifact-link" href="${escapeHtml(evidence.screenshot_url)}" target="_blank" rel="noopener noreferrer">View screenshot evidence</a>` : ''}
+                ${evidence.error_context_url ? `<a class="btn btn-secondary btn-sm validation-artifact-link" href="${escapeHtml(evidence.error_context_url)}" target="_blank" rel="noopener noreferrer">View error context</a>` : ''}
+              </div>`
+            : '';
+          return `
+            <div class="test-result-item" style="margin-top: 12px;">
+              <div class="test-result-header">
+                <div><strong>${escapeHtml(result.testName || 'Recorded draft')}</strong></div>
+                <span class="status-badge ${escapeHtml(result.status || 'pending')}">${escapeHtml(result.status || 'unknown')}</span>
+              </div>
+              <div class="test-result-details">
+                ${result.durationMs != null ? `<p><strong>Duration:</strong> ${escapeHtml(String(result.durationMs))} ms</p>` : ''}
+                ${result.errorMessage ? `<p style="color: #dc2626;"><strong>Error:</strong> ${escapeHtml(result.errorMessage)}</p>` : ''}
+                ${evidenceLinks}
+                ${rowValidations ? `<div style="margin-top: 8px;"><strong style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Validations</strong><ul style="list-style:none; padding:0; margin:4px 0 0 0;">${rowValidations}</ul></div>` : ''}
+              </div>
+            </div>`;
+        }).join('')
+      : `<div class="empty-state" style="margin-top: 12px;"><p>${escapeHtml(payload && payload.error ? payload.error : 'No validation details returned.')}</p></div>`;
+
+    const videoBlock = artifacts.video_url
+      ? `
+        <div style="margin-top: 16px;">
+          <strong style="display:block; margin-bottom: 8px;">Validation video</strong>
+          <video controls preload="metadata" style="width:100%; max-height:420px; border-radius:8px; background:#111827;" src="${escapeHtml(artifacts.video_url)}"></video>
+          <div style="margin-top: 8px;"><a href="${escapeHtml(artifacts.video_url)}" target="_blank" rel="noopener noreferrer">Open video in new tab</a></div>
+        </div>`
+      : '';
+    const traceBlock = artifacts.trace_url
+      ? `<div style="margin-top: 8px;"><a href="${escapeHtml(artifacts.trace_url)}">Download validation trace</a></div>`
+      : '';
+    const outputBlock = output
+      ? `<div style="margin-top: 16px;"><strong style="display:block; margin-bottom: 8px;">Validation output</strong><pre style="font-size: 12px; margin: 0; padding: 12px; background: #0f172a; color: #e2e8f0; border-radius: 8px; white-space: pre-wrap;">${escapeHtml(output)}</pre></div>`
+      : '';
+
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = `
+      <div style="border:1px solid #e5e7eb; border-radius:12px; background:#f8fafc; padding:16px;">
+        <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
+          <div>
+            <span style="display:inline-flex; align-items:center; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:600; color:${statusColor}; background:${statusBackground};">${escapeHtml(statusLabel)}</span>
+            <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top: 12px;">
+              <div class="stat-card"><div class="stat-value">${escapeHtml(String(summary.total || 0))}</div><div class="stat-label">Total</div></div>
+              <div class="stat-card"><div class="stat-value" style="color:#10b981;">${escapeHtml(String(summary.passed || 0))}</div><div class="stat-label">Passed</div></div>
+              <div class="stat-card"><div class="stat-value" style="color:#ef4444;">${escapeHtml(String(summary.failed || 0))}</div><div class="stat-label">Failed</div></div>
+            </div>
+          </div>
+          <div style="min-width: 240px;">
+            <div style="font-size:12px; color:#6b7280;">Runtime options</div>
+            <div style="margin-top: 8px; display:flex; gap:8px; flex-wrap:wrap;">
+              <span class="status-badge pending">${escapeHtml(options.browser || 'chromium')}</span>
+              <span class="status-badge pending">${options.headless ? 'headless' : 'headed'}</span>
+              <span class="status-badge pending">video: ${escapeHtml(options.video || 'off')}</span>
+              <span class="status-badge pending">trace: ${escapeHtml(options.trace || 'off')}</span>
+            </div>
+          </div>
+        </div>
+        ${payload && payload.error ? `<p style="margin-top: 12px; color: #b91c1c; white-space: pre-wrap;"><strong>Error:</strong> ${escapeHtml(payload.error)}</p>` : ''}
+        ${videoBlock}
+        ${traceBlock}
+        ${validationsHtml}
+        ${outputBlock}
+      </div>`;
+  }
+
+  async function validateRecordedTestDraft() {
+    const name = document.getElementById('recorded-test-name')?.value?.trim();
+    const spec = document.getElementById('recorded-test-spec')?.value?.trim();
+    const baseUrl = document.getElementById('recorded-test-codegen-url')?.value?.trim();
+    const detectedVarsList = document.getElementById('recorded-test-detected-vars');
+    const variableNames = extractUiVariableNamesFromSpecText(spec || '');
+    if (!name) {
+      alert('Test name is required');
+      return;
+    }
+    if (!spec) {
+      alert('Generated spec is required');
+      return;
+    }
+    const uiVariables = collectUiVariableInputValues(detectedVarsList, '.recorded-test-variable-value');
+    const missingVariables = variableNames.filter((varName) => !uiVariables[varName] || !String(uiVariables[varName]).trim());
+    if (missingVariables.length > 0) {
+      alert(`Provide values for all detected UI variables before validating: ${missingVariables.join(', ')}`);
+      return;
+    }
+    setRecordedTestValidationPending(true);
+    renderRecordedTestValidationResults({
+      summary: { total: 0, passed: 0, failed: 0 },
+      results: [],
+      options: {},
+      output: '',
+      error: null
+    });
+    const resultsEl = document.getElementById('recorded-test-validation-results');
+    if (resultsEl) {
+      resultsEl.innerHTML = '<div style="border:1px solid #e5e7eb; border-radius:12px; background:#f8fafc; padding:16px;"><p style="margin:0;">Running draft validation. This does not create a UI test run or report.</p></div>';
+      resultsEl.style.display = 'block';
+    }
+    try {
+      const res = await apiRequest('/playwright-recorded-tests/validate-draft', {
+        method: 'POST',
+        body: {
+          name,
+          spec_content: spec,
+          base_url: baseUrl || undefined,
+          uiVariables: Object.fromEntries(Object.entries(uiVariables).map(([key, value]) => [key, String(value).trim()]))
+        }
+      });
+      renderRecordedTestValidationResults(res);
+    } catch (err) {
+      renderRecordedTestValidationResults({
+        summary: { total: 0, passed: 0, failed: 0 },
+        results: [],
+        options: {},
+        output: '',
+        error: err.message || 'Draft validation failed'
+      });
+    } finally {
+      setRecordedTestValidationPending(false);
+    }
+  }
 
   function stopAutoRefresh() {
     if (autoRefreshInterval) {
@@ -775,6 +962,7 @@
       if (specInput && res.content) {
         specInput.value = res.content;
         updateRecordedTestDetectedVariablesPreview();
+        clearRecordedTestValidationResults();
         if (showAlert) {
           alert('Generated code loaded successfully!');
         }
@@ -863,6 +1051,7 @@
       if (specInput && res.specContent) {
         specInput.value = res.specContent;
         updateRecordedTestDetectedVariablesPreview();
+        clearRecordedTestValidationResults();
         alert('Recording stopped. Generated code has been loaded into the spec field. Review and save your test.');
       } else {
         alert('Recording stopped. No generated code was captured — the Codegen window may have been closed before saving. You can paste code manually.');
@@ -918,6 +1107,7 @@
     const autoRefreshBtn = document.getElementById('auto-refresh-codegen-btn');
     const addToProjectWrap = document.getElementById('recorded-test-add-to-project-wrap');
     const addToProjectSelect = document.getElementById('recorded-test-add-to-project');
+    const variableGroupSelect = document.getElementById('recorded-test-variable-group');
     if (!form) return;
 
     if (addToProjectWrap) addToProjectWrap.style.display = 'block';
@@ -937,7 +1127,20 @@
     titleEl.textContent = editId ? 'Edit recorded test' : 'Add recorded test';
     nameInput.value = '';
     specInput.value = '';
-    specInput.oninput = () => updateRecordedTestDetectedVariablesPreview();
+    clearRecordedTestValidationResults();
+    populateUiVariableGroupSelect(variableGroupSelect, variableGroupSelect?.value || '');
+    specInput.oninput = () => {
+      updateRecordedTestDetectedVariablesPreview();
+      clearRecordedTestValidationResults();
+    };
+    nameInput.oninput = () => clearRecordedTestValidationResults();
+    codegenUrlInput.oninput = () => clearRecordedTestValidationResults();
+    if (variableGroupSelect) {
+      variableGroupSelect.onchange = () => {
+        updateRecordedTestDetectedVariablesPreview();
+        clearRecordedTestValidationResults();
+      };
+    }
 
     apiRequest('/projects').then(projects => {
       if (addToProjectSelect && Array.isArray(projects) && projects.length > 0) {
@@ -951,6 +1154,7 @@
           nameInput.value = t.name || '';
           specInput.value = t.spec_content || '';
           updateRecordedTestDetectedVariablesPreview();
+          clearRecordedTestValidationResults();
           codegenUrlInput.value = (t.base_url || '').trim() || codegenUrlInput.placeholder;
           if (addToProjectSelect && Array.isArray(t.project_ids) && t.project_ids.length > 0) {
             addToProjectSelect.value = String(t.project_ids[0]);
@@ -966,6 +1170,7 @@
         codegenUrlInput.value = 'https://example.com';
       });
       updateRecordedTestDetectedVariablesPreview();
+      clearRecordedTestValidationResults();
     }
     showView('add-recorded-test');
   }
@@ -992,8 +1197,13 @@
     }
     currentCodegenSlug = null;
     currentCodegenMode = null;
+    clearRecordedTestValidationResults();
     showView('ui-tests');
     loadPlaywrightRuns();
+  });
+
+  document.getElementById('recorded-test-validate')?.addEventListener('click', () => {
+    validateRecordedTestDraft();
   });
 
   document.getElementById('launch-codegen-btn')?.addEventListener('click', async () => {
@@ -1072,21 +1282,33 @@
     if (!name) { alert('Test name is required'); return; }
     if (!spec) { alert('Generated spec is required'); return; }
     const editId = idInput?.value?.trim() || null;
+    const buildRecordedTestSavedMessage = (action, response) => {
+      const variableNames = Array.isArray(response && response.variable_names) ? response.variable_names : [];
+      if (variableNames.length === 0) {
+        return action === 'updated'
+          ? 'Recorded test updated.'
+          : 'Recorded test saved. It will appear in the test list when you run UI tests.';
+      }
+      return action === 'updated'
+        ? `Recorded test updated. Added UI variables will be requested when you run it: ${variableNames.join(', ')}.`
+        : `Recorded test saved. Added UI variables will be requested when you run it: ${variableNames.join(', ')}.`;
+    };
     try {
       if (editId) {
         const body = { name, spec_content: spec, base_url: null };
         if (addToProjectId) body.projectIds = [Number(addToProjectId)];
-        await apiRequest(`/playwright-recorded-tests/${editId}`, { method: 'PUT', body });
-        alert('Recorded test updated.');
+        const response = await apiRequest(`/playwright-recorded-tests/${editId}`, { method: 'PUT', body });
+        alert(buildRecordedTestSavedMessage('updated', response));
       } else {
         const body = { name, spec_content: spec, base_url: null };
         if (addToProjectId) body.addToProjectIds = [Number(addToProjectId)];
-        await apiRequest('/playwright-recorded-tests', { method: 'POST', body });
-        alert('Recorded test saved. It will appear in the test list when you run UI tests.');
+        const response = await apiRequest('/playwright-recorded-tests', { method: 'POST', body });
+        alert(buildRecordedTestSavedMessage('saved', response));
       }
       currentCodegenSlug = null;
       currentCodegenMode = null;
       hideRemoteCodegenPanel();
+      clearRecordedTestValidationResults();
       showView('ui-tests');
       loadPlaywrightRuns();
     } catch (err) {

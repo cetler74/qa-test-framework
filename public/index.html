@@ -762,16 +762,27 @@ test('test', async ({ page }) => {
                                 <button type="button" class="btn btn-secondary" id="auto-refresh-codegen-btn" style="display: none;">Auto-refresh: OFF</button>
                             </div>
                             <textarea id="recorded-test-spec" rows="14" placeholder="Paste the test code from Playwright Inspector here, or click 'Launch Codegen' and then 'Load generated code' to automatically load it (test(..., async ({ page }) => { ... }))" spellcheck="false"></textarea>
+                            <span class="form-hint" id="recorded-test-validation-hint">Run a draft validation to check this generated spec before saving. Draft validations do not create test runs or reports.</span>
+                        </div>
+                        <div class="form-group">
+                            <button type="button" class="btn btn-secondary" id="recorded-test-validate">Test recorded test</button>
                         </div>
                         <div class="form-group" id="recorded-test-detected-vars-wrap" style="display:none;">
                             <label>Detected UI variables</label>
+                            <div class="input-with-button" style="margin-bottom: 8px;">
+                                <select id="recorded-test-variable-group">
+                                    <option value="">None</option>
+                                </select>
+                                <button type="button" class="btn btn-secondary" id="manage-recorded-test-variable-groups-btn">Manage groups</button>
+                            </div>
                             <div id="recorded-test-detected-vars" class="single-test-vars-list"></div>
-                            <span class="form-hint">Placeholders such as ${suffix} are resolved at run time from the selected UI Test Variable group.</span>
+                            <span class="form-hint">Placeholders such as ${suffix} can be edited here and are resolved at run time from the selected UI Test Variable group.</span>
                         </div>
                         <div class="form-actions">
                             <button type="button" class="btn btn-secondary" id="recorded-test-cancel">Cancel</button>
                             <button type="submit" class="btn btn-primary" id="recorded-test-save">Save</button>
                         </div>
+                        <div id="recorded-test-validation-results" style="display:none; margin-top: 16px;"></div>
                     </form>
                 </div>
             </div>

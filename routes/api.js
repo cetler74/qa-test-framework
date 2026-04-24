@@ -14,7 +14,7 @@ const { convertToPostmanCollection, parsePostmanCollection } = require('../servi
 const { upload, uploadTestsImport, validateAndParseApiSpec, validatePostmanCollection, parseWSDLToOperations } = require('../services/fileUpload');
 const { executeTests, requestCancelTestRun } = require('../services/testRunner');
 const { generateReport, getStableReportPath: getTestRunStableReportPath } = require('../services/reportGenerator');
-const { runPlaywrightTests, getPlaywrightTestListWithRecorded, detectUiVariableNamesFromSpec } = require('../services/playwrightRunner');
+const { runPlaywrightTests, getPlaywrightTestListWithRecorded, detectUiVariableNamesFromSpec, executeRecordedSpec } = require('../services/playwrightRunner');
 const { executeFlow } = require('../services/flowRunner');
 const { computeNextRunAt, runScheduledJob } = require('../services/scheduler');
 const { executeSoapTests } = require('../services/soapRunner');
@@ -127,6 +127,36 @@ function normalizeRecordedSpecTitle(specContent, recordedName) {
   const re = /\btest\s*\(\s*(?:'[^']*'|"[^"]*"|`[^`]*`)\s*,/;
   if (!re.test(specContent)) return specContent;
   return specContent.replace(re, `test(${quoted},`);
+}
+
+const DRAFT_VALIDATION_TTL_MS = 30 * 60 * 1000;
+const draftValidationArtifacts = new Map();
+
+function cleanupExpiredDraftValidationArtifacts() {
+  const now = Date.now();
+  const dirsToDelete = new Set();
+  for (const [token, entry] of draftValidationArtifacts.entries()) {
+    if (!entry || entry.expiresAt <= now) {
+      if (entry && entry.testResultsDir) dirsToDelete.add(entry.testResultsDir);
+      draftValidationArtifacts.delete(token);
+    }
+  }
+  for (const dirPath of dirsToDelete) {
+    try { fs.rmSync(dirPath, { recursive: true, force: true }); } catch (_) {}
+  }
+}
+
+function registerDraftValidationArtifact(kind, filePath, testResultsDir) {
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  cleanupExpiredDraftValidationArtifacts();
+  const token = `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  draftValidationArtifacts.set(token, {
+    kind,
+    filePath,
+    testResultsDir,
+    expiresAt: Date.now() + DRAFT_VALIDATION_TTL_MS
+  });
+  return token;
 }
 
 // ==================== USERS ====================
@@ -3413,7 +3443,11 @@ router.post('/playwright-recorded-tests', async (req, res) => {
         where: { project_id: projectId, recorded_test_id: test.id }
       }).catch(() => {});
     }
-    res.status(201).json(test);
+    res.status(201).json({
+      ...test.toJSON(),
+      project_ids: projectIds.map((id) => Number(id)),
+      variable_names: detectUiVariableNamesFromSpec(test.spec_content || '')
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3541,6 +3575,156 @@ router.get('/playwright-recorded-tests/codegen-output/:slug', async (req, res) =
   }
 });
 
+router.post('/playwright-recorded-tests/validate-draft', async (req, res) => {
+  try {
+    const {
+      name,
+      spec_content,
+      base_url,
+      headless: bodyHeadless,
+      timeoutMs: bodyTimeoutMs,
+      timeoutSeconds: bodyTimeoutSeconds,
+      video: bodyVideo,
+      trace: bodyTrace,
+      browser: bodyBrowser,
+      slowMo: bodySlowMo
+    } = req.body || {};
+    const uiVariables = normalizeUiVariables(req.body && req.body.uiVariables);
+    const trimmedName = typeof name === 'string' ? name.trim() : '';
+    if (!trimmedName) return res.status(400).json({ error: 'name is required' });
+    const validation = validateSpecContent(spec_content);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const normalizedSpec = normalizeRecordedSpecTitle(
+      typeof spec_content === 'string' ? spec_content.trim() : '',
+      trimmedName
+    );
+    const url = (base_url && typeof base_url === 'string' && base_url.trim()) ? base_url.trim() : '';
+    const validBrowsers = ['chromium', 'firefox', 'webkit'];
+    const browserName = validBrowsers.includes(bodyBrowser) ? bodyBrowser : 'chromium';
+    const hasDisplay = process.platform === 'win32' || !!process.env.DISPLAY;
+    let headless = typeof bodyHeadless === 'boolean' ? bodyHeadless : playwrightConfig.headless;
+    if (!hasDisplay && !headless) headless = true;
+    let timeoutMs = playwrightConfig.timeoutMs;
+    if (typeof bodyTimeoutMs === 'number' && bodyTimeoutMs > 0) timeoutMs = bodyTimeoutMs;
+    else if (typeof bodyTimeoutSeconds === 'number' && bodyTimeoutSeconds > 0) timeoutMs = bodyTimeoutSeconds * 1000;
+    const defaultVideo = !hasDisplay ? 'on' : 'off';
+    const videoOpt = ['off', 'on', 'retain-on-failure'].includes(bodyVideo) ? bodyVideo : defaultVideo;
+    const traceOpt = ['off', 'on', 'retain-on-failure'].includes(bodyTrace) ? bodyTrace : 'off';
+    const slowMo = typeof bodySlowMo === 'number' && bodySlowMo >= 0 ? bodySlowMo : 0;
+    const proxy = await getProxyForUrlAsync(url || playwrightConfig.baseUrl || '');
+
+    const execution = await executeRecordedSpec({
+      recordedName: trimmedName,
+      specContent: normalizedSpec,
+      baseUrl: url,
+      defaultBaseUrl: playwrightConfig.baseUrl || 'https://example.com',
+      runOptions: {
+        headless,
+        timeoutMs,
+        video: videoOpt,
+        trace: traceOpt,
+        browserName,
+        slowMo,
+        proxy,
+        uiVariables
+      },
+      assertionSource: 'recorded_draft',
+      persistScreenshots: false
+    });
+
+    const results = Array.isArray(execution.results) ? execution.results : [];
+    const summary = results.reduce((acc, result) => {
+      acc.total += 1;
+      if (result.status === 'passed') acc.passed += 1;
+      else acc.failed += 1;
+      return acc;
+    }, { total: 0, passed: 0, failed: 0 });
+    const videoToken = execution.artifacts && execution.artifacts.videoFile
+      ? registerDraftValidationArtifact('video', execution.artifacts.videoFile, execution.testResultsDir)
+      : null;
+    const traceToken = execution.artifacts && execution.artifacts.traceFile
+      ? registerDraftValidationArtifact('trace', execution.artifacts.traceFile, execution.testResultsDir)
+      : null;
+    const responseResults = results.map((result) => {
+      const screenshotToken = result.draftScreenshotFile
+        ? registerDraftValidationArtifact('screenshot', result.draftScreenshotFile, execution.testResultsDir)
+        : null;
+      const errorContextToken = result.draftErrorContextFile
+        ? registerDraftValidationArtifact('context', result.draftErrorContextFile, execution.testResultsDir)
+        : null;
+      return {
+        ...result,
+        evidence: {
+          screenshot_url: screenshotToken ? `${req.baseUrl}/playwright-recorded-tests/validation-artifacts/${screenshotToken}/screenshot` : null,
+          error_context_url: errorContextToken ? `${req.baseUrl}/playwright-recorded-tests/validation-artifacts/${errorContextToken}/context` : null
+        }
+      };
+    }).map((result) => {
+      delete result.draftScreenshotFile;
+      delete result.draftErrorContextFile;
+      return result;
+    });
+
+    res.json({
+      summary,
+      results: responseResults,
+      output: execution.combinedOutput,
+      options: {
+        headless,
+        video: videoOpt,
+        trace: traceOpt,
+        browser: browserName,
+        timeoutMs
+      },
+      artifacts: {
+        video_url: videoToken ? `${req.baseUrl}/playwright-recorded-tests/validation-artifacts/${videoToken}/video` : null,
+        trace_url: traceToken ? `${req.baseUrl}/playwright-recorded-tests/validation-artifacts/${traceToken}/trace` : null,
+        expires_in_ms: (videoToken || traceToken) ? DRAFT_VALIDATION_TTL_MS : 0
+      }
+    });
+  } catch (error) {
+    if (error && error.code === 'MISSING_UI_TEST_VARIABLES') {
+      return res.status(400).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/playwright-recorded-tests/validation-artifacts/:token/:kind', async (req, res) => {
+  try {
+    cleanupExpiredDraftValidationArtifacts();
+    const { token, kind } = req.params;
+    const entry = draftValidationArtifacts.get(token);
+    if (!entry) return res.status(404).json({ error: 'Validation artifact not found or expired' });
+    if (entry.kind !== kind) return res.status(404).json({ error: 'Validation artifact not found' });
+    if (!entry.filePath || !fs.existsSync(entry.filePath)) {
+      return res.status(404).json({ error: 'Validation artifact file not found' });
+    }
+    if (kind === 'video') {
+      res.setHeader('Content-Type', 'video/webm');
+      res.setHeader('Content-Disposition', 'inline');
+    } else if (kind === 'trace') {
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', 'attachment; filename="validation-trace.zip"');
+      res.setHeader('Access-Control-Allow-Origin', 'https://trace.playwright.dev');
+    } else if (kind === 'screenshot') {
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Content-Disposition', 'inline');
+    } else if (kind === 'context') {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.setHeader('Content-Disposition', 'inline');
+    } else {
+      return res.status(400).json({ error: 'Unsupported validation artifact kind' });
+    }
+    res.sendFile(path.resolve(entry.filePath));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get single recorded test (must have access to a project containing it)
 router.get('/playwright-recorded-tests/:id', async (req, res) => {
   try {
@@ -3635,7 +3819,8 @@ router.put('/playwright-recorded-tests/:id', async (req, res) => {
     const updatedLinks = await ProjectRecordedTest.findAll({ where: { recorded_test_id: test.id }, attributes: ['project_id'] });
     res.json({
       ...test.toJSON(),
-      project_ids: updatedLinks.map((link) => Number(link.project_id))
+      project_ids: updatedLinks.map((link) => Number(link.project_id)),
+      variable_names: detectUiVariableNamesFromSpec(test.spec_content || '')
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

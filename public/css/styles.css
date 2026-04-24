@@ -758,6 +758,24 @@ main {
     stroke-width: 2;
 }
 
+.validation-artifact-actions {
+    margin-top: var(--spacing-sm);
+    display: flex;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+}
+
+.validation-artifact-link {
+    text-decoration: none;
+    border: 1px solid transparent;
+}
+
+.validation-artifact-link:hover,
+.validation-artifact-link:focus,
+.validation-artifact-link:active {
+    text-decoration: none;
+}
+
 /* ============================================
    DASHBOARD
    ============================================ */

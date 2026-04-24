@@ -784,19 +784,55 @@ function collectScreenshotPaths(dir) {
   return list.sort();
 }
 
+function collectFilesByName(dir, fileName) {
+  const list = [];
+  if (!fs.existsSync(dir)) return list;
+  const expected = String(fileName || '').toLowerCase();
+  const walk = (d) => {
+    const entries = fs.readdirSync(d, { withFileTypes: true });
+    for (const e of entries) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.toLowerCase() === expected) list.push(full);
+    }
+  };
+  walk(dir);
+  return list.sort();
+}
+
 /**
- * Run a single recorded spec (from DB) via Playwright Test CLI and return result rows (with optional screenshotPath for failures).
- * @param {number} runId - PlaywrightRun id
- * @param {string} recordedId - PlaywrightRecordedTest id (numeric string)
- * @param {string} baseUrl - Base URL for the run
- * @param {number} startOrder - execution_order for the first result (so we can name screenshots runId_startOrder.png, etc.)
- * @param {{ timeoutMs?: number, headless?: boolean, video?: string, trace?: string, browserName?: string, slowMo?: number }} [runOptions] - Optional timeout, headless, video/trace/browser/slowMo
- * @returns {Promise<{ results: Array<{ testName, status, durationMs, errorMessage, assertions, screenshotPath? }>, testResultsDir: string }>}
+ * Execute a recorded spec via Playwright Test CLI and return in-memory results plus temporary artifact paths.
+ * This helper is intentionally persistence-free so it can back both saved runs and draft validation.
+ * @param {{
+ *   runId?: number,
+ *   recordedId?: string | number | null,
+ *   recordedName: string,
+ *   specContent: string,
+ *   baseUrl?: string,
+ *   defaultBaseUrl?: string,
+ *   startOrder?: number,
+ *   runOptions?: { timeoutMs?: number, headless?: boolean, video?: string, trace?: string, browserName?: string, slowMo?: number, proxy?: object, uiVariables?: object },
+ *   assertionSource?: string,
+ *   persistScreenshots?: boolean
+ * }} input
+ * @returns {Promise<{ results: Array<{ testName, status, durationMs, errorMessage, assertions, screenshotPath? }>, testResultsDir: string, combinedOutput: string|null, artifacts: { videoFile: string|null, traceFile: string|null } }>} 
  */
-async function runRecordedSpec(runId, recordedId, baseUrl, startOrder, runOptions = {}) {
-  const test = await PlaywrightRecordedTest.findByPk(recordedId);
-  if (!test) throw new Error(`Recorded test ${recordedId} not found`);
-  const baseUrlToUse = baseUrl || test.base_url || playwrightConfig.baseUrl || 'https://example.com';
+async function executeRecordedSpec(input) {
+  const runId = input && input.runId !== undefined ? input.runId : null;
+  const recordedId = input && input.recordedId !== undefined ? input.recordedId : null;
+  const testName = input && typeof input.recordedName === 'string' && input.recordedName.trim()
+    ? input.recordedName.trim()
+    : 'Recorded test';
+  const specContent = input && typeof input.specContent === 'string' ? input.specContent : '';
+  const defaultBaseUrl = input && typeof input.defaultBaseUrl === 'string' ? input.defaultBaseUrl : '';
+  const baseUrl = input && typeof input.baseUrl === 'string' ? input.baseUrl : '';
+  const startOrder = input && Number.isInteger(input.startOrder) ? input.startOrder : 0;
+  const runOptions = input && input.runOptions ? input.runOptions : {};
+  const assertionSource = input && typeof input.assertionSource === 'string' && input.assertionSource.trim()
+    ? input.assertionSource.trim()
+    : 'recorded';
+  const persistScreenshots = input && input.persistScreenshots === false ? false : true;
+  const baseUrlToUse = baseUrl || defaultBaseUrl || playwrightConfig.baseUrl || 'https://example.com';
   const headless = runOptions.headless !== undefined ? runOptions.headless : (playwrightConfig.headless !== undefined ? playwrightConfig.headless : true);
   const timeoutMs = runOptions.timeoutMs || playwrightConfig.timeoutMs || 60000;
   const videoOpt = runOptions.video || 'off';
@@ -805,13 +841,13 @@ async function runRecordedSpec(runId, recordedId, baseUrl, startOrder, runOption
   const slowMo = typeof runOptions.slowMo === 'number' && runOptions.slowMo >= 0 ? runOptions.slowMo : 0;
 
   if (!fs.existsSync(REPORTS_DIR)) fs.mkdirSync(REPORTS_DIR, { recursive: true });
-  const slug = `recorded-${recordedId}-${Date.now()}`;
+  const slug = `recorded-${recordedId || 'draft'}-${Date.now()}`;
   const specPath = path.join(REPORTS_DIR, `${slug}.spec.js`);
   const configPath = path.join(REPORTS_DIR, `${slug}.config.cjs`);
   const resultPath = path.join(REPORTS_DIR, `${slug}-result.json`);
   const testResultsDir = path.join(REPORTS_DIR, 'playwright-test-results', slug);
   try {
-    const { effectiveSpecContent } = applyUiVariablesToSpec(test.spec_content || '', runOptions.uiVariables || {});
+    const { effectiveSpecContent } = applyUiVariablesToSpec(specContent || '', runOptions.uiVariables || {});
     fs.writeFileSync(specPath, effectiveSpecContent, 'utf8');
     const specFileName = path.basename(specPath);
     const launchArgs = playwrightConfig.launchArgs || [];
@@ -883,7 +919,7 @@ module.exports = {
         env: spawnEnv,
         stdio: ['ignore', 'pipe', 'pipe']
       });
-      if (runningPlaywrightState[runId]) runningPlaywrightState[runId].child = child;
+      if (runId != null && runningPlaywrightState[runId]) runningPlaywrightState[runId].child = child;
       const chunks = { stdout: [], stderr: [] };
       const maxBuffer = 4 * 1024 * 1024;
       let totalLen = 0;
@@ -902,7 +938,7 @@ module.exports = {
         try { child.kill('SIGKILL'); } catch (_) {}
       }, timeout);
       child.once('close', (code, signal) => {
-        if (runningPlaywrightState[runId]) runningPlaywrightState[runId].child = null;
+        if (runId != null && runningPlaywrightState[runId]) runningPlaywrightState[runId].child = null;
         if (signal && !timedOut) cancelledByUser = true;
         clearTimeout(timer);
         const stdout = Buffer.concat(chunks.stdout).toString('utf8').trim();
@@ -916,7 +952,7 @@ module.exports = {
         });
       });
       child.once('error', (err) => {
-        if (runningPlaywrightState[runId]) runningPlaywrightState[runId].child = null;
+        if (runId != null && runningPlaywrightState[runId]) runningPlaywrightState[runId].child = null;
         clearTimeout(timer);
         try { child.kill(); } catch (_) {}
         resolve({
@@ -964,8 +1000,9 @@ module.exports = {
         }
       } catch (_) { /* ignore */ }
     }
-    // Collect failure screenshots from Playwright test output (screenshot: 'only-on-failure')
+    // Collect failure artifacts from Playwright test output.
     const screenshotSources = collectScreenshotPaths(testResultsDir);
+    const errorContextSources = collectFilesByName(testResultsDir, 'error-context.md');
     if (!fs.existsSync(SCREENSHOTS_DIR)) fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 
     // Parse spec content to get step descriptions (navigation, clicks, fills, etc.) for validations
@@ -973,10 +1010,13 @@ module.exports = {
 
     const results = [];
     let failedScreenshotIndex = 0;
+    let failedErrorContextIndex = 0;
 
     function pushResult(testName, status, durationMs, errorMessage, assertions, resultIndex) {
       let screenshotPath = null;
-      if (status === 'failed' && failedScreenshotIndex < screenshotSources.length) {
+      let draftScreenshotFile = null;
+      let draftErrorContextFile = null;
+      if (persistScreenshots && runId != null && status === 'failed' && failedScreenshotIndex < screenshotSources.length) {
         const src = screenshotSources[failedScreenshotIndex++];
         const filename = `${runId}_${startOrder + resultIndex}.png`;
         const dest = path.join(SCREENSHOTS_DIR, filename);
@@ -984,14 +1024,19 @@ module.exports = {
           fs.copyFileSync(src, dest);
           screenshotPath = filename;
         } catch (_) { /* ignore */ }
+      } else if (status === 'failed' && failedScreenshotIndex < screenshotSources.length) {
+        draftScreenshotFile = screenshotSources[failedScreenshotIndex++] || null;
       }
-      results.push({ testName, status, durationMs, errorMessage, assertions, screenshotPath });
+      if (status === 'failed' && failedErrorContextIndex < errorContextSources.length) {
+        draftErrorContextFile = errorContextSources[failedErrorContextIndex++] || null;
+      }
+      results.push({ testName, status, durationMs, errorMessage, assertions, screenshotPath, draftScreenshotFile, draftErrorContextFile });
     }
 
     if (report.length > 0) {
       report.forEach((e, i) => {
-        const rawTitle = e.title || e.data?.title || test.name;
-        const title = `Recorded: ${test.name}${rawTitle && rawTitle !== test.name ? ` › ${rawTitle}` : ''}`;
+        const rawTitle = e.title || e.data?.title || testName;
+        const title = `Recorded: ${testName}${rawTitle && rawTitle !== testName ? ` › ${rawTitle}` : ''}`;
         const rawStatus = String(e.status || e.data?.status || (result.status === 0 ? 'passed' : 'failed')).toLowerCase();
         const status = rawStatus === 'passed' ? 'passed' : 'failed';
         const durationMs = e.durationMs ?? e.data?.durationMs ?? 0;
@@ -1028,9 +1073,9 @@ module.exports = {
         });
         const assertions = {
           validations,
-          source: 'recorded',
-          recorded_test_id: String(recordedId),
-          recorded_test_name: test.name,
+          source: assertionSource,
+          recorded_test_id: recordedId != null ? String(recordedId) : null,
+          recorded_test_name: testName,
           raw_status: rawStatus,
           raw_title: rawTitle,
           duration_ms: durationMs,
@@ -1052,19 +1097,49 @@ module.exports = {
       validations.push({ description: 'Recorded test run', passed: result.status === 0, detail: result.status !== 0 ? errorMessage : undefined });
       pushResult(`Recorded: ${test.name}`, status, 0, errorMessage, {
         validations,
-        source: 'recorded',
-        recorded_test_id: String(recordedId),
-        recorded_test_name: test.name,
+        source: assertionSource,
+        recorded_test_id: recordedId != null ? String(recordedId) : null,
+        recorded_test_name: testName,
         raw_status: result.status === 0 ? 'passed' : 'failed',
         output: combinedOutput || null
       }, 0);
     }
-    return { results, testResultsDir };
+    const artifacts = {
+      videoFile: videoOpt !== 'off' ? findFirstFileByExt(testResultsDir, '.webm') : null,
+      traceFile: traceOpt !== 'off' ? findFirstFileByExt(testResultsDir, '.zip') : null
+    };
+    return { results, testResultsDir, combinedOutput: combinedOutput || null, artifacts };
   } finally {
     try { if (fs.existsSync(specPath)) fs.unlinkSync(specPath); } catch (_) {}
     try { if (fs.existsSync(configPath)) fs.unlinkSync(configPath); } catch (_) {}
     try { if (fs.existsSync(resultPath)) fs.unlinkSync(resultPath); } catch (_) {}
   }
+}
+
+/**
+ * Run a single recorded spec (from DB) via Playwright Test CLI and return result rows (with optional screenshotPath for failures).
+ * @param {number} runId - PlaywrightRun id
+ * @param {string} recordedId - PlaywrightRecordedTest id (numeric string)
+ * @param {string} baseUrl - Base URL for the run
+ * @param {number} startOrder - execution_order for the first result (so we can name screenshots runId_startOrder.png, etc.)
+ * @param {{ timeoutMs?: number, headless?: boolean, video?: string, trace?: string, browserName?: string, slowMo?: number }} [runOptions] - Optional timeout, headless, video/trace/browser/slowMo
+ * @returns {Promise<{ results: Array<{ testName, status, durationMs, errorMessage, assertions, screenshotPath? }>, testResultsDir: string, combinedOutput: string|null, artifacts: { videoFile: string|null, traceFile: string|null } }>}
+ */
+async function runRecordedSpec(runId, recordedId, baseUrl, startOrder, runOptions = {}) {
+  const test = await PlaywrightRecordedTest.findByPk(recordedId);
+  if (!test) throw new Error(`Recorded test ${recordedId} not found`);
+  return executeRecordedSpec({
+    runId,
+    recordedId,
+    recordedName: test.name,
+    specContent: test.spec_content || '',
+    baseUrl,
+    defaultBaseUrl: test.base_url || '',
+    startOrder,
+    runOptions,
+    assertionSource: 'recorded',
+    persistScreenshots: true
+  });
 }
 
 /** Flatten nested steps from Playwright JSON report into a list of { title, error? }. */
@@ -1308,5 +1383,6 @@ module.exports = {
   getPlaywrightTestList,
   getPlaywrightTestListWithRecorded,
   cancelPlaywrightRun,
-  detectUiVariableNamesFromSpec
+  detectUiVariableNamesFromSpec,
+  executeRecordedSpec
 };
