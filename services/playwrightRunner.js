@@ -875,6 +875,7 @@ module.exports = {
   outputDir: ${JSON.stringify(testResultsDir)},
   use: {
     baseURL: ${JSON.stringify(baseUrlToUse)},
+    ignoreHTTPSErrors: true,
     userAgent: ${JSON.stringify(userAgent)},
     trace: ${useTrace},
     video: ${useVideo},

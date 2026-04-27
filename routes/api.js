@@ -23,7 +23,7 @@ const { generateFuzzReport, getStableReportPath } = require('../services/fuzzRep
 const { generatePlaywrightReport } = require('../services/playwrightReportGenerator');
 const { syncProjectTests, getProjectTestCatalogue, getGlobalTestCatalogue, enrichCatalogueRowsWithSingleRun, enrichGlobalCatalogueRowsWithSingleRun, resolvePostmanSourcePathIfNeeded } = require('../services/testCatalogue');
 const playwrightConfig = require('../config/playwright');
-const { validateSpecContent } = require('../services/recordedTestValidation');
+const { validateSpecContent, analyzeSpecQuality } = require('../services/recordedTestValidation');
 const codegenSessionManager = require('../services/codegenSessionManager');
 const { loadProxyConfig, getProxyByName, getProxyForUrl, getProxyForUrlAsync } = require('../lib/proxyConfig');
 const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
@@ -127,6 +127,123 @@ function normalizeRecordedSpecTitle(specContent, recordedName) {
   const re = /\btest\s*\(\s*(?:'[^']*'|"[^"]*"|`[^`]*`)\s*,/;
   if (!re.test(specContent)) return specContent;
   return specContent.replace(re, `test(${quoted},`);
+}
+
+function ensureRecordedSpecIgnoresHttpsErrors(specContent) {
+  if (typeof specContent !== 'string') return specContent;
+  if (/test\.use\s*\(\s*\{[\s\S]*?ignoreHTTPSErrors\s*:\s*true[\s\S]*?\}\s*\)/.test(specContent)) {
+    return specContent;
+  }
+  if (/test\.use\s*\(\s*\{[\s\S]*?ignoreHTTPSErrors\s*:\s*false[\s\S]*?\}\s*\)/.test(specContent)) {
+    return specContent.replace(/(ignoreHTTPSErrors\s*:\s*)false/g, '$1true');
+  }
+  if (/test\.use\s*\(\s*\{[\s\S]*?\}\s*\)/.test(specContent)) {
+    return specContent.replace(/test\.use\s*\(\s*\{([\s\S]*?)\}\s*\)/, (match, inner) => {
+      const trimmedInner = String(inner || '').trim();
+      const suffix = trimmedInner ? `${trimmedInner},\n  ignoreHTTPSErrors: true` : 'ignoreHTTPSErrors: true';
+      return `test.use({\n  ${suffix}\n})`;
+    });
+  }
+  return `test.use({\n  ignoreHTTPSErrors: true\n});\n\n${specContent}`;
+}
+
+function splitTopLevelArgs(argsSource) {
+  const parts = [];
+  let current = '';
+  let depthParen = 0;
+  let depthBrace = 0;
+  let depthBracket = 0;
+  let stringQuote = null;
+  let escaped = false;
+
+  for (let index = 0; index < argsSource.length; index += 1) {
+    const char = argsSource[index];
+
+    current += char;
+
+    if (stringQuote) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === stringQuote) {
+        stringQuote = null;
+      }
+      continue;
+    }
+
+    if (char === '\'' || char === '"' || char === '`') {
+      stringQuote = char;
+      continue;
+    }
+
+    if (char === '(') depthParen += 1;
+    else if (char === ')') depthParen -= 1;
+    else if (char === '{') depthBrace += 1;
+    else if (char === '}') depthBrace -= 1;
+    else if (char === '[') depthBracket += 1;
+    else if (char === ']') depthBracket -= 1;
+    else if (char === ',' && depthParen === 0 && depthBrace === 0 && depthBracket === 0) {
+      parts.push(current.slice(0, -1).trim());
+      current = '';
+    }
+  }
+
+  if (current.trim()) {
+    parts.push(current.trim());
+  }
+
+  return parts;
+}
+
+function ensureRecordedSpecGotoOptions(specContent) {
+  if (typeof specContent !== 'string' || !/page\.goto\s*\(/.test(specContent)) {
+    return specContent;
+  }
+
+  return specContent.replace(/page\.goto\s*\(([\s\S]*?)\)\s*;/g, (match, rawArgs) => {
+    const args = splitTopLevelArgs(rawArgs);
+    if (args.length === 0) return match;
+
+    const target = args[0];
+    if (!target) return match;
+
+    if (args.length === 1) {
+      return `page.goto(${target}, { waitUntil: 'domcontentloaded', timeout: 30000 });`;
+    }
+
+    const optionsArg = args[1];
+    if (!/^\{[\s\S]*\}$/.test(optionsArg)) {
+      return `page.goto(${target}, { waitUntil: 'domcontentloaded', timeout: 30000 });`;
+    }
+
+    let normalizedOptions = optionsArg;
+    if (/waitUntil\s*:/.test(normalizedOptions)) {
+      normalizedOptions = normalizedOptions.replace(/waitUntil\s*:\s*['"`][^'"`]*['"`]/g, "waitUntil: 'domcontentloaded'");
+    } else {
+      normalizedOptions = normalizedOptions.replace(/\{\s*/, "{ waitUntil: 'domcontentloaded', ");
+    }
+
+    if (/timeout\s*:/.test(normalizedOptions)) {
+      normalizedOptions = normalizedOptions.replace(/timeout\s*:\s*\d+/g, 'timeout: 30000');
+    } else {
+      normalizedOptions = normalizedOptions.replace(/\}\s*$/, ', timeout: 30000 }');
+    }
+
+    return `page.goto(${target}, ${normalizedOptions});`;
+  });
+}
+
+function normalizeRecordedSpec(specContent, recordedName) {
+  return ensureRecordedSpecIgnoresHttpsErrors(
+    ensureRecordedSpecGotoOptions(
+      normalizeRecordedSpecTitle(specContent, recordedName)
+    )
+  );
 }
 
 const DRAFT_VALIDATION_TTL_MS = 30 * 60 * 1000;
@@ -3429,7 +3546,7 @@ router.post('/playwright-recorded-tests', async (req, res) => {
       const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, projectId);
       if (!canManage) return res.status(403).json({ error: 'Forbidden: cannot add to one or more projects' });
     }
-    const normalizedSpec = normalizeRecordedSpecTitle(
+    const normalizedSpec = normalizeRecordedSpec(
       typeof spec_content === 'string' ? spec_content.trim() : '',
       name
     );
@@ -3446,7 +3563,8 @@ router.post('/playwright-recorded-tests', async (req, res) => {
     res.status(201).json({
       ...test.toJSON(),
       project_ids: projectIds.map((id) => Number(id)),
-      variable_names: detectUiVariableNamesFromSpec(test.spec_content || '')
+      variable_names: detectUiVariableNamesFromSpec(test.spec_content || ''),
+      quality_warnings: analyzeSpecQuality(test.spec_content || '')
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -3533,7 +3651,7 @@ router.post('/playwright-recorded-tests/stop-codegen/:slug', async (req, res) =>
     res.json({
       slug: result.slug,
       status: result.status,
-      specContent: result.specContent || null,
+      specContent: result.specContent ? normalizeRecordedSpec(result.specContent) : null,
     });
   } catch (error) {
     res.status(404).json({ error: error.message });
@@ -3569,7 +3687,7 @@ router.get('/playwright-recorded-tests/codegen-output/:slug', async (req, res) =
       return res.status(404).json({ error: 'Generated file not found. Codegen may still be running or the file was not created.' });
     }
     const content = fs.readFileSync(outputPath, 'utf8');
-    res.json({ content, outputPath: path.relative(path.join(__dirname, '..'), outputPath) });
+    res.json({ content: normalizeRecordedSpec(content), outputPath: path.relative(path.join(__dirname, '..'), outputPath) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3597,7 +3715,7 @@ router.post('/playwright-recorded-tests/validate-draft', async (req, res) => {
       return res.status(400).json({ error: validation.error });
     }
 
-    const normalizedSpec = normalizeRecordedSpecTitle(
+    const normalizedSpec = normalizeRecordedSpec(
       typeof spec_content === 'string' ? spec_content.trim() : '',
       trimmedName
     );
@@ -3672,6 +3790,7 @@ router.post('/playwright-recorded-tests/validate-draft', async (req, res) => {
       summary,
       results: responseResults,
       output: execution.combinedOutput,
+      quality_warnings: analyzeSpecQuality(normalizedSpec),
       options: {
         headless,
         video: videoOpt,
@@ -3773,7 +3892,7 @@ router.put('/playwright-recorded-tests/:id', async (req, res) => {
       if (!validation.valid) {
         return res.status(400).json({ error: validation.error });
       }
-      const normalizedSpec = normalizeRecordedSpecTitle(
+      const normalizedSpec = normalizeRecordedSpec(
         typeof spec_content === 'string' ? spec_content.trim() : test.spec_content,
         test.name
       );
@@ -3820,7 +3939,8 @@ router.put('/playwright-recorded-tests/:id', async (req, res) => {
     res.json({
       ...test.toJSON(),
       project_ids: updatedLinks.map((link) => Number(link.project_id)),
-      variable_names: detectUiVariableNamesFromSpec(test.spec_content || '')
+      variable_names: detectUiVariableNamesFromSpec(test.spec_content || ''),
+      quality_warnings: analyzeSpecQuality(test.spec_content || '')
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

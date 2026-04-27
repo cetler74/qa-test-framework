@@ -786,6 +786,7 @@
     if (!resultsEl) return;
     const summary = payload && payload.summary ? payload.summary : { total: 0, passed: 0, failed: 0 };
     const results = Array.isArray(payload && payload.results) ? payload.results : [];
+    const qualityWarnings = Array.isArray(payload && payload.quality_warnings) ? payload.quality_warnings : [];
     const options = payload && payload.options ? payload.options : {};
     const artifacts = payload && payload.artifacts ? payload.artifacts : {};
     const output = payload && payload.output ? String(payload.output) : '';
@@ -841,6 +842,14 @@
     const outputBlock = output
       ? `<div style="margin-top: 16px;"><strong style="display:block; margin-bottom: 8px;">Validation output</strong><pre style="font-size: 12px; margin: 0; padding: 12px; background: #0f172a; color: #e2e8f0; border-radius: 8px; white-space: pre-wrap;">${escapeHtml(output)}</pre></div>`
       : '';
+    const qualityWarningsBlock = qualityWarnings.length > 0
+      ? `<div style="margin-top: 16px;">
+          <strong style="display:block; margin-bottom: 8px; font-size: 11px; color: #6b7280; text-transform: uppercase;">Recommended corrections</strong>
+          <ul style="list-style:none; padding:0; margin:0;">
+            ${qualityWarnings.map((warning) => `<li style="display:flex; align-items:flex-start; gap:8px; padding:8px 10px; margin-bottom:4px; border-radius:6px; background:#fff7ed; border:1px solid #fed7aa; border-left:4px solid #f59e0b;"><span style="flex-shrink:0; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:600; background:#fef3c7; color:#92400e;">Improve</span><div style="font-size:13px; color:#7c2d12;">${escapeHtml(warning)}</div></li>`).join('')}
+          </ul>
+        </div>`
+      : '';
 
     resultsEl.style.display = 'block';
     resultsEl.innerHTML = `
@@ -867,6 +876,7 @@
         ${payload && payload.error ? `<p style="margin-top: 12px; color: #b91c1c; white-space: pre-wrap;"><strong>Error:</strong> ${escapeHtml(payload.error)}</p>` : ''}
         ${videoBlock}
         ${traceBlock}
+        ${qualityWarningsBlock}
         ${validationsHtml}
         ${outputBlock}
       </div>`;
@@ -1284,14 +1294,18 @@
     const editId = idInput?.value?.trim() || null;
     const buildRecordedTestSavedMessage = (action, response) => {
       const variableNames = Array.isArray(response && response.variable_names) ? response.variable_names : [];
+      const qualityWarnings = Array.isArray(response && response.quality_warnings) ? response.quality_warnings : [];
+      const qualitySuffix = qualityWarnings.length > 0
+        ? ` Recommended corrections before relying on this script: ${qualityWarnings.slice(0, 2).join(' ')}`
+        : '';
       if (variableNames.length === 0) {
         return action === 'updated'
-          ? 'Recorded test updated.'
-          : 'Recorded test saved. It will appear in the test list when you run UI tests.';
+          ? `Recorded test updated.${qualitySuffix}`
+          : `Recorded test saved. It will appear in the test list when you run UI tests.${qualitySuffix}`;
       }
       return action === 'updated'
-        ? `Recorded test updated. Added UI variables will be requested when you run it: ${variableNames.join(', ')}.`
-        : `Recorded test saved. Added UI variables will be requested when you run it: ${variableNames.join(', ')}.`;
+        ? `Recorded test updated. Added UI variables will be requested when you run it: ${variableNames.join(', ')}.${qualitySuffix}`
+        : `Recorded test saved. Added UI variables will be requested when you run it: ${variableNames.join(', ')}.${qualitySuffix}`;
     };
     try {
       if (editId) {
