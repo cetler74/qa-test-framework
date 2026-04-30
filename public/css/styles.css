@@ -1548,7 +1548,8 @@ p.run-status-in-progress {
     width: 100%;
     border: 1px solid var(--color-gray-300, #d1d5db);
     border-radius: var(--radius-md, 8px);
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
     background: var(--color-white, #fff);
 }
 
@@ -1779,6 +1780,25 @@ p.run-status-in-progress {
     color: var(--color-text-secondary);
     font-weight: 400;
     user-select: none;
+}
+
+/* Tickets column — constrained width so long URLs don't push edit-mode columns off screen */
+.tests-table-host th.project-test-col-tickets,
+.tests-table-host td.project-test-col-tickets {
+    min-width: 80px;
+    max-width: 220px;
+    overflow: hidden;
+}
+
+/* Active / Delete edit-mode columns — fixed compact width, never wrap */
+.tests-table-host th.project-test-col-active,
+.tests-table-host td.project-test-col-active,
+.tests-table-host th.project-test-col-delete,
+.tests-table-host td.project-test-col-delete {
+    width: 90px;
+    min-width: 90px;
+    white-space: nowrap;
+    text-align: center;
 }
 
 .dark-theme .tests-table-host .ticket-link {

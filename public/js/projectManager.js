@@ -1129,8 +1129,8 @@ function renderProjectTestsTable(projectId) {
       const deleteCell = inEditMode
         ? `<button type="button" class="btn btn-danger btn-sm" onclick="window.deleteProjectTest(${projectId}, ${t.id})">Delete</button>`
         : '';
-      const activeCol = inEditMode ? `<td>${activeCell}</td>` : '';
-      const actionsCol = inEditMode ? `<td>${deleteCell}</td>` : '';
+      const activeCol = inEditMode ? `<td class="project-test-col-active">${activeCell}</td>` : '';
+      const actionsCol = inEditMode ? `<td class="project-test-col-delete">${deleteCell}</td>` : '';
       const runKind = getCatalogueTestRunKind(t);
       const lastRunId = stats.last_run_id;
       const lastRunType = stats.last_run_type || stats.last_run_source || '';
@@ -1162,7 +1162,7 @@ function renderProjectTestsTable(projectId) {
           <td>${lastRunAt}</td>
           <td>${totalRuns}</td>
           <td>${lastRunBy}</td>
-          <td>${ticketDisplay}</td>
+          <td class="project-test-col-tickets">${ticketDisplay}</td>
           ${runHistoryCell}
           ${activeCol}
           ${actionsCol}
@@ -1184,9 +1184,9 @@ function renderProjectTestsTable(projectId) {
               <th>Last run</th>
               <th>Total runs</th>
               <th>Last run by</th>
-              <th>Tickets</th>
+              <th class="project-test-col-tickets">Tickets</th>
               <th>Actions</th>
-              ${inEditMode ? '<th>Active</th><th>Delete</th>' : ''}
+              ${inEditMode ? '<th class="project-test-col-active">Active</th><th class="project-test-col-delete">Delete</th>' : ''}
             </tr>
           </thead>
           <tbody>
