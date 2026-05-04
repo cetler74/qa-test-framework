@@ -33,6 +33,8 @@ Thumbs.db
 test-results/
 playwright-report/
 .playwright/
+e2e/recorded/recorded-*.spec.js
+e2e/recorded/recorded-*.spec.ts
 
 # IDE files
 .vscode/
