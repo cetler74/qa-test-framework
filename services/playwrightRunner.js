@@ -93,10 +93,24 @@ async function takeFailureScreenshot(page, runId, order) {
 }
 
 /**
+ * Extract the 1-based line number of the failing step from a Playwright error stack trace.
+ * Looks for the first `.spec.js:NN` or `.spec.ts:NN` reference in the stack.
+ * @param {string} stack
+ * @returns {number|null}
+ */
+function extractErrorLineFromStack(stack) {
+  if (!stack || typeof stack !== 'string') return null;
+  const m = stack.match(/\.spec\.[jt]s:(\d+)/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/**
  * Parse recorded spec content to extract step descriptions (navigation, clicks, fills, checks, expectations).
- * Returns an array of { description } in execution order, similar to precreated UI test validations.
+ * Returns an array of { description, lineNumber } in execution order.
+ * lineNumber is 1-based and matches Playwright's error line reporting so callers can
+ * determine which steps ran successfully before a failure.
  * @param {string} specContent - Raw spec JS/TS content
- * @returns {Array<{ description: string }>}
+ * @returns {Array<{ description: string, lineNumber: number }>}
  */
 function parseRecordedSpecSteps(specContent) {
   if (!specContent || typeof specContent !== 'string') return [];
@@ -109,7 +123,9 @@ function parseRecordedSpecSteps(specContent) {
     while ((m = re.exec(line)) !== null) out.push(m[0].slice(1, -1).replace(/\\(.)/g, '$1'));
     return out;
   }
-  for (const line of lines) {
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const line = lines[lineIdx];
+    const lineNumber = lineIdx + 1; // 1-based, matches Playwright error reporting
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('import ') || trimmed.startsWith('test(')) continue;
     const strings = extractStrings(line);
@@ -119,12 +135,12 @@ function parseRecordedSpecSteps(specContent) {
     if (/page\.goto\s*\(/.test(line)) {
       const url = strings[0] || 'URL';
       const short = url.replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '') || url;
-      steps.push({ description: `Navigate to ${short}` });
+      steps.push({ description: `Navigate to ${short}`, lineNumber });
       continue;
     }
     // expect(...).toContainText('...')
     if (/expect\s*\(.*\)\.toContainText\s*\(/.test(line)) {
-      steps.push({ description: strings.length ? `Expect content to contain "${strings[strings.length - 1]}"` : 'Expect content' });
+      steps.push({ description: strings.length ? `Expect content to contain "${strings[strings.length - 1]}"` : 'Expect content', lineNumber });
       continue;
     }
     // getByRole('textbox', { name: 'X' }).fill('Y') -> strings: role, name, value (value is last)
@@ -133,50 +149,50 @@ function parseRecordedSpecSteps(specContent) {
       const value = strings.length >= 3 ? strings[strings.length - 1] : (strings.length === 1 ? strings[0] : '');
       const isPasswordLike = /palavra-passe|password|senha/i.test(name);
       const displayValue = isPasswordLike ? '***' : (value ? `"${value}"` : 'text');
-      steps.push({ description: `Fill "${name}" with ${displayValue}` });
+      steps.push({ description: `Fill "${name}" with ${displayValue}`, lineNumber });
       continue;
     }
     // getByRole('textbox', { name: 'X' }).press('Key')
     if (/getByRole\s*\(\s*['"]textbox['"]/.test(line) && /\.press\s*\(/.test(line)) {
       const name = strings.length >= 2 ? strings[1] : (strings[0] || 'field');
-      steps.push({ description: `Press key in "${name}"` });
+      steps.push({ description: `Press key in "${name}"`, lineNumber });
       continue;
     }
     // getByRole('checkbox', { name: 'X' }).check()
     if (/getByRole\s*\(\s*['"]checkbox['"]/.test(line) && /\.check\s*\(/.test(line)) {
       const name = roleName || 'checkbox';
-      steps.push({ description: `Check "${name}"` });
+      steps.push({ description: `Check "${name}"`, lineNumber });
       continue;
     }
     // getByRole('option', { name: 'X' }).click()
     if (/getByRole\s*\(\s*['"]option['"]/.test(line) && /\.click\s*\(/.test(line)) {
       const name = roleName || 'option';
-      steps.push({ description: `Select option "${name}"` });
+      steps.push({ description: `Select option "${name}"`, lineNumber });
       continue;
     }
     // getByRole('button'|'link'|..., { name: 'X' }).click()
     if (/getByRole\s*\(\s*['"](button|link|menuitem|tab)['"]/.test(line) && /\.click\s*\(/.test(line)) {
       const role = (line.match(/getByRole\s*\(\s*['"](button|link|menuitem|tab)['"]/) || [])[1] || 'element';
       const name = roleName || '';
-      steps.push({ description: `Click ${role} "${name}"` });
+      steps.push({ description: `Click ${role} "${name}"`, lineNumber });
       continue;
     }
     // getByRole('textbox', { name: 'X' }).click()
     if (/getByRole\s*\(\s*['"]textbox['"]/.test(line) && /\.click\s*\(/.test(line)) {
       const name = roleName || 'field';
-      steps.push({ description: `Click textbox "${name}"` });
+      steps.push({ description: `Click textbox "${name}"`, lineNumber });
       continue;
     }
     // locator(...).filter({ hasText: 'X' }).click() -> first string is the selector, second is hasText
     if (/\.filter\s*\(\s*\{\s*hasText\s*:/.test(line) && /\.click\s*\(/.test(line)) {
       const text = strings.length >= 1 ? strings[strings.length - 1] : 'element';
-      steps.push({ description: `Click "${text}"` });
+      steps.push({ description: `Click "${text}"`, lineNumber });
       continue;
     }
     // Generic getByRole(..., { name: 'X' }).click()
     if (/getByRole\s*\(/.test(line) && /\.click\s*\(/.test(line)) {
       const name = roleName || 'element';
-      steps.push({ description: `Click "${name}"` });
+      steps.push({ description: `Click "${name}"`, lineNumber });
       continue;
     }
   }
@@ -1049,21 +1065,28 @@ module.exports = {
           ? `[${rawStatus}] ${errorMessage}`
           : errorMessage;
         const validations = [];
-        if (parsedSteps.length > 0) {
-          for (const step of parsedSteps) {
-            validations.push({
-              description: step.description,
-              passed: status === 'passed',
-              detail: undefined
-            });
-          }
-        }
-        if (Array.isArray(e.steps) && e.steps.length > 0 && validations.length === 0) {
+        // Prefer live runtime step data from Playwright JSON reporter (has per-step error info),
+        // so steps that ran and succeeded are not incorrectly marked as failed.
+        if (Array.isArray(e.steps) && e.steps.length > 0) {
           for (const step of e.steps) {
             validations.push({
               description: step.title || 'Step',
               passed: !step.error,
               detail: step.error || undefined
+            });
+          }
+        } else if (parsedSteps.length > 0) {
+          // Fall back to statically-parsed steps when Playwright emits no step-level data.
+          // Use the error's stack trace line number to split: steps before the failing line
+          // are marked passed, the failing step and any after are marked failed.
+          const errorStack = e.error?.stack || e.data?.error?.stack || '';
+          const errorLine = extractErrorLineFromStack(errorStack);
+          for (const step of parsedSteps) {
+            const stepPassed = errorLine == null ? true : step.lineNumber < errorLine;
+            validations.push({
+              description: step.description,
+              passed: stepPassed,
+              detail: !stepPassed && step.lineNumber === errorLine ? (e.error?.message || finalError || undefined) : undefined
             });
           }
         }
@@ -1091,8 +1114,10 @@ module.exports = {
         : (result.status !== 0 ? 'Playwright test run failed (no output captured)' : null);
       const validations = [];
       if (parsedSteps.length > 0) {
+        // No Playwright JSON report available; mark steps as passed since we have no
+        // per-step runtime data. The summary entry below carries the real pass/fail outcome.
         for (const step of parsedSteps) {
-          validations.push({ description: step.description, passed: status === 'passed', detail: undefined });
+          validations.push({ description: step.description, passed: true, detail: undefined });
         }
       }
       validations.push({ description: 'Recorded test run', passed: result.status === 0, detail: result.status !== 0 ? errorMessage : undefined });
@@ -1173,7 +1198,8 @@ function flattenPlaywrightJsonReport(report) {
             const durationMs = lastResult && typeof lastResult.duration === 'number' ? lastResult.duration : 0;
             const errorMessage = lastResult && lastResult.error ? (lastResult.error.message || JSON.stringify(lastResult.error)) : null;
             const steps = lastResult && Array.isArray(lastResult.steps) ? flattenReportSteps(lastResult.steps) : [];
-            out.push({ title: testTitle, status, durationMs, error: errorMessage ? { message: errorMessage } : null, steps });
+            const errorStack = lastResult && lastResult.error ? (lastResult.error.stack || null) : null;
+            out.push({ title: testTitle, status, durationMs, error: errorMessage ? { message: errorMessage, stack: errorStack } : null, steps });
           });
         } else {
           out.push({ title: specTitle, status: spec.ok ? 'passed' : 'failed', steps: [] });
