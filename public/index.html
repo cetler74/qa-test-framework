@@ -739,6 +739,22 @@ test('test', async ({ page }) => {
                         <div class="codegen-vnc-frame-wrap" id="codegen-vnc-frame-wrap">
                             <iframe id="codegen-vnc-iframe" class="codegen-vnc-iframe" src="" allow="clipboard-read; clipboard-write" title="Remote Codegen browser"></iframe>
                             <button type="button" class="codegen-vnc-exit-fullscreen-btn" id="codegen-vnc-exit-fullscreen-btn" title="Exit full screen (Esc)">Exit full screen</button>
+                            <!-- Floating overlay controls — visible in fullscreen so Stop Recording is always reachable -->
+                            <div class="codegen-vnc-frame-overlay-controls" id="codegen-vnc-frame-overlay-controls">
+                                <button type="button" class="codegen-vnc-frame-stop-btn" id="codegen-vnc-frame-stop-btn" title="Stop Recording">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="14" height="14">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                                    </svg>
+                                    Stop Recording
+                                </button>
+                                <button type="button" class="codegen-vnc-frame-fullscreen-exit-btn" id="codegen-vnc-frame-fullscreen-exit-btn" title="Exit full screen (Esc)">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="14" height="14">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                    Exit full screen
+                                </button>
+                            </div>
                         </div>
                         <p class="codegen-vnc-hint">Interact with the browser above to record your test. When done, click <strong>Stop Recording</strong> to save the generated code. If it never appears, see the status bar in the viewer or the browser console (F12) for errors.</p>
                     </div>

@@ -2397,6 +2397,159 @@ p.run-status-in-progress {
     min-height: 100px;
 }
 
+.note-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+    border: 1px solid var(--color-gray-200);
+    border-radius: var(--radius-md);
+    background: var(--color-gray-50);
+}
+
+.note-meta {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+.note-meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.note-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+}
+
+.note-body {
+    white-space: pre-wrap;
+    color: var(--color-text-primary);
+}
+
+.note-edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-sm);
+}
+
+.project-test-note-images-selected {
+    margin-top: var(--spacing-sm);
+}
+
+.project-test-note-selected-files {
+    display: grid;
+    gap: var(--spacing-sm);
+}
+
+.project-test-note-selected-file {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px dashed var(--color-gray-300);
+    border-radius: var(--radius-md);
+    background: var(--color-white);
+}
+
+.project-test-note-selected-file-name {
+    font-size: 13px;
+    color: var(--color-text-primary);
+    word-break: break-word;
+}
+
+.project-test-note-selected-file-meta {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    flex-shrink: 0;
+}
+
+.project-test-note-attachments {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--spacing-md);
+}
+
+.project-test-note-attachment-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.project-test-note-attachment {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-sm);
+    border: 1px solid var(--color-gray-200);
+    border-radius: var(--radius-md);
+    background: var(--color-white);
+    color: inherit;
+    text-decoration: none;
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+
+.project-test-note-attachment:hover {
+    transform: translateY(-1px);
+    border-color: var(--color-primary-light);
+    box-shadow: var(--shadow-md);
+}
+
+.project-test-note-attachment img {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+    background: var(--color-gray-100);
+}
+
+.project-test-note-attachment-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    word-break: break-word;
+}
+
+.project-test-note-attachment-meta {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+.project-test-note-attachment-delete {
+    align-self: flex-end;
+}
+
+@media (max-width: 720px) {
+    .note-meta-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .note-actions {
+        width: 100%;
+    }
+}
+
+.dark-theme .note-item {
+    background: var(--color-bg-secondary);
+    border-color: var(--color-border);
+}
+
+.dark-theme .project-test-note-selected-file,
+.dark-theme .project-test-note-attachment {
+    background: var(--color-bg-primary);
+    border-color: var(--color-border);
+}
+
+.dark-theme .project-test-note-attachment img {
+    background: var(--color-bg-tertiary);
+}
+
 .input-group {
     position: relative;
     display: flex;
@@ -3565,8 +3718,15 @@ p.run-status-in-progress {
 
 /* Add / Edit Recorded Test */
 .recorded-test-page {
-    max-width: 800px;
+    /* No max-width here: the VNC panel needs the full available width so
+       both the browser window and the Playwright Inspector window are
+       visible side-by-side in the 1920-px wide virtual display. */
     margin-top: var(--spacing-lg);
+}
+/* Cap all direct children EXCEPT the VNC panel so text/form elements
+   remain at a comfortable reading width. */
+.recorded-test-page > :not(.codegen-vnc-panel) {
+    max-width: 800px;
 }
 .recorded-test-intro {
     color: var(--color-text-secondary);
@@ -3701,7 +3861,7 @@ p.run-status-in-progress {
     margin: var(--spacing-lg) 0;
     border: 2px solid var(--color-primary);
     border-radius: var(--radius-lg);
-    overflow: hidden;
+    overflow: clip; /* clip (not hidden) so position:sticky on the header still works */
     background: var(--color-bg-primary);
     box-shadow: var(--shadow-lg);
 }
@@ -3715,6 +3875,10 @@ p.run-status-in-progress {
     background: var(--color-bg-secondary);
     border-bottom: 1px solid var(--color-border);
     flex-wrap: wrap;
+    /* Sticky so the controls stay visible while the VNC canvas is scrolled */
+    position: sticky;
+    top: 0;
+    z-index: 1100;
 }
 
 .codegen-vnc-status {
@@ -3789,7 +3953,7 @@ p.run-status-in-progress {
 .codegen-vnc-frame-wrap {
     position: relative;
     width: 100%;
-    padding-top: 62.5%; /* 16:10 aspect ratio (close to 1280x800) */
+    padding-top: 56.25%; /* 16:9 aspect ratio — matches the 1920×1080 virtual display */
     background: #1a1a2e;
 }
 
@@ -3807,7 +3971,7 @@ p.run-status-in-progress {
     position: absolute;
     top: 12px;
     right: 12px;
-    z-index: 10;
+    z-index: 2147483647;
     padding: 8px 14px;
     font-size: 13px;
     background: rgba(0, 0, 0, 0.75);
@@ -3824,6 +3988,56 @@ p.run-status-in-progress {
 .codegen-vnc-frame-wrap:fullscreen .codegen-vnc-exit-fullscreen-btn,
 .codegen-vnc-frame-wrap.is-fullscreen .codegen-vnc-exit-fullscreen-btn {
     display: block;
+}
+
+/* Floating overlay controls shown inside the VNC frame in fullscreen mode */
+.codegen-vnc-frame-overlay-controls {
+    display: none;
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 2147483647;
+    gap: 8px;
+    align-items: center;
+    pointer-events: auto;
+}
+
+.codegen-vnc-frame-wrap:fullscreen .codegen-vnc-frame-overlay-controls,
+.codegen-vnc-frame-wrap.is-fullscreen .codegen-vnc-frame-overlay-controls {
+    display: flex;
+}
+
+.codegen-vnc-frame-stop-btn,
+.codegen-vnc-frame-fullscreen-exit-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: var(--radius-md, 6px);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.15s;
+}
+
+.codegen-vnc-frame-stop-btn {
+    background: rgba(220, 38, 38, 0.85);
+    color: #fff;
+}
+
+.codegen-vnc-frame-stop-btn:hover {
+    background: rgba(220, 38, 38, 1);
+}
+
+.codegen-vnc-frame-fullscreen-exit-btn {
+    background: rgba(0, 0, 0, 0.75);
+    color: #fff;
+}
+
+.codegen-vnc-frame-fullscreen-exit-btn:hover {
+    background: rgba(0, 0, 0, 0.9);
 }
 
 .codegen-vnc-iframe {

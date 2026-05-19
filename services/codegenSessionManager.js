@@ -182,7 +182,10 @@ async function createSession(slug, url, options = {}) {
   try {
     // 1. Start Xvfb
     const display = `:${displayNum}`;
-    session.xvfbProc = spawn('Xvfb', [display, '-screen', '0', '1280x900x24', '-ac'], {
+    // 1920×1080 gives enough width for both the Chromium window and the
+    // Playwright Inspector window side-by-side, so the Inspector toolbar is
+    // always reachable even when the recorded page shows a modal/backdrop.
+    session.xvfbProc = spawn('Xvfb', [display, '-screen', '0', '1920x1080x24', '-ac'], {
       stdio: 'ignore',
       detached: true,
     });
@@ -237,6 +240,9 @@ async function createSession(slug, url, options = {}) {
     const proxy = options.proxy && (options.proxy.http || options.proxy.https) ? options.proxy : null;
     const codegenEnv = { ...process.env, DISPLAY: display };
     const codegenArgs = ['playwright', 'codegen', '--output', outputPath];
+    // Constrain browser viewport so the Playwright Inspector window can sit
+    // in the remaining ~870 px on the right side of the 1920-px wide display.
+    codegenArgs.push('--viewport-size', '1050x940');
     if (IGNORE_HTTPS_ERRORS) {
       codegenArgs.push('--ignore-https-errors');
     }

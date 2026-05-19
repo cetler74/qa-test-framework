@@ -20,6 +20,7 @@ const FuzzResult = require('./FuzzResult');
 const ProjectTest = require('./ProjectTest');
 const ProjectTestStat = require('./ProjectTestStat');
 const ProjectTestNote = require('./ProjectTestNote');
+const ProjectTestNoteAttachment = require('./ProjectTestNoteAttachment');
 
 // Define associations
 Project.belongsTo(User, { foreignKey: 'owner_id', as: 'owner' });
@@ -270,6 +271,16 @@ ProjectTestNote.belongsTo(ProjectTest, {
   as: 'projectTest'
 });
 
+ProjectTestNote.hasMany(ProjectTestNoteAttachment, {
+  foreignKey: 'project_test_note_id',
+  as: 'attachments'
+});
+
+ProjectTestNoteAttachment.belongsTo(ProjectTestNote, {
+  foreignKey: 'project_test_note_id',
+  as: 'note'
+});
+
 module.exports = {
   sequelize,
   Project,
@@ -292,6 +303,7 @@ module.exports = {
   FuzzResult,
   ProjectTest,
   ProjectTestStat,
-  ProjectTestNote
+  ProjectTestNote,
+  ProjectTestNoteAttachment
 };
 

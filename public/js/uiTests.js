@@ -1073,8 +1073,13 @@
     currentCodegenMode = null;
   }
 
-  // Stop Recording button
+  // Stop Recording button (header)
   document.getElementById('stop-codegen-btn')?.addEventListener('click', () => {
+    stopRemoteCodegenSession();
+  });
+
+  // Stop Recording button (in-frame overlay — visible in fullscreen)
+  document.getElementById('codegen-vnc-frame-stop-btn')?.addEventListener('click', () => {
     stopRemoteCodegenSession();
   });
 
@@ -1100,6 +1105,9 @@
       }
     });
     exitFullscreenBtn?.addEventListener('click', () => {
+      document.exitFullscreen().catch(() => {});
+    });
+    document.getElementById('codegen-vnc-frame-fullscreen-exit-btn')?.addEventListener('click', () => {
       document.exitFullscreen().catch(() => {});
     });
     document.addEventListener('fullscreenchange', updateFullscreenState);

@@ -208,8 +208,8 @@ async function syncProjectTests(projectId) {
     existingByKey.set(row.stable_key, row);
   });
 
-  // Upsert discovered tests
-  for (const t of discovered) {
+  // Upsert discovered tests (all in parallel)
+  await Promise.all(discovered.map(async (t) => {
     const existingRow = existingByKey.get(t.stable_key);
     if (existingRow) {
       const updates = {
@@ -252,7 +252,7 @@ async function syncProjectTests(projectId) {
         }
       });
     }
-  }
+  }));
 
   // Mark tests that are no longer discovered as inactive (but keep history)
   const toDeactivate = existing.filter((row) => (
@@ -260,8 +260,11 @@ async function syncProjectTests(projectId) {
     && row.is_active
     && row.source_kind !== 'manual'
   ));
-  for (const row of toDeactivate) {
-    await row.update({ is_active: false });
+  if (toDeactivate.length > 0) {
+    await ProjectTest.update(
+      { is_active: false },
+      { where: { id: { [Op.in]: toDeactivate.map((r) => r.id) } } }
+    );
   }
 
   // Return full catalogue with stats

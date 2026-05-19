@@ -454,6 +454,147 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function formatFileSize(bytes) {
+  const value = Number(bytes || 0);
+  if (!Number.isFinite(value) || value <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const precision = size >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${size.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function renderProjectTestNoteAttachments(attachments = []) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return '';
+  return `
+    <div class="project-test-note-attachments">
+      ${attachments.map((attachment) => {
+        const imageUrl = escapeHtml(attachment.image_url || '');
+        const imageName = escapeHtml(attachment.original_name || 'Evidence image');
+        const imageMeta = escapeHtml(formatFileSize(attachment.file_size_bytes));
+        const attachmentId = Number(attachment.id);
+        return `
+          <div class="project-test-note-attachment-card">
+            <a class="project-test-note-attachment" href="${imageUrl}" target="_blank" rel="noopener noreferrer">
+              <img src="${imageUrl}" alt="${imageName}" loading="lazy">
+              <span class="project-test-note-attachment-name">${imageName}</span>
+              <span class="project-test-note-attachment-meta">${imageMeta}</span>
+            </a>
+            <button type="button" class="btn btn-danger btn-sm project-test-note-attachment-delete" data-note-action="delete-attachment" data-attachment-id="${attachmentId}">Delete image</button>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderProjectTestNotesList(notes = []) {
+  if (!Array.isArray(notes) || notes.length === 0) {
+    return '<p class="muted">No notes yet. Add the first note for this test.</p>';
+  }
+  return notes.map((note) => {
+    const noteId = Number(note.id);
+    const when = note.created_at ? formatDateTime(note.created_at) : '';
+    const noteText = note.note || '';
+    const noteBody = noteText ? `<div class="note-body">${escapeHtml(noteText)}</div>` : '<div class="note-body muted">Image evidence added without text.</div>';
+    const attachmentsHtml = renderProjectTestNoteAttachments(note.attachments || []);
+    return `<div class="note-item" data-note-id="${noteId}">
+      <div class="note-meta-row">
+        <div class="note-meta">${when}</div>
+        <div class="note-actions">
+          <button type="button" class="btn btn-secondary btn-sm" data-note-action="edit-note">Edit</button>
+          <button type="button" class="btn btn-danger btn-sm" data-note-action="delete-note">Delete</button>
+        </div>
+      </div>
+      <div class="note-view-mode">
+        ${noteBody}
+        ${attachmentsHtml}
+      </div>
+      <div class="note-edit-mode" hidden>
+        <div class="form-group" style="margin-bottom: 10px;">
+          <label for="project-test-note-edit-${noteId}">Edit note</label>
+          <textarea id="project-test-note-edit-${noteId}" class="project-test-note-edit-text" rows="3" placeholder="Update note text">${escapeHtml(noteText)}</textarea>
+        </div>
+        <div class="note-edit-actions">
+          <button type="button" class="btn btn-secondary btn-sm" data-note-action="cancel-edit-note">Cancel</button>
+          <button type="button" class="btn btn-primary btn-sm" data-note-action="save-note">Save note</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderSelectedProjectTestNoteFiles(files = []) {
+  if (!Array.isArray(files) || files.length === 0) {
+    return '<p class="muted" style="margin-top: 6px;">No images selected.</p>';
+  }
+  return `
+    <div class="project-test-note-selected-files">
+      ${files.map((file) => `
+        <div class="project-test-note-selected-file">
+          <span class="project-test-note-selected-file-name">${escapeHtml(file.name || 'image')}</span>
+          <span class="project-test-note-selected-file-meta">${escapeHtml(formatFileSize(file.size))}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function submitProjectTestNote(projectId, projectTestId, note, files = []) {
+  const formData = new FormData();
+  if (note) formData.append('note', note);
+  files.forEach((file) => formData.append('images', file));
+  const response = await fetch(`/api/projects/${projectId}/tests/${projectTestId}/notes`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'include'
+  });
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 401) {
+    if (typeof showLoginView === 'function') showLoginView();
+    throw new Error('Authentication required');
+  }
+  if (!response.ok) {
+    throw new Error(data.error || 'Request failed');
+  }
+  return data;
+}
+
+async function updateProjectTestNote(projectId, projectTestId, noteId, note) {
+  return apiRequest(`/projects/${projectId}/tests/${projectTestId}/notes/${noteId}`, {
+    method: 'PATCH',
+    body: { note }
+  });
+}
+
+async function deleteProjectTestNote(projectId, projectTestId, noteId) {
+  return apiRequest(`/projects/${projectId}/tests/${projectTestId}/notes/${noteId}`, {
+    method: 'DELETE'
+  });
+}
+
+async function deleteProjectTestNoteAttachment(projectId, projectTestId, noteId, attachmentId) {
+  return apiRequest(`/projects/${projectId}/tests/${projectTestId}/notes/${noteId}/attachments/${attachmentId}`, {
+    method: 'DELETE'
+  });
+}
+
+function setProjectTestNoteEditing(noteItem, editing) {
+  if (!noteItem) return;
+  const viewMode = noteItem.querySelector('.note-view-mode');
+  const editMode = noteItem.querySelector('.note-edit-mode');
+  const actionButtons = noteItem.querySelectorAll('[data-note-action="edit-note"], [data-note-action="delete-note"]');
+  if (viewMode) viewMode.hidden = !!editing;
+  if (editMode) editMode.hidden = !editing;
+  actionButtons.forEach((button) => {
+    button.hidden = !!editing;
+  });
+}
+
 /** Matches server canAccessProject: admin, public, owner, or shared member. */
 function currentUserCanAccessProject(project) {
   if (!window.currentUser || !project) return false;
@@ -2675,15 +2816,7 @@ window.viewProjectTestDetails = async (projectId, projectTestId) => {
       alert('Test not found.');
       return;
     }
-    const listHtml = (notes || []).length
-      ? notes.map(n => {
-          const when = n.created_at ? formatDateTime(n.created_at) : '';
-          return `<div class="note-item">
-            <div class="note-meta">${when}</div>
-            <div class="note-body">${escapeHtml(n.note || '')}</div>
-          </div>`;
-        }).join('')
-      : '<p class="muted">No notes yet. Add the first note for this test.</p>';
+    const listHtml = renderProjectTestNotesList(notes || []);
 
     const lastRunId = test.stats?.last_run_id;
     const lastRunType = (test.stats?.last_run_type || test.stats?.last_run_source || '');
@@ -2772,6 +2905,14 @@ window.viewProjectTestDetails = async (projectId, projectTestId) => {
             <label for="project-test-note-text">Add note</label>
             <textarea id="project-test-note-text" rows="3" placeholder="Notes about this test (e.g. why it is failing, dependencies, rollout decisions)"></textarea>
           </div>
+          <div class="form-group">
+            <label for="project-test-note-images">Attach screenshots or images</label>
+            <input type="file" id="project-test-note-images" accept="image/png,image/jpeg,image/webp,image/gif" multiple>
+            <p class="muted form-help" style="margin-top:6px;">Attach screenshots as execution evidence. Supported: PNG, JPG, JPEG, WEBP, GIF.</p>
+            <div id="project-test-note-images-selected" class="project-test-note-images-selected">
+              <p class="muted" style="margin-top: 6px;">No images selected.</p>
+            </div>
+          </div>
           <div style="display: flex; gap: 10px; justify-content: flex-end;">
             <button type="submit" class="btn btn-primary">Add note</button>
           </div>
@@ -2818,21 +2959,81 @@ window.viewProjectTestDetails = async (projectId, projectTestId) => {
     document.getElementById('add-project-test-note-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const note = document.getElementById('project-test-note-text').value.trim();
-      if (!note) {
-        alert('Please enter a note.');
+      const imageInput = document.getElementById('project-test-note-images');
+      const files = imageInput && imageInput.files ? Array.from(imageInput.files) : [];
+      if (!note && files.length === 0) {
+        alert('Please enter a note or attach at least one image.');
         return;
       }
       try {
-        await apiRequest(`/projects/${projectId}/tests/${projectTestId}/notes`, {
-          method: 'POST',
-          body: { note }
-        });
+        await submitProjectTestNote(projectId, projectTestId, note, files);
         hideModal();
         window.viewProjectTestDetails(projectId, projectTestId);
       } catch (err2) {
         alert('Error adding note: ' + (err2.message || err2));
       }
     });
+    const imageInput = document.getElementById('project-test-note-images');
+    const selectedImagesEl = document.getElementById('project-test-note-images-selected');
+    if (imageInput && selectedImagesEl) {
+      imageInput.addEventListener('change', () => {
+        const files = imageInput.files ? Array.from(imageInput.files) : [];
+        selectedImagesEl.innerHTML = renderSelectedProjectTestNoteFiles(files);
+      });
+    }
+    const notesListEl = document.querySelector('.project-test-notes-list');
+    if (notesListEl) {
+      notesListEl.addEventListener('click', async (event) => {
+        const button = event.target.closest('[data-note-action]');
+        if (!button) return;
+        const noteItem = button.closest('.note-item');
+        const noteId = noteItem ? Number(noteItem.dataset.noteId) : NaN;
+        if (!noteItem || !Number.isFinite(noteId)) return;
+        const action = button.dataset.noteAction;
+        if (action === 'edit-note') {
+          setProjectTestNoteEditing(noteItem, true);
+          const textarea = noteItem.querySelector('.project-test-note-edit-text');
+          if (textarea) textarea.focus();
+          return;
+        }
+        if (action === 'cancel-edit-note') {
+          setProjectTestNoteEditing(noteItem, false);
+          return;
+        }
+        if (action === 'save-note') {
+          const textarea = noteItem.querySelector('.project-test-note-edit-text');
+          const updatedNote = textarea ? textarea.value.trim() : '';
+          try {
+            await updateProjectTestNote(projectId, projectTestId, noteId, updatedNote);
+            window.viewProjectTestDetails(projectId, projectTestId);
+          } catch (err2) {
+            alert('Error updating note: ' + (err2.message || err2));
+          }
+          return;
+        }
+        if (action === 'delete-note') {
+          if (!confirm('Delete this note and all attached images?')) return;
+          try {
+            await deleteProjectTestNote(projectId, projectTestId, noteId);
+            window.viewProjectTestDetails(projectId, projectTestId);
+          } catch (err2) {
+            alert('Error deleting note: ' + (err2.message || err2));
+          }
+          return;
+        }
+        if (action === 'delete-attachment') {
+          const attachmentId = Number(button.dataset.attachmentId);
+          if (!Number.isFinite(attachmentId)) return;
+          if (!confirm('Delete this image from the note evidence?')) return;
+          try {
+            await deleteProjectTestNoteAttachment(projectId, projectTestId, noteId, attachmentId);
+            window.viewProjectTestDetails(projectId, projectTestId);
+          } catch (err2) {
+            alert('Error deleting image: ' + (err2.message || err2));
+          }
+        }
+      });
+    }
   } catch (err) {
     alert('Error loading test details: ' + (err.message || err));
   }
