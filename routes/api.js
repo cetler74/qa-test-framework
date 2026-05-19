@@ -6,12 +6,12 @@ const path = require('path');
 const fs = require('fs');
 const { parse: parseCsv } = require('csv-parse/sync');
 
-const { Project, User, ProjectMember, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult, ProjectTest, ProjectTestStat, ProjectTestNote } = require('../models');
+const { sequelize, Project, User, ProjectMember, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult, ProjectTest, ProjectTestStat, ProjectTestNote, ProjectTestNoteAttachment } = require('../models');
 const { getAccessibleProjectIds, loadProjectAndCheckAccess, userCanAccessProjectId, userCanManageProjectId } = require('../middleware/projectAccess');
 const SequelizeLib = require('sequelize');
 const { Op, literal } = require('sequelize');
 const { convertToPostmanCollection, parsePostmanCollection } = require('../services/apiSpecConverter');
-const { upload, uploadTestsImport, validateAndParseApiSpec, validatePostmanCollection, parseWSDLToOperations } = require('../services/fileUpload');
+const { upload, uploadTestsImport, uploadProjectTestNoteEvidence, validateAndParseApiSpec, validatePostmanCollection, parseWSDLToOperations, projectTestNoteEvidenceDir } = require('../services/fileUpload');
 const { executeTests, requestCancelTestRun } = require('../services/testRunner');
 const { generateReport, getStableReportPath: getTestRunStableReportPath } = require('../services/reportGenerator');
 const { runPlaywrightTests, getPlaywrightTestListWithRecorded, detectUiVariableNamesFromSpec, executeRecordedSpec } = require('../services/playwrightRunner');
@@ -43,6 +43,92 @@ const {
   parseTicketUrlsFromCsvCell,
   ticketUrlsToCsvCell
 } = require('../lib/ticketUrls');
+
+function safeUnlink(filePath) {
+  if (!filePath) return;
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch (_) {
+    // Best-effort cleanup only.
+  }
+}
+
+function cleanupUploadedFiles(files = []) {
+  files.forEach((file) => safeUnlink(file && file.path));
+}
+
+function getProjectTestNoteAttachmentPath(attachment) {
+  if (!attachment) return null;
+  const storedName = path.basename(attachment.stored_name || '');
+  if (!storedName) return null;
+  const filePath = path.join(projectTestNoteEvidenceDir, storedName);
+  const resolvedBase = path.resolve(projectTestNoteEvidenceDir);
+  const resolvedFile = path.resolve(filePath);
+  if (!resolvedFile.startsWith(resolvedBase)) return null;
+  return resolvedFile;
+}
+
+async function findProjectTestOrRespond(res, projectId, testId) {
+  if (!testId) {
+    res.status(400).json({ error: 'Invalid test id' });
+    return null;
+  }
+  const test = await ProjectTest.findOne({
+    where: { id: testId, project_id: projectId }
+  });
+  if (!test) {
+    res.status(404).json({ error: 'Project test not found' });
+    return null;
+  }
+  return test;
+}
+
+async function findProjectTestNoteOrRespond(res, testId, noteId, attachmentRequired = false) {
+  if (!noteId) {
+    res.status(400).json({ error: 'Invalid note id' });
+    return null;
+  }
+  const note = await ProjectTestNote.findOne({
+    where: { id: noteId, project_test_id: testId },
+    include: [{
+      model: ProjectTestNoteAttachment,
+      as: 'attachments',
+      required: attachmentRequired
+    }],
+    order: [[{ model: ProjectTestNoteAttachment, as: 'attachments' }, 'created_at', 'ASC']]
+  });
+  if (!note) {
+    res.status(404).json({ error: 'Project test note not found' });
+    return null;
+  }
+  return note;
+}
+
+function serializeProjectTestNoteAttachment(req, projectId, testId, attachment) {
+  if (!attachment) return null;
+  return {
+    id: attachment.id,
+    original_name: attachment.original_name,
+    mime_type: attachment.mime_type,
+    file_size_bytes: attachment.file_size_bytes,
+    created_at: attachment.created_at,
+    image_url: `${req.baseUrl}/projects/${projectId}/tests/${testId}/notes/attachments/${attachment.id}/image`
+  };
+}
+
+function serializeProjectTestNote(req, projectId, testId, note) {
+  const attachments = Array.isArray(note.attachments) ? note.attachments : [];
+  return {
+    id: note.id,
+    project_test_id: note.project_test_id,
+    author_id: note.author_id,
+    note: note.note,
+    created_at: note.created_at,
+    attachments: attachments
+      .map((attachment) => serializeProjectTestNoteAttachment(req, projectId, testId, attachment))
+      .filter(Boolean)
+  };
+}
 
 /** Extract first soap:address location URL from a WSDL file for proxy inference. Returns '' if not found. */
 function getSoapServiceUrlFromWsdl(filePath) {
@@ -1592,16 +1678,21 @@ router.get('/projects/:projectId/tests/:testId/notes', (req, res, next) => {
     try {
       const projectId = req.project.id;
       const testId = parseInt(req.params.testId, 10);
-      if (!testId) return res.status(400).json({ error: 'Invalid test id' });
-      const test = await ProjectTest.findOne({
-        where: { id: testId, project_id: projectId }
-      });
-      if (!test) return res.status(404).json({ error: 'Project test not found' });
+      const test = await findProjectTestOrRespond(res, projectId, testId);
+      if (!test) return;
       const notes = await ProjectTestNote.findAll({
         where: { project_test_id: test.id },
-        order: [['created_at', 'DESC']]
+        include: [{
+          model: ProjectTestNoteAttachment,
+          as: 'attachments',
+          required: false
+        }],
+        order: [
+          ['created_at', 'DESC'],
+          [{ model: ProjectTestNoteAttachment, as: 'attachments' }, 'created_at', 'ASC']
+        ]
       });
-      res.json(notes);
+      res.json(notes.map((note) => serializeProjectTestNote(req, projectId, test.id, note)));
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -1611,24 +1702,191 @@ router.get('/projects/:projectId/tests/:testId/notes', (req, res, next) => {
 // Add a note to a project test (access required)
 router.post('/projects/:projectId/tests/:testId/notes', (req, res, next) => {
   loadProjectAndCheckAccess(req, res, async () => {
+    uploadProjectTestNoteEvidence.array('images')(req, res, async (uploadError) => {
+      if (uploadError) {
+        cleanupUploadedFiles(req.files);
+        return res.status(400).json({ error: uploadError.message || 'Upload failed' });
+      }
+      const uploadedFiles = Array.isArray(req.files) ? req.files : [];
+      let transaction;
+      try {
+        const projectId = req.project.id;
+        const testId = parseInt(req.params.testId, 10);
+        const test = await findProjectTestOrRespond(res, projectId, testId);
+        if (!test) {
+          cleanupUploadedFiles(uploadedFiles);
+          return;
+        }
+        const rawNote = req.body && req.body.note !== undefined ? String(req.body.note) : '';
+        const note = rawNote.trim();
+        if (!note && uploadedFiles.length === 0) {
+          cleanupUploadedFiles(uploadedFiles);
+          return res.status(400).json({ error: 'note text or at least one image is required' });
+        }
+        transaction = await sequelize.transaction();
+        const createdNote = await ProjectTestNote.create({
+          project_test_id: test.id,
+          author_id: req.user && req.user.id ? req.user.id : null,
+          note: note || null
+        }, { transaction });
+        if (uploadedFiles.length > 0) {
+          await ProjectTestNoteAttachment.bulkCreate(uploadedFiles.map((file) => ({
+            project_test_note_id: createdNote.id,
+            original_name: file.originalname,
+            stored_name: path.basename(file.filename || file.path || ''),
+            mime_type: file.mimetype || 'application/octet-stream',
+            file_size_bytes: file.size || 0
+          })), { transaction });
+        }
+        await transaction.commit();
+        const created = await ProjectTestNote.findByPk(createdNote.id, {
+          include: [{
+            model: ProjectTestNoteAttachment,
+            as: 'attachments',
+            required: false
+          }],
+          order: [[{ model: ProjectTestNoteAttachment, as: 'attachments' }, 'created_at', 'ASC']]
+        });
+        res.status(201).json(serializeProjectTestNote(req, projectId, test.id, created));
+      } catch (error) {
+        if (transaction) {
+          try {
+            await transaction.rollback();
+          } catch (_) {
+            // Ignore rollback errors and return the original failure.
+          }
+        }
+        cleanupUploadedFiles(req.files);
+        res.status(500).json({ error: error.message });
+      }
+    });
+  }, req.params.projectId, false);
+});
+
+router.patch('/projects/:projectId/tests/:testId/notes/:noteId', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
     try {
       const projectId = req.project.id;
       const testId = parseInt(req.params.testId, 10);
-      if (!testId) return res.status(400).json({ error: 'Invalid test id' });
-      const test = await ProjectTest.findOne({
-        where: { id: testId, project_id: projectId }
-      });
-      if (!test) return res.status(404).json({ error: 'Project test not found' });
-      const { note } = req.body || {};
-      if (!note || !String(note).trim()) {
-        return res.status(400).json({ error: 'note is required' });
+      const noteId = parseInt(req.params.noteId, 10);
+      const test = await findProjectTestOrRespond(res, projectId, testId);
+      if (!test) return;
+      const noteRecord = await findProjectTestNoteOrRespond(res, test.id, noteId);
+      if (!noteRecord) return;
+      const rawNote = req.body && req.body.note !== undefined ? String(req.body.note) : '';
+      const note = rawNote.trim();
+      if (!note && (!Array.isArray(noteRecord.attachments) || noteRecord.attachments.length === 0)) {
+        return res.status(400).json({ error: 'note text or at least one image is required' });
       }
-      const created = await ProjectTestNote.create({
-        project_test_id: test.id,
-        author_id: req.user && req.user.id ? req.user.id : null,
-        note: String(note).trim()
+      await noteRecord.update({ note: note || null });
+      const updated = await findProjectTestNoteOrRespond(res, test.id, noteId);
+      if (!updated) return;
+      res.json(serializeProjectTestNote(req, projectId, test.id, updated));
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.projectId, false);
+});
+
+router.delete('/projects/:projectId/tests/:testId/notes/:noteId', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    let transaction;
+    try {
+      const projectId = req.project.id;
+      const testId = parseInt(req.params.testId, 10);
+      const noteId = parseInt(req.params.noteId, 10);
+      const test = await findProjectTestOrRespond(res, projectId, testId);
+      if (!test) return;
+      const noteRecord = await findProjectTestNoteOrRespond(res, test.id, noteId);
+      if (!noteRecord) return;
+      const attachmentPaths = (noteRecord.attachments || []).map(getProjectTestNoteAttachmentPath).filter(Boolean);
+      transaction = await sequelize.transaction();
+      await noteRecord.destroy({ transaction });
+      await transaction.commit();
+      attachmentPaths.forEach((filePath) => safeUnlink(filePath));
+      res.json({ success: true, deleted_note_id: noteId });
+    } catch (error) {
+      if (transaction) {
+        try {
+          await transaction.rollback();
+        } catch (_) {
+          // Ignore rollback errors.
+        }
+      }
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.projectId, false);
+});
+
+router.delete('/projects/:projectId/tests/:testId/notes/:noteId/attachments/:attachmentId', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    let transaction;
+    try {
+      const projectId = req.project.id;
+      const testId = parseInt(req.params.testId, 10);
+      const noteId = parseInt(req.params.noteId, 10);
+      const attachmentId = parseInt(req.params.attachmentId, 10);
+      if (!attachmentId) return res.status(400).json({ error: 'Invalid attachment id' });
+      const test = await findProjectTestOrRespond(res, projectId, testId);
+      if (!test) return;
+      const noteRecord = await findProjectTestNoteOrRespond(res, test.id, noteId, true);
+      if (!noteRecord) return;
+      const attachment = (noteRecord.attachments || []).find((item) => item.id === attachmentId);
+      if (!attachment) return res.status(404).json({ error: 'Note attachment not found' });
+      const attachmentPath = getProjectTestNoteAttachmentPath(attachment);
+      transaction = await sequelize.transaction();
+      await attachment.destroy({ transaction });
+      const remainingAttachmentCount = await ProjectTestNoteAttachment.count({
+        where: { project_test_note_id: noteRecord.id },
+        transaction
       });
-      res.status(201).json(created);
+      const trimmedNote = String(noteRecord.note || '').trim();
+      let deletedNoteId = null;
+      if (!trimmedNote && remainingAttachmentCount === 0) {
+        await noteRecord.destroy({ transaction });
+        deletedNoteId = noteRecord.id;
+      }
+      await transaction.commit();
+      safeUnlink(attachmentPath);
+      res.json({ success: true, deleted_attachment_id: attachmentId, deleted_note_id: deletedNoteId });
+    } catch (error) {
+      if (transaction) {
+        try {
+          await transaction.rollback();
+        } catch (_) {
+          // Ignore rollback errors.
+        }
+      }
+      res.status(500).json({ error: error.message });
+    }
+  }, req.params.projectId, false);
+});
+
+router.get('/projects/:projectId/tests/:testId/notes/attachments/:attachmentId/image', (req, res, next) => {
+  loadProjectAndCheckAccess(req, res, async () => {
+    try {
+      const projectId = req.project.id;
+      const testId = parseInt(req.params.testId, 10);
+      const attachmentId = parseInt(req.params.attachmentId, 10);
+      if (!testId) return res.status(400).json({ error: 'Invalid test id' });
+      if (!attachmentId) return res.status(400).json({ error: 'Invalid attachment id' });
+      const test = await findProjectTestOrRespond(res, projectId, testId);
+      if (!test) return;
+      const attachment = await ProjectTestNoteAttachment.findOne({
+        where: { id: attachmentId },
+        include: [{
+          model: ProjectTestNote,
+          as: 'note',
+          required: true,
+          where: { project_test_id: test.id }
+        }]
+      });
+      if (!attachment) return res.status(404).json({ error: 'Note attachment not found' });
+      const resolvedFile = getProjectTestNoteAttachmentPath(attachment);
+      if (!resolvedFile || !fs.existsSync(resolvedFile)) return res.status(404).json({ error: 'Note attachment file not found' });
+      res.setHeader('Content-Type', attachment.mime_type || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `inline; filename="${path.basename(attachment.original_name || path.basename(resolvedFile)).replace(/"/g, '')}"`);
+      res.sendFile(resolvedFile);
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

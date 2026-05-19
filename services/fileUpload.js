@@ -9,6 +9,11 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+const projectTestNoteEvidenceDir = path.join(uploadDir, 'project-test-note-evidence');
+if (!fs.existsSync(projectTestNoteEvidenceDir)) {
+  fs.mkdirSync(projectTestNoteEvidenceDir, { recursive: true });
+}
+
 // Configure multer storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -62,6 +67,34 @@ const uploadTestsImport = multer({
   storage: testsImportStorage,
   fileFilter: testsImportFileFilter,
   limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024 }
+});
+
+const projectTestNoteEvidenceStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, projectTestNoteEvidenceDir),
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname).toLowerCase() || '.bin';
+    cb(null, `project-test-note-${uniqueSuffix}${ext}`);
+  }
+});
+
+const projectTestNoteEvidenceFileFilter = (req, file, cb) => {
+  const ext = path.extname(file.originalname).toLowerCase();
+  const mimeType = String(file.mimetype || '').toLowerCase();
+  if (['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext) && mimeType.startsWith('image/')) {
+    cb(null, true);
+    return;
+  }
+  cb(new Error('Only image files (PNG, JPG, JPEG, WEBP, GIF) are allowed for note evidence'), false);
+};
+
+const uploadProjectTestNoteEvidence = multer({
+  storage: projectTestNoteEvidenceStorage,
+  fileFilter: projectTestNoteEvidenceFileFilter,
+  limits: {
+    fileSize: parseInt(process.env.NOTE_EVIDENCE_MAX_FILE_SIZE, 10) || 10 * 1024 * 1024,
+    files: parseInt(process.env.NOTE_EVIDENCE_MAX_FILES, 10) || 6
+  }
 });
 
 /**
@@ -175,8 +208,10 @@ function parseWSDLToOperations(filePath) {
 module.exports = {
   upload,
   uploadTestsImport,
+  uploadProjectTestNoteEvidence,
   validateAndParseApiSpec,
   validatePostmanCollection,
-  parseWSDLToOperations
+  parseWSDLToOperations,
+  projectTestNoteEvidenceDir
 };
 
