@@ -262,6 +262,12 @@ document.addEventListener('DOMContentLoaded', () => {
       window.runBatchProjectCatalogueTests(Number(projectId));
     }
   });
+
+  document.getElementById('generate-jwks-btn')?.addEventListener('click', () => {
+    const projectId = document.getElementById('generate-jwks-btn')?.getAttribute('data-project-id');
+    if (!projectId) { alert('Please open a project first.'); return; }
+    showGenerateJwksModal(projectId);
+  });
 });
 
 // Create Project
@@ -680,6 +686,7 @@ window.viewProject = async (projectId) => {
     document.getElementById('export-project-tests-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('add-project-test-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('upload-project-tests-btn')?.setAttribute('data-project-id', projectId);
+    document.getElementById('generate-jwks-btn')?.setAttribute('data-project-id', projectId);
     const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
     document.getElementById('project-tests-run-selected-btn')?.setAttribute('data-project-id', projectId);
     if (editModeBtn) {
@@ -4342,4 +4349,86 @@ window.triggerSchedule = async (scheduleId) => {
     alert('Error triggering schedule: ' + (err.message || err));
   }
 };
+
+async function showGenerateJwksModal(projectId) {
+  const content = `
+    <form id="generate-jwks-form">
+      <div class="form-group">
+        <label for="jwks-client-id">Client ID <span class="required">*</span></label>
+        <input type="text" id="jwks-client-id" required placeholder="my-client-id">
+        <p class="muted form-help" style="margin-top:6px;">Used as both issuer and subject in the JWT.</p>
+      </div>
+      <div class="form-group">
+        <label for="jwks-endpoint">Endpoint (audience) <span class="required">*</span></label>
+        <input type="url" id="jwks-endpoint" required placeholder="https://example.com/v1/bc-authorize">
+        <p class="muted form-help" style="margin-top:6px;">The URL of the authentication endpoint (e.g. bc-authorize or token).</p>
+      </div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="generate-jwks-submit-btn">Generate</button>
+      </div>
+    </form>
+  `;
+  showModal('Generate JWKS / JWT', content);
+  document.getElementById('generate-jwks-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const clientId = document.getElementById('jwks-client-id').value.trim();
+    const endpoint = document.getElementById('jwks-endpoint').value.trim();
+    if (!clientId || !endpoint) { alert('All fields are required.'); return; }
+    const submitBtn = document.getElementById('generate-jwks-submit-btn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Generating\u2026';
+    try {
+      const result = await apiRequest(`/projects/${projectId}/jwks/generate`, {
+        method: 'POST',
+        body: { client_id: clientId, endpoint }
+      });
+      hideModal();
+      showJwksResultModal(result);
+    } catch (err) {
+      alert('Error generating JWKS: ' + err.message);
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Generate';
+    }
+  });
+}
+
+function showJwksResultModal(result) {
+  const jwksJson = JSON.stringify(result.jwks, null, 2);
+  const token = result.token;
+  const content = `
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <label style="font-weight: 600;">JWKS (jwks.json)</label>
+          <button type="button" class="btn btn-secondary btn-sm" id="copy-jwks-btn">Copy</button>
+        </div>
+        <pre style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px; max-height: 260px; overflow-y: auto;">${escapeHtml(jwksJson)}</pre>
+      </div>
+      <div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <label style="font-weight: 600;">JWT Token (token.jwt)</label>
+          <button type="button" class="btn btn-secondary btn-sm" id="copy-token-btn">Copy</button>
+        </div>
+        <pre style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px; word-break: break-all; max-height: 120px; overflow-y: auto;">${escapeHtml(token)}</pre>
+      </div>
+      <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Close</button>
+      </div>
+    </div>
+  `;
+  showModal('JWKS / JWT Generated', content);
+  document.getElementById('copy-jwks-btn')?.addEventListener('click', () => {
+    navigator.clipboard.writeText(jwksJson).then(() => {
+      const btn = document.getElementById('copy-jwks-btn');
+      if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); }
+    });
+  });
+  document.getElementById('copy-token-btn')?.addEventListener('click', () => {
+    navigator.clipboard.writeText(token).then(() => {
+      const btn = document.getElementById('copy-token-btn');
+      if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); }
+    });
+  });
+}
 

@@ -46,3 +46,10 @@ e2e/recorded/recorded-*.spec.ts
 *.sqlite
 *.db
 
+# JWKS / JWT key material - never commit private keys
+keys/
+*.pem
+*.key
+*.jwt
+jwk.json
+
