@@ -233,6 +233,103 @@ function getRequestHeadersArray(request = {}) {
 }
 
 /**
+ * Scan a Postman collection and return the Set of {{signedjwt-*}} variant names found
+ * (request URLs, headers, body, pre-request/test scripts, etc.).
+ * Supported variants: 'signedjwt-authorize', 'signedjwt-token'.
+ * @param {object} collection - Postman collection JSON object
+ * @returns {Set<string>}
+ */
+function collectSignedJwtVariants(collection) {
+  const VARIANTS = ['signedjwt-authorize', 'signedjwt-token'];
+  const found = new Set();
+  try {
+    const text = JSON.stringify(collection);
+    for (const v of VARIANTS) {
+      if (text.includes(`{{${v}}}`)) found.add(v);
+    }
+  } catch (_) { /* ignore */ }
+  return found;
+}
+
+/**
+ * Generate a signed RS256 JWT from environment variables.
+ *
+ * Required env vars:  jwt_issuer
+ * Optional env vars:  jwt_ttl          (seconds, default 300; capped 1-300)
+ *                     jwt_kid          (auto-derived from public key SHA-256 if absent/empty)
+ *                     jwt_private_key  (PEM content; falls back to keys/project-{id}/private.pem)
+ *
+ * @param {object} envVars       - Current key/value env vars map
+ * @param {number|string} projectId
+ * @param {string} audience      - The JWT audience (aud) claim value
+ * @param {string} variantLabel  - Variant name used in error messages (e.g. 'signedjwt-authorize')
+ * @returns {string} Signed JWT string
+ */
+function generateSignedJwtFromEnvVars(envVars, projectId, audience, variantLabel) {
+  const crypto = require('crypto');
+
+  const issuer = (envVars.jwt_issuer || '').trim();
+
+  if (!issuer)   throw new Error(`[${variantLabel}] jwt_issuer environment variable is required to generate the JWT.`);
+  if (!audience) throw new Error(`[${variantLabel}] audience value is empty; check the corresponding audience env var.`);
+
+  const ttlRaw = parseInt(envVars.jwt_ttl || '300', 10);
+  const ttl = (!isNaN(ttlRaw) && ttlRaw > 0) ? Math.min(ttlRaw, 300) : 300;
+
+  // Resolve private key PEM: env var takes priority, then project key file
+  let privateKeyPem;
+  if (envVars.jwt_private_key && envVars.jwt_private_key.trim()) {
+    privateKeyPem = envVars.jwt_private_key.trim();
+  } else {
+    const keyFile = path.join(__dirname, '..', 'keys', `project-${projectId}`, 'private.pem');
+    if (!fs.existsSync(keyFile)) {
+      throw new Error(
+        `[signedjwt] Private key not found. Either set the jwt_private_key environment variable ` +
+        `(PEM content) or generate JWKS for this project first (expected: ${keyFile}).`
+      );
+    }
+    privateKeyPem = fs.readFileSync(keyFile, 'utf8');
+  }
+
+  // Derive kid from public key SPKI SHA-256 unless explicitly provided
+  let kid = (envVars.jwt_kid || '').trim();
+  if (!kid) {
+    const publicKey = crypto.createPublicKey(privateKeyPem);
+    const spkiDer = publicKey.export({ type: 'spki', format: 'der' });
+    kid = 'kid-' + crypto.createHash('sha256').update(spkiDer).digest('hex');
+  }
+
+  // Base64url encode helper
+  const b64url = (obj) =>
+    Buffer.from(typeof obj === 'string' ? obj : JSON.stringify(obj))
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+  const now     = Math.floor(Date.now() / 1000);
+  const header  = { alg: 'RS256', typ: 'JWT', kid };
+  const payload = {
+    iss: issuer,
+    sub: issuer,
+    aud: audience,
+    iat: now,
+    exp: now + ttl,
+    jti: crypto.randomBytes(16).toString('hex')
+  };
+
+  const unsigned  = `${b64url(header)}.${b64url(payload)}`;
+  const signer    = crypto.createSign('RSA-SHA256');
+  signer.update(unsigned);
+  const signature = signer.sign(privateKeyPem, 'base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  return `${unsigned}.${signature}`;
+}
+
+/**
  * Merge multiple Postman collections into one
  * @param {Array<object>} collections - Array of Postman collection objects
  * @param {string} name - Name for merged collection
@@ -1088,6 +1185,42 @@ async function executeTests(projectId, testRunName, options = {}) {
     await testRun.update({
       total_tests: totalTestsToRun
     });
+
+    // Auto-generate {{signedjwt-authorize}} and/or {{signedjwt-token}} when the merged
+    // collection references them. Each variant requires its own audience env var:
+    //   jwt_audience_signedjwt-authorize  →  {{signedjwt-authorize}}
+    //   jwt_audience_signedjwt-token      →  {{signedjwt-token}}
+    // Shared env vars: jwt_issuer, jwt_ttl, jwt_kid, jwt_private_key
+    {
+      const JWT_VARIANTS = [
+        { varName: 'signedjwt-authorize', audienceKey: 'jwt_audience_signedjwt-authorize' },
+        { varName: 'signedjwt-token',     audienceKey: 'jwt_audience_signedjwt-token' },
+      ];
+      const usedVariants = collectSignedJwtVariants(mergedCollection);
+      if (usedVariants.size > 0) {
+        try {
+          const updatedEnvVars = { ...(options.envVars || {}) };
+          for (const { varName, audienceKey } of JWT_VARIANTS) {
+            if (!usedVariants.has(varName)) continue;
+            const audience = (updatedEnvVars[audienceKey] || '').trim();
+            if (!audience) {
+              throw new Error(
+                `[${varName}] The collection uses {{${varName}}} but the required environment variable ` +
+                `"${audienceKey}" is not set. Add it to the environment variables before running.`
+              );
+            }
+            console.log(`[testRunner] Generating JWT for {{${varName}}} (audience: ${audience})`);
+            const jwt = generateSignedJwtFromEnvVars(updatedEnvVars, projectId, audience, varName);
+            updatedEnvVars[varName] = jwt;
+            console.log(`[testRunner] Auto-generated ${varName}`);
+          }
+          options.envVars = updatedEnvVars;
+        } catch (jwtError) {
+          await testRun.update({ status: 'failed' });
+          throw jwtError;
+        }
+      }
+    }
 
     // Ensure envVars override request-level URL variable defaults (e.g. :resourceId)
     // so single-test runs use values provided from saved environments or manual input.

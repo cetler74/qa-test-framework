@@ -4225,5 +4225,58 @@ router.delete('/playwright-recorded-tests/:id', async (req, res) => {
   }
 });
 
+// Generate JWKS / JWT for a project
+router.post('/projects/:projectId/jwks/generate', async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.projectId, 10);
+    if (!projectId) return res.status(400).json({ error: 'Invalid project ID' });
+    const { client_id, endpoint } = req.body;
+    if (!client_id || typeof client_id !== 'string' || !client_id.trim()) {
+      return res.status(400).json({ error: 'client_id is required' });
+    }
+    if (!endpoint || typeof endpoint !== 'string' || !endpoint.trim()) {
+      return res.status(400).json({ error: 'endpoint is required' });
+    }
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(endpoint.trim());
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        return res.status(400).json({ error: 'endpoint must be an http or https URL' });
+      }
+    } catch {
+      return res.status(400).json({ error: 'endpoint must be a valid URL' });
+    }
+    const project = await Project.findByPk(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (!await userCanAccessProjectId(req.user.id, req.user.is_admin, projectId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const keyDir = path.join(__dirname, '..', 'keys', `project-${projectId}`);
+    const scriptPath = path.join(__dirname, '..', 'jwks', 'generate_jwt_and_jwks.sh');
+    const isWindows = process.platform === 'win32';
+    const bashCmd = isWindows ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
+    await new Promise((resolve, reject) => {
+      const { spawn } = require('child_process');
+      const child = spawn(bashCmd, [scriptPath, client_id.trim(), client_id.trim(), endpoint.trim(), keyDir], {
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      let stderr = '';
+      child.stderr.on('data', d => { stderr += d.toString(); });
+      child.on('close', code => {
+        if (code !== 0) reject(new Error(stderr.trim() || `Script exited with code ${code}`));
+        else resolve();
+      });
+      child.on('error', err => reject(new Error(`Failed to start script: ${err.message}`)));
+    });
+    const jwksPath = path.join(keyDir, 'jwks.json');
+    const tokenPath = path.join(keyDir, 'token.jwt');
+    const jwks = JSON.parse(fs.readFileSync(jwksPath, 'utf8'));
+    const token = fs.readFileSync(tokenPath, 'utf8').trim();
+    res.json({ jwks, token });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
 
