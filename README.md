@@ -9,6 +9,7 @@ A comprehensive API testing tool with Postman integration that allows you to man
 - **Test Execution**: Run selected tests using Newman CLI
 - **HTML Reports**: Generate and export comprehensive test reports
 - **Multi-Format Support**: Supports OpenAPI YAML, JSON, and Postman Collection formats
+- **Signed JWT Auto-generation**: When a Postman collection uses `{{signedjwt-authorize}}` or `{{signedjwt-token}}`, a fresh RS256 JWT is automatically generated and injected before each Newman run — no manual token refresh required
 - **UI Tests (Playwright)**: Run browser-based UI tests (page load, key elements visible, basic navigation) against a configurable URL (e.g. 5gapisprint.meoempresas.pt/apis), with separate runs and HTML reports
 - **REST API Fuzzing (CATS)**: Run OpenAPI-based fuzz tests via CATS (Contract API Testing Service); view fuzz runs and HTML reports alongside API, UI, and SOAP runs
 - **Postman to OpenAPI**: Convert Postman collection JSON to OpenAPI 3.0 (Swagger) YAML for use with CATS, documentation, or other OpenAPI tools
@@ -286,6 +287,65 @@ The application will be available at `http://localhost:3000` (or the port set in
 
 - When delays are present the runner executes tests **sequentially** (each test runs as its own Newman invocation), and waits the configured seconds before the next test. The total test run duration includes delays.
 - Use per-test delays when you need custom wait times between specific consecutive tests; otherwise use the global delay for a consistent pause between tests.
+
+### JWKS / Signed JWT for API runs
+
+Some CAMARA / OAuth 2.0 APIs require a signed client assertion JWT (a `{{signedjwt}}`) for the `bc-authorize` and `token` endpoints. The framework generates these automatically before each Newman run when the collection references them.
+
+#### Step 1 — Generate the RSA key pair and JWKS (one-time per project)
+
+1. Open your project and click **Generate JWKS / JWT** (in the project actions area).
+2. Enter **Client ID** (used as `iss` and `sub` claims) and **Endpoint / Audience** (e.g. `https://example.com/v1/bc-authorize`).
+3. Click **Generate**. The tool runs the `jwks/generate_jwt_and_jwks.sh` script and displays:
+   - **JWKS** (`jwks.json`) — register this JSON with the authorization server so it can verify your JWT signatures.
+   - **JWT Token** (`token.jwt`) — a preview JWT for manual testing; it expires after 5 minutes.
+4. Copy the JWKS and register it with the authorization server. The RSA private key is stored at `keys/project-{id}/private.pem` and reused for all subsequent automated runs.
+
+> **Note:** The `token.jwt` file is only a preview. Automated test runs always generate a fresh JWT (new `iat`, `exp`, `jti`) from the stored private key — it is never expired.
+
+#### Step 2 — Add environment variables (Manage Environments)
+
+In **Manage Environments**, add the following variables to the environment used for your run:
+
+| Variable | Required | Description |
+|---|---|---|
+| `jwt_issuer` | ✅ Always | Client ID — used as `iss` and `sub` claims in the JWT |
+| `jwt_audience_signedjwt-authorize` | ✅ When collection uses `{{signedjwt-authorize}}` | Audience for the `bc-authorize` endpoint (e.g. `https://example.com/v1/bc-authorize`) |
+| `jwt_audience_signedjwt-token` | ✅ When collection uses `{{signedjwt-token}}` | Audience for the `token` endpoint (e.g. `https://example.com/v1/token`) |
+| `jwt_ttl` | Optional | JWT validity in seconds (default: `300`, max: `300`) |
+| `jwt_kid` | Optional | Key ID override; auto-derived from the public key SHA-256 if absent or empty |
+| `jwt_private_key` | Optional | RSA private key PEM content; if set, takes priority over the project key file at `keys/project-{id}/private.pem` |
+
+#### Step 3 — Run the collection
+
+Click **Run API Tests** as normal. Before Newman starts, the runner:
+
+1. Scans the merged collection for `{{signedjwt-authorize}}` and `{{signedjwt-token}}`.
+2. For each variable found, reads the corresponding `jwt_audience_*` env var and generates a fresh RS256 JWT signed with the project's private key.
+3. Injects the generated tokens as Newman environment variables (`signedjwt-authorize`, `signedjwt-token`).
+
+If a collection uses `{{signedjwt-authorize}}` but the `jwt_audience_signedjwt-authorize` env var is missing, the run fails immediately with a descriptive error message naming the missing variable.
+
+#### JWT claims
+
+Each generated JWT contains:
+
+```json
+{
+  "alg": "RS256",
+  "typ": "JWT",
+  "kid": "kid-<sha256-of-public-key>"
+}
+.
+{
+  "iss": "<jwt_issuer>",
+  "sub": "<jwt_issuer>",
+  "aud": "<jwt_audience_signedjwt-*>",
+  "iat": <now>,
+  "exp": <now + jwt_ttl>,
+  "jti": "<random-16-byte-hex>"
+}
+```
 
 1. **View Reports**:
   - Go to Test Runs to see all test executions
@@ -644,6 +704,14 @@ The application uses PostgreSQL with the following main tables:
 - `PLAYWRIGHT_TIMEOUT_MS` - Timeout for Playwright actions in ms (default: 30000)
 - `PLAYWRIGHT_HEADLESS` - Run browser headless: true or false (default: true)
 - `CATS_CMD` - Optional; CATS CLI command (e.g. `cats` or `java -jar /path/to/cats.jar`) when not on PATH
+
+**Signed JWT / JWKS (API test runs)** — set these as environment variables in **Manage Environments**, not in `.env`:
+- `jwt_issuer` — client ID used as `iss`/`sub` in the generated JWT (required when collection uses `{{signedjwt-authorize}}` or `{{signedjwt-token}}`)
+- `jwt_audience_signedjwt-authorize` — audience (`aud`) for the `bc-authorize` JWT; required when collection uses `{{signedjwt-authorize}}`
+- `jwt_audience_signedjwt-token` — audience (`aud`) for the `token` JWT; required when collection uses `{{signedjwt-token}}`
+- `jwt_ttl` — JWT validity in seconds (optional; default `300`, max `300`)
+- `jwt_kid` — key ID override (optional; auto-derived from public key SHA-256 if absent)
+- `jwt_private_key` — RSA private key PEM content (optional; falls back to `keys/project-{id}/private.pem` generated by the JWKS modal)
 - `CODEGEN_MAX_SESSIONS` - Maximum concurrent remote Codegen sessions (default: 3)
 - `CODEGEN_SESSION_TIMEOUT_MS` - Remote Codegen session auto-timeout in ms (default: 600000 = 10 min)
 - `CODEGEN_VNC_PORT_START` - First websockify port for noVNC sessions (default: 6080)
