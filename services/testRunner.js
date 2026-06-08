@@ -1191,12 +1191,13 @@ async function executeTests(projectId, testRunName, options = {}) {
     //   jwt_audience_signedjwt-authorize  →  {{signedjwt-authorize}}
     //   jwt_audience_signedjwt-token      →  {{signedjwt-token}}
     // Shared env vars: jwt_issuer, jwt_ttl, jwt_kid, jwt_private_key
+    // usedVariants is hoisted so the sequential loop can refresh JWTs on each iteration.
+    const JWT_VARIANTS = [
+      { varName: 'signedjwt-authorize', audienceKey: 'jwt_audience_signedjwt-authorize' },
+      { varName: 'signedjwt-token',     audienceKey: 'jwt_audience_signedjwt-token' },
+    ];
+    const usedVariants = collectSignedJwtVariants(mergedCollection);
     {
-      const JWT_VARIANTS = [
-        { varName: 'signedjwt-authorize', audienceKey: 'jwt_audience_signedjwt-authorize' },
-        { varName: 'signedjwt-token',     audienceKey: 'jwt_audience_signedjwt-token' },
-      ];
-      const usedVariants = collectSignedJwtVariants(mergedCollection);
       if (usedVariants.size > 0) {
         try {
           const updatedEnvVars = { ...(options.envVars || {}) };
@@ -1307,6 +1308,43 @@ async function executeTests(projectId, testRunName, options = {}) {
         // Use shared environment file for all sequential runs (always set; file created above)
         testOptions.environment = sharedEnvFile;
         delete testOptions.envVars;
+
+        // Regenerate signed JWTs for each iteration so every Newman call gets a fresh
+        // token with a unique jti/iat/exp — prevents the CAMARA auth server from
+        // rejecting reused jti values on subsequent bc-authorize / token requests.
+        if (usedVariants && usedVariants.size > 0) {
+          try {
+            const currentEnvContent = JSON.parse(fs.readFileSync(sharedEnvFile, 'utf8'));
+            const currentEnvVars = {};
+            for (const v of (currentEnvContent.values || [])) {
+              currentEnvVars[v.key] = v.value;
+            }
+            let jwtRefreshed = false;
+            for (const { varName, audienceKey } of JWT_VARIANTS) {
+              if (!usedVariants.has(varName)) continue;
+              // Always use the audience from the original project environment config.
+              // Do NOT read it from the live sharedEnvFile: a previous test script calling
+              // pm.environment.set() could have written a wrong/stale audience there,
+              // which would then propagate to every subsequent JWT refresh.
+              const audience = ((options.envVars || {})[audienceKey] || '').trim();
+              if (!audience) continue;
+              const freshJwt = generateSignedJwtFromEnvVars(currentEnvVars, projectId, audience, varName);
+              const existing = currentEnvContent.values.find(v => v.key === varName);
+              if (existing) {
+                existing.value = freshJwt;
+              } else {
+                currentEnvContent.values.push({ key: varName, value: freshJwt, type: 'string', enabled: true });
+              }
+              console.log(`[testRunner] Refreshed JWT for {{${varName}}} (item ${i + 1}/${(mergedCollection.item || []).length})`);
+              jwtRefreshed = true;
+            }
+            if (jwtRefreshed) {
+              fs.writeFileSync(sharedEnvFile, JSON.stringify(currentEnvContent, null, 2));
+            }
+          } catch (jwtRefreshError) {
+            console.error(`[testRunner] Failed to refresh JWT for item ${i + 1}:`, jwtRefreshError.message);
+          }
+        }
 
         // Run single item as its own collection
         const currentTestName = item.name || item.request?.method || 'Unnamed';
