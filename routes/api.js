@@ -1425,7 +1425,7 @@ router.post('/projects/:projectId/tests/:testId/run', (req, res, next) => {
           })
           .catch((error) => {
             console.error(`[api] Single test run ${testRun.id} failed:`, error);
-            TestRun.update({ status: 'failed' }, { where: { id: testRun.id } }).catch(() => {});
+            TestRun.update({ status: 'failed', error_message: error.message || String(error) }, { where: { id: testRun.id } }).catch(() => {});
           });
 
         return res.status(201).json({
@@ -3083,7 +3083,7 @@ router.post('/test-runs/execute', async (req, res) => {
       .catch(error => {
         console.error(`[api] Test run ${testRun.id} failed:`, error);
         // Update test run status to failed if execution fails
-        TestRun.update({ status: 'failed' }, { where: { id: testRun.id } }).catch(updateError => {
+        TestRun.update({ status: 'failed', error_message: error.message || String(error) }, { where: { id: testRun.id } }).catch(updateError => {
           console.error('Error updating test run status:', updateError);
         });
       });

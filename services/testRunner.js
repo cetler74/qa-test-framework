@@ -1217,7 +1217,8 @@ async function executeTests(projectId, testRunName, options = {}) {
           }
           options.envVars = updatedEnvVars;
         } catch (jwtError) {
-          await testRun.update({ status: 'failed' });
+          const jwtErrMsg = jwtError.message || String(jwtError);
+          await testRun.update({ status: 'failed', error_message: jwtErrMsg });
           throw jwtError;
         }
       }

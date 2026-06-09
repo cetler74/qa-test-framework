@@ -4392,6 +4392,7 @@ async function showGenerateJwksModal(projectId) {
     }
   });
 }
+window.showGenerateJwksModal = showGenerateJwksModal;
 
 function showJwksResultModal(result) {
   const jwksJson = JSON.stringify(result.jwks, null, 2);

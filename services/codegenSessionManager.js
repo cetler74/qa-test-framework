@@ -17,6 +17,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { isInternalUrl } = require('../lib/urlUtils');
 
 // ---------------------------------------------------------------------------
 // Configuration (from environment, with defaults)
@@ -185,7 +186,7 @@ async function createSession(slug, url, options = {}) {
     // 1920×1080 gives enough width for both the Chromium window and the
     // Playwright Inspector window side-by-side, so the Inspector toolbar is
     // always reachable even when the recorded page shows a modal/backdrop.
-    session.xvfbProc = spawn('Xvfb', [display, '-screen', '0', '1920x1080x24', '-ac'], {
+    session.xvfbProc = spawn('Xvfb', [display, '-screen', '0', '1050x1080x24', '-ac'], {
       stdio: 'ignore',
       detached: true,
     });
@@ -236,13 +237,25 @@ async function createSession(slug, url, options = {}) {
     });
     await delay(300);
 
-    // 4. Spawn Playwright Codegen (use --proxy-server so the browser uses the proxy; env vars are not used by codegen's browser)
+    // 4. Spawn Playwright Codegen.
+    //    - External URLs: pass --proxy-server explicitly via CLI args.
+    //    - Literal private/internal IPs (e.g. 10.x.x.x): the container has
+    //      HTTP_PROXY set but NO_PROXY does not cover 10.0.0.0/8, so Chromium
+    //      routes these through the corporate proxy which cannot reach them.
+    //      Fix: append the target hostname to NO_PROXY/no_proxy in the child
+    //      environment so Chromium connects directly.
     const proxy = options.proxy && (options.proxy.http || options.proxy.https) ? options.proxy : null;
     const codegenEnv = { ...process.env, DISPLAY: display };
+    if (!proxy && isInternalUrl(url)) {
+      delete codegenEnv.HTTP_PROXY;
+      delete codegenEnv.HTTPS_PROXY;
+      delete codegenEnv.http_proxy;
+      delete codegenEnv.https_proxy;
+    }
     const codegenArgs = ['playwright', 'codegen', '--output', outputPath];
     // Constrain browser viewport so the Playwright Inspector window can sit
     // in the remaining ~870 px on the right side of the 1920-px wide display.
-    codegenArgs.push('--viewport-size', '1050x940');
+    codegenArgs.push('--viewport-size', '1050,940');
     if (IGNORE_HTTPS_ERRORS) {
       codegenArgs.push('--ignore-https-errors');
     }

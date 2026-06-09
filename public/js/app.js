@@ -1691,7 +1691,19 @@ async function viewTestRun(testRunId) {
         </div>
       `).join('');
     } else {
-      const emptyMsg = isRunning ? 'Run in progress. No results yet — they will appear when the run completes.' : 'No test results';
+      const isJwksError = testRun.error_message && /private key not found|signedjwt|generate jwks/i.test(testRun.error_message);
+      let emptyMsg;
+      if (isRunning) {
+        emptyMsg = 'Run in progress. No results yet — they will appear when the run completes.';
+      } else if (testRun.error_message) {
+        const escapedMsg = testRun.error_message.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const jwksCta = isJwksError
+          ? `<div style="margin-top:12px;"><button class="btn btn-primary btn-sm" onclick="showGenerateJwksModal(${testRun.project_id})">Generate JWKS / JWT</button></div>`
+          : '';
+        emptyMsg = `<span style="color:#f44336;font-weight:600;">Run failed:</span> <span style="color:#f44336;">${escapedMsg}</span>${jwksCta}`;
+      } else {
+        emptyMsg = 'No test results';
+      }
       resultsList.innerHTML = `
         <div class="empty-state">
           <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">

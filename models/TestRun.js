@@ -52,6 +52,10 @@ const TestRun = sequelize.define('TestRun', {
     type: DataTypes.INTEGER,
     allowNull: true
   },
+  error_message: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
