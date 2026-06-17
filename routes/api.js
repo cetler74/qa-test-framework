@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { parse: parseCsv } = require('csv-parse/sync');
 
-const { sequelize, Project, User, ProjectMember, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult, ProjectTest, ProjectTestStat, ProjectTestNote, ProjectTestNoteAttachment } = require('../models');
+const { sequelize, Project, User, UserEnvironment, ProjectMember, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult, ProjectTest, ProjectTestStat, ProjectTestNote, ProjectTestNoteAttachment } = require('../models');
 const { getAccessibleProjectIds, loadProjectAndCheckAccess, userCanAccessProjectId, userCanManageProjectId } = require('../middleware/projectAccess');
 const SequelizeLib = require('sequelize');
 const { Op, literal } = require('sequelize');
@@ -361,6 +361,95 @@ function registerDraftValidationArtifact(kind, filePath, testResultsDir) {
   });
   return token;
 }
+
+// ==================== USER ENVIRONMENTS ====================
+// Stored per-user (not per-project). Variables are a flat key→value object.
+// The client representation keeps variables flat on the env object for backward compat:
+//   { id, name, endpoint, token, ... }
+// The DB stores { id, user_id, name, variables: { endpoint, token, ... } }.
+
+function serializeUserEnv(env) {
+  return { id: env.id, name: env.name, ...((env.variables && typeof env.variables === 'object') ? env.variables : {}) };
+}
+
+// GET /api/user/environments  — list all environments for the logged-in user
+router.get('/user/environments', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  try {
+    const envs = await UserEnvironment.findAll({
+      where: { user_id: req.user.id },
+      order: [['name', 'ASC']]
+    });
+    res.json(envs.map(serializeUserEnv));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/user/environments  — create environment
+// Body: { name, ...variableKeyValues }  (any key other than name becomes a variable)
+router.post('/user/environments', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  const { name, ...rest } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'name is required' });
+  // Accept either flat body or explicit { name, variables: {...} }
+  const variables = (rest.variables && typeof rest.variables === 'object')
+    ? rest.variables
+    : Object.fromEntries(Object.entries(rest).filter(([k]) => k !== 'id'));
+  try {
+    const env = await UserEnvironment.create({
+      user_id: req.user.id,
+      name: String(name).trim(),
+      variables
+    });
+    res.status(201).json(serializeUserEnv(env));
+  } catch (err) {
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ error: 'An environment with that name already exists' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/user/environments/:id  — update environment (rename + replace variables)
+router.put('/user/environments/:id', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Invalid id' });
+  const { name, ...rest } = req.body || {};
+  const variables = (rest.variables && typeof rest.variables === 'object')
+    ? rest.variables
+    : Object.fromEntries(Object.entries(rest).filter(([k]) => k !== 'id'));
+  try {
+    const env = await UserEnvironment.findOne({ where: { id, user_id: req.user.id } });
+    if (!env) return res.status(404).json({ error: 'Environment not found' });
+    await env.update({
+      name: name ? String(name).trim() : env.name,
+      variables
+    });
+    res.json(serializeUserEnv(env));
+  } catch (err) {
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ error: 'An environment with that name already exists' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/user/environments/:id
+router.delete('/user/environments/:id', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    const env = await UserEnvironment.findOne({ where: { id, user_id: req.user.id } });
+    if (!env) return res.status(404).json({ error: 'Environment not found' });
+    await env.destroy();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ==================== USERS ====================
 
@@ -756,6 +845,9 @@ router.get('/projects/:id/tests/catalogue/export', (req, res, next) => {
         'Last run',
         'Total runs',
         'Active',
+        'Spec status',
+        'Source spec',
+        'Source spec file',
         'Description',
         'Ticket URLs',
         'Folder',
@@ -781,6 +873,11 @@ router.get('/projects/:id/tests/catalogue/export', (req, res, next) => {
         const lastStatus = stats.last_status || 'not_run';
         const lastRunAt = stats.last_run_at ? new Date(stats.last_run_at).toISOString() : '';
         const totalRuns = stats.total_runs != null ? stats.total_runs : 0;
+        const specStatus = t.source_api_spec_status === 'removed_spec'
+          ? 'Removed spec'
+          : t.source_api_spec_status === 'cleared'
+            ? 'Cleared'
+            : 'Current';
         const typeLabel =
           t.test_type === 'soap' ? 'SOAP' :
           t.test_type === 'ui_builtin' ? 'UI (built-in)' :
@@ -793,6 +890,9 @@ router.get('/projects/:id/tests/catalogue/export', (req, res, next) => {
           lastRunAt,
           totalRuns,
           t.is_active ? 'Yes' : 'No',
+          specStatus,
+          t.source_api_spec_name || '',
+          t.source_api_spec_original_filename || '',
           t.description || '',
           ticketUrlsToCsvCell(normalizeTicketUrlsList(t)),
           effectiveFolderPathForTest(t) || '',
@@ -1030,15 +1130,29 @@ router.get('/projects/:id/tests/coverage-summary', (req, res, next) => {
   }, req.params.id, false);
 });
 
-// Delete all catalogue entries for a project (manage required)
+// Soft-clear catalogue entries for a project (manage required). This hides rows from active coverage
+// while preserving ProjectTestStat, notes, tickets, and history links.
 router.delete('/projects/:id/tests/catalogue', (req, res, next) => {
   loadProjectAndCheckAccess(req, res, async () => {
     try {
       const projectId = req.project.id;
       const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, projectId);
       if (!canManage) return res.status(403).json({ error: 'Forbidden' });
-      await ProjectTest.destroy({ where: { project_id: projectId } });
-      res.json({ ok: true });
+      const [cleared] = await ProjectTest.update(
+        {
+          is_active: false,
+          source_api_spec_status: 'cleared',
+          stale_reason: 'Cleared from Tests & Coverage by user',
+          stale_at: new Date()
+        },
+        {
+          where: {
+            project_id: projectId,
+            is_active: true
+          }
+        }
+      );
+      res.json({ ok: true, cleared });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -2400,6 +2514,45 @@ router.post('/api-specs/upload', upload.single('file'), async (req, res) => {
     // Validate and parse
     const { spec, content } = validateAndParseApiSpec(filePath, format);
 
+    // Check if a spec with the same original filename already exists (unique match only).
+    // If so, update spec + collection in place to preserve Collection.id → stable_keys
+    // and all test stats remain intact.
+    const existingSpecs = await ApiSpec.findAll({
+      where: { original_filename: req.file.originalname },
+      include: [{ model: Collection, as: 'collections' }]
+    });
+    if (existingSpecs.length === 1) {
+      const existingSpec = existingSpecs[0];
+      await existingSpec.update({
+        name: spec.info?.title || req.file.originalname,
+        description: spec.info?.description || '',
+        file_size: req.file.size,
+        spec_content: spec
+      });
+      const collection = await convertToPostmanCollection(spec, format, existingSpec.name);
+      if (existingSpec.collections && existingSpec.collections.length > 0) {
+        await existingSpec.collections[0].update({
+          name: collection.info.name,
+          version: collection.info.version || '1.0.0',
+          collection_json: collection
+        });
+      } else {
+        await Collection.create({
+          name: collection.info.name,
+          version: collection.info.version || '1.0.0',
+          collection_json: collection,
+          api_spec_id: existingSpec.id,
+          original_file_content: null,
+          original_file_name: null,
+          original_is_exact: false
+        });
+      }
+      // Clean up the newly uploaded temp file since we reused the existing record
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      res.status(200).json(existingSpec);
+      return;
+    }
+
     // Create API spec record
     const apiSpec = await ApiSpec.create({
       name: spec.info?.title || req.file.originalname,
@@ -2581,9 +2734,32 @@ router.post('/collections/upload', upload.single('file'), async (req, res) => {
       if (!canAccess) return res.status(403).json({ error: 'Forbidden: no access to this project' });
     }
 
+    const collectionName = collection.info?.name || 'Imported Collection';
+
+    // If a projectId is provided, try to find an existing collection with the same name for this
+    // project and update it in place — preserving the Collection.id so stable_keys and all test
+    // stats (last status, last run, total runs, etc.) are kept intact.
+    if (projectId) {
+      const existing = await Collection.findOne({
+        where: { project_id: projectId, name: collectionName }
+      });
+      if (existing) {
+        await existing.update({
+          version: collection.info?.version || existing.version,
+          collection_json: collection,
+          original_file_content: content,
+          original_file_name: req.file.originalname || existing.original_file_name,
+          original_is_exact: true
+        });
+        console.log(`Collection updated in-place with ID: ${existing.id}`);
+        res.status(200).json(existing);
+        return;
+      }
+    }
+
     // Create collection record (project_id makes it specific to one project when provided)
     const collectionRecord = await Collection.create({
-      name: collection.info?.name || 'Imported Collection',
+      name: collectionName,
       version: collection.info?.version || '1.0.0',
       collection_json: collection,
       project_id: projectId || null,
@@ -2618,6 +2794,50 @@ router.get('/collections/:id', async (req, res) => {
     res.json(collection);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Update collection — replace collection_json by re-uploading a file
+router.put('/collections/:id', upload.single('file'), async (req, res) => {
+  try {
+    const collection = await Collection.findByPk(req.params.id);
+    if (!collection) {
+      return res.status(404).json({ error: 'Collection not found' });
+    }
+
+    if (collection.project_id && req.user) {
+      const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, collection.project_id);
+      if (!canAccess) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(403).json({ error: 'Forbidden: no access to this project' });
+      }
+    }
+
+    let updatedJson, fileContent, originalFileName;
+
+    if (req.file) {
+      const parsed = validatePostmanCollection(req.file.path);
+      updatedJson = parsed.collection;
+      fileContent = parsed.content;
+      originalFileName = req.file.originalname || collection.original_file_name;
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    } else {
+      return res.status(400).json({ error: 'No file provided' });
+    }
+
+    await collection.update({
+      collection_json: updatedJson,
+      original_file_content: fileContent,
+      original_file_name: originalFileName,
+      original_is_exact: true
+    });
+
+    console.log(`Collection ${collection.id} updated in-place from file: ${originalFileName}`);
+    res.json(collection);
+  } catch (error) {
+    console.error('Error updating collection:', error);
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.status(400).json({ error: error.message });
   }
 });
 

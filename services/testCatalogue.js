@@ -11,6 +11,45 @@ const {
 } = require('../models');
 const { getPlaywrightTestList, getPlaywrightTestListWithRecorded } = require('./playwrightRunner');
 
+function normalizeApiOperationPath(url) {
+  const raw = String(url || '').trim();
+  if (!raw) return null;
+
+  let path = raw;
+  try {
+    path = new URL(raw).pathname;
+  } catch (e) {
+    path = raw
+      .replace(/^https?:\/\/[^/]+/i, '')
+      .replace(/^\{\{[^}]+\}\}/, '')
+      .replace(/^\$\{[^}]+\}/, '')
+      .replace(/^[^/]*\.([A-Za-z]{2,})(?=\/)/, '');
+  }
+
+  path = String(path || '').split('?')[0].split('#')[0].trim();
+  if (!path) return null;
+  if (!path.startsWith('/')) path = `/${path}`;
+  path = path.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
+  return path.toLowerCase();
+}
+
+function buildApiOperationKey(method, url, fallbackName = '', sourcePath = null) {
+  const normalizedMethod = String(method || 'GET').trim().toUpperCase() || 'GET';
+  const normalizedName = String(fallbackName || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+  const normalizedSourcePath = sourcePath != null && sourcePath !== ''
+    ? String(sourcePath).trim()
+    : '';
+  if (normalizedName && normalizedSourcePath) return `${normalizedMethod} path:${normalizedSourcePath} name:${normalizedName}`;
+  if (normalizedName) return `${normalizedMethod} name:${normalizedName}`;
+
+  const normalizedPath = normalizeApiOperationPath(url);
+  if (normalizedPath) return `${normalizedMethod} ${normalizedPath}`;
+  return null;
+}
+
 /**
  * Discover API tests for a project from its collections.
  * Stable key format: api:<collectionId>:<pathString>
@@ -29,11 +68,20 @@ async function discoverApiTestsForProject(projectId) {
     return [];
   }
 
-  const collections = [];
+  const collectionSources = [];
   // Collections from API specs linked to this project
   (project.apiSpecs || []).forEach((apiSpec) => {
     if (apiSpec.collections) {
-      collections.push(...apiSpec.collections);
+      apiSpec.collections.forEach((collection) => {
+        collectionSources.push({
+          collection,
+          apiSpec: {
+            id: apiSpec.id,
+            name: apiSpec.name,
+            original_filename: apiSpec.original_filename
+          }
+        });
+      });
     }
   });
 
@@ -41,7 +89,9 @@ async function discoverApiTestsForProject(projectId) {
   const standaloneCollections = await Collection.findAll({
     where: { project_id: projectId }
   });
-  collections.push(...standaloneCollections);
+  standaloneCollections.forEach((collection) => {
+    collectionSources.push({ collection, apiSpec: null });
+  });
 
   const results = [];
   let sourceOrder = 0;
@@ -57,7 +107,7 @@ async function discoverApiTestsForProject(projectId) {
     return cleaned.length ? cleaned.join('/') : null;
   };
 
-  const walkItems = (items, collectionId, parentPath = [], parentFolders = []) => {
+  const walkItems = (items, collectionId, apiSpec, parentPath = [], parentFolders = []) => {
     if (!items || !Array.isArray(items)) return;
     items.forEach((item, index) => {
       const path = [...parentPath, index];
@@ -78,22 +128,27 @@ async function discoverApiTestsForProject(projectId) {
           method,
           source_id: collectionId,
           source_kind: 'postman_item',
+          source_api_spec_id: apiSpec?.id || null,
+          source_api_spec_name: apiSpec?.name || null,
+          source_api_spec_original_filename: apiSpec?.original_filename || null,
+          source_api_spec_status: 'current',
+          source_api_operation_key: buildApiOperationKey(method, url, baseName, pathString),
           source_order: sourceOrder++,
           source_path: pathString,
           default_folder_path: buildFolderPath(parentFolders)
         });
       } else if (item.item && Array.isArray(item.item)) {
         const nextFolders = item.name ? [...parentFolders, item.name] : parentFolders;
-        walkItems(item.item, collectionId, path, nextFolders);
+        walkItems(item.item, collectionId, apiSpec, path, nextFolders);
       }
     });
   };
 
-  collections.forEach((coll) => {
+  collectionSources.forEach(({ collection: coll, apiSpec }) => {
     const collectionId = coll.id;
     const collectionJson = coll.collection_json || {};
     const items = collectionJson.item || [];
-    walkItems(items, collectionId, [], []);
+    walkItems(items, collectionId, apiSpec, [], []);
   });
 
   return results;
@@ -204,26 +259,76 @@ async function syncProjectTests(projectId) {
   });
 
   const existingByKey = new Map();
+  const existingApiByOperationKey = new Map();
+  const duplicateOperationRowIds = new Set();
+  const duplicateOperationKeys = new Set();
+  const operationKeyBackfills = [];
   existing.forEach((row) => {
     existingByKey.set(row.stable_key, row);
+
+    if (row.test_type === 'api' && row.source_kind === 'postman_item') {
+      const operationKey = buildApiOperationKey(row.method, row.endpoint, row.name, row.source_path);
+      if (operationKey) {
+        if (row.source_api_operation_key !== operationKey) {
+          row.source_api_operation_key = operationKey;
+          operationKeyBackfills.push(row.save());
+        }
+        const current = existingApiByOperationKey.get(operationKey);
+        if (current) {
+          const canonical = Number(row.id) < Number(current.id) ? row : current;
+          const duplicate = canonical.id === row.id ? current : row;
+          existingApiByOperationKey.set(operationKey, canonical);
+          duplicateOperationRowIds.add(duplicate.id);
+          duplicateOperationKeys.add(operationKey);
+        } else {
+          existingApiByOperationKey.set(operationKey, row);
+        }
+      }
+    }
+  });
+  await Promise.all(operationKeyBackfills);
+
+  const matchedExistingIds = new Set();
+
+  const buildUpdatesForDiscoveredTest = (t) => ({
+    test_type: t.test_type,
+    name: t.name,
+    endpoint: t.endpoint,
+    method: t.method,
+    source_id: t.source_id,
+    source_kind: t.source_kind,
+    source_api_spec_id: t.source_api_spec_id ?? null,
+    source_api_spec_name: t.source_api_spec_name ?? null,
+    source_api_spec_original_filename: t.source_api_spec_original_filename ?? null,
+    source_api_spec_status: t.source_api_spec_status || 'current',
+    source_api_operation_key: t.source_api_operation_key ?? null,
+    stale_reason: null,
+    stale_at: null,
+    source_order: t.source_order ?? null,
+    source_path: t.source_path ?? null,
+    default_folder_path: t.default_folder_path ?? null
   });
 
   // Upsert discovered tests (all in parallel)
   await Promise.all(discovered.map(async (t) => {
-    const existingRow = existingByKey.get(t.stable_key);
+    const operationKeyRow = t.test_type === 'api' && t.source_api_operation_key
+      ? existingApiByOperationKey.get(t.source_api_operation_key)
+      : null;
+    const existingRow = operationKeyRow || existingByKey.get(t.stable_key);
     if (existingRow) {
-      const updates = {
-        test_type: t.test_type,
-        name: t.name,
-        endpoint: t.endpoint,
-        method: t.method,
-        source_id: t.source_id,
-        source_kind: t.source_kind,
-        source_order: t.source_order ?? null,
-        source_path: t.source_path ?? null,
-        default_folder_path: t.default_folder_path ?? null
-      };
+      const updates = buildUpdatesForDiscoveredTest(t);
+      if (
+        !existingRow.is_active
+        && (
+          existingRow.source_api_spec_status === 'removed_spec'
+          || existingRow.source_api_spec_status === 'cleared'
+          || (t.test_type === 'api' && t.source_api_operation_key && duplicateOperationKeys.has(t.source_api_operation_key))
+        )
+      ) {
+        updates.is_active = true;
+      }
       await existingRow.update(updates);
+      matchedExistingIds.add(existingRow.id);
     } else {
       const newRow = await ProjectTest.create({
         project_id: id,
@@ -234,6 +339,11 @@ async function syncProjectTests(projectId) {
         method: t.method,
         source_id: t.source_id,
         source_kind: t.source_kind,
+        source_api_spec_id: t.source_api_spec_id ?? null,
+        source_api_spec_name: t.source_api_spec_name ?? null,
+        source_api_spec_original_filename: t.source_api_spec_original_filename ?? null,
+        source_api_spec_status: t.source_api_spec_status || 'current',
+        source_api_operation_key: t.source_api_operation_key ?? null,
         source_order: t.source_order ?? null,
         source_path: t.source_path ?? null,
         default_folder_path: t.default_folder_path ?? null,
@@ -243,6 +353,9 @@ async function syncProjectTests(projectId) {
       // Make sure subsequent duplicates of this stable_key in the same sync
       // pass through the update branch instead of trying to INSERT again.
       existingByKey.set(t.stable_key, newRow);
+      if (t.source_api_operation_key) {
+        existingApiByOperationKey.set(t.source_api_operation_key, newRow);
+      }
       // Ensure stats row exists for new tests
       await ProjectTestStat.findOrCreate({
         where: { project_test_id: newRow.id },
@@ -256,14 +369,63 @@ async function syncProjectTests(projectId) {
 
   // Mark tests that are no longer discovered as inactive (but keep history)
   const toDeactivate = existing.filter((row) => (
-    !discoveredKeys.has(row.stable_key)
+    (!discoveredKeys.has(row.stable_key) || duplicateOperationRowIds.has(row.id))
+    && !matchedExistingIds.has(row.id)
     && row.is_active
     && row.source_kind !== 'manual'
   ));
   if (toDeactivate.length > 0) {
+    const apiToDeactivate = toDeactivate.filter((row) => row.test_type === 'api');
+    const otherToDeactivate = toDeactivate.filter((row) => row.test_type !== 'api');
+    if (apiToDeactivate.length > 0) {
+      await ProjectTest.update(
+        {
+          is_active: false,
+          source_api_spec_status: 'removed_spec',
+          stale_reason: 'Spec no longer linked or operation not found in current specs',
+          stale_at: new Date()
+        },
+        { where: { id: { [Op.in]: apiToDeactivate.map((r) => r.id) } } }
+      );
+    }
+    if (otherToDeactivate.length > 0) {
+      await ProjectTest.update(
+        { is_active: false },
+        { where: { id: { [Op.in]: otherToDeactivate.map((r) => r.id) } } }
+      );
+    }
+  }
+
+  const duplicateRowsToMarkRemoved = existing.filter((row) => (
+    duplicateOperationRowIds.has(row.id)
+    && !matchedExistingIds.has(row.id)
+    && row.test_type === 'api'
+    && row.source_kind !== 'manual'
+    && row.source_api_spec_status !== 'removed_spec'
+    && row.source_api_spec_status !== 'cleared'
+  ));
+  if (duplicateRowsToMarkRemoved.length > 0) {
     await ProjectTest.update(
-      { is_active: false },
-      { where: { id: { [Op.in]: toDeactivate.map((r) => r.id) } } }
+      {
+        is_active: false,
+        source_api_spec_status: 'removed_spec',
+        stale_reason: 'Superseded by matching test from current spec',
+        stale_at: new Date()
+      },
+      { where: { id: { [Op.in]: duplicateRowsToMarkRemoved.map((r) => r.id) } } }
+    );
+  }
+
+  const staleCurrentApiRows = existing.filter((row) => (
+    row.test_type === 'api'
+    && (row.source_api_spec_status === 'removed_spec' || row.source_api_spec_status === 'cleared')
+    && !duplicateOperationRowIds.has(row.id)
+    && (discoveredKeys.has(row.stable_key) || matchedExistingIds.has(row.id))
+  ));
+  if (staleCurrentApiRows.length > 0) {
+    await ProjectTest.update(
+      { source_api_spec_status: 'current', stale_reason: null, stale_at: null },
+      { where: { id: { [Op.in]: staleCurrentApiRows.map((r) => r.id) } } }
     );
   }
 
@@ -524,6 +686,8 @@ module.exports = {
   enrichCatalogueRowsWithSingleRun,
   enrichGlobalCatalogueRowsWithSingleRun,
   resolvePostmanSourcePathIfNeeded,
-  findPostmanItemPathInCollection
+  findPostmanItemPathInCollection,
+  buildApiOperationKey,
+  normalizeApiOperationPath
 };
 

@@ -27,6 +27,31 @@ const ProjectTest = sequelize.define('ProjectTest', {
     type: DataTypes.STRING(64),
     allowNull: true
   },
+  source_api_spec_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'api_specs',
+      key: 'id'
+    }
+  },
+  source_api_spec_name: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  source_api_spec_original_filename: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  source_api_spec_status: {
+    type: DataTypes.STRING(32),
+    allowNull: false,
+    defaultValue: 'current'
+  },
+  source_api_operation_key: {
+    type: DataTypes.STRING(500),
+    allowNull: true
+  },
   source_order: {
     type: DataTypes.INTEGER,
     allowNull: true
@@ -75,6 +100,14 @@ const ProjectTest = sequelize.define('ProjectTest', {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: true
+  },
+  stale_reason: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  stale_at: {
+    type: DataTypes.DATE,
+    allowNull: true
   },
   created_at: {
     type: DataTypes.DATE,

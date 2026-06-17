@@ -21,6 +21,7 @@ const ProjectTest = require('./ProjectTest');
 const ProjectTestStat = require('./ProjectTestStat');
 const ProjectTestNote = require('./ProjectTestNote');
 const ProjectTestNoteAttachment = require('./ProjectTestNoteAttachment');
+const UserEnvironment = require('./UserEnvironment');
 
 // Define associations
 Project.belongsTo(User, { foreignKey: 'owner_id', as: 'owner' });
@@ -281,10 +282,15 @@ ProjectTestNoteAttachment.belongsTo(ProjectTestNote, {
   as: 'note'
 });
 
+// User environments (user-scoped, reusable across all projects)
+User.hasMany(UserEnvironment, { foreignKey: 'user_id', as: 'environments' });
+UserEnvironment.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
 module.exports = {
   sequelize,
   Project,
   User,
+  UserEnvironment,
   ProjectMember,
   ApiSpec,
   Collection,
