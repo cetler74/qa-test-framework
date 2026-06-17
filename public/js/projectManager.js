@@ -191,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
       alert('Please select a project first.');
       return;
     }
-    if (!confirm('Clear all tests from the Tests & Coverage list for this project? This only affects the catalogue, not historical runs.')) {
+    if (!confirm('Clear active tests from coverage? This hides them from active coverage but preserves last status, run counts, history links, notes, and tickets. Sync from specs can reactivate matching tests.')) {
       return;
     }
     btn.disabled = true;
@@ -830,6 +830,7 @@ window.viewProject = async (projectId) => {
             </div>
             <div class="list-item-actions">
               <button class="btn btn-secondary" onclick="window.downloadCollectionJson(${collection.id}, ${projectId}, '${String(collection.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" title="Download collection">Download</button>
+              <button class="btn btn-secondary" onclick="window.editCollection(${collection.id}, ${projectId}, '${String(collection.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" title="Replace collection JSON by uploading a new file">Edit</button>
               <button class="btn btn-danger" onclick="deleteCollection(${collection.id}, ${projectId})" title="Delete collection">Delete</button>
             </div>
           </div>
@@ -1293,7 +1294,22 @@ function renderProjectTestsTable(projectId) {
         : `<span class="project-test-actions-placeholder muted" title="Run is only available for tests synced from API collections (Sync from specs) or linked UI recordings—not for manual-only catalogue rows.">—</span>`;
       const runHistoryCell = `<td class="project-test-actions-cell"><div class="project-test-row-actions">${runBtn} ${historyBtn}</div></td>`;
       const checkCell = `<td class="project-test-col-check"><input type="checkbox" class="project-test-row-check" data-project-test-id="${t.id}" aria-label="Select row" /></td>`;
-      const nameCell = `<button type="button" class="link-button" onclick="window.viewProjectTestDetails(${projectId}, ${t.id})">${escapeHtml(t.name || '')}</button>`;
+      const sourceSpecName = t.source_api_spec_name || t.source_api_spec_original_filename || '';
+      const inactiveSourceTitle = [t.stale_reason, t.stale_at ? `Marked ${formatDateTime(t.stale_at)}` : '']
+        .filter(Boolean)
+        .join(' - ');
+      const sourceSpecMeta = inEditMode && (sourceSpecName || t.source_api_spec_status === 'removed_spec' || t.source_api_spec_status === 'cleared')
+        ? `<div class="project-test-source-meta">
+            ${t.source_api_spec_status === 'removed_spec'
+              ? `<span class="project-test-source-badge removed" title="${escapeHtml(inactiveSourceTitle || 'Removed from current specs')}">Removed spec</span>`
+              : ''}
+            ${t.source_api_spec_status === 'cleared'
+              ? `<span class="project-test-source-badge cleared" title="${escapeHtml(inactiveSourceTitle || 'Cleared from active coverage')}">Cleared</span>`
+              : ''}
+            ${sourceSpecName ? `<span class="project-test-source-name" title="${escapeHtml(sourceSpecName)}">${escapeHtml(sourceSpecName)}</span>` : ''}
+          </div>`
+        : '';
+      const nameCell = `<button type="button" class="link-button" onclick="window.viewProjectTestDetails(${projectId}, ${t.id})">${escapeHtml(t.name || '')}</button>${sourceSpecMeta}`;
       const folderOrigin = t.folder_path_override
         ? '<span class="muted" title="User override"> (override)</span>'
         : (t.default_folder_path ? '<span class="muted" title="From source"> (source)</span>' : '');
@@ -3297,6 +3313,122 @@ function showUploadApiSpecModal() {
     }
   });
 }
+
+// Edit (replace) an existing collection by uploading a new JSON file
+window.editCollection = function(collectionId, projectId, collectionName) {
+  const content = `
+    <form id="edit-collection-form">
+      <div class="form-group">
+        <label>Replace collection JSON for: <strong>${escapeHtml(collectionName)}</strong></label>
+        <p class="muted" style="margin: 4px 0 12px;">Upload a new Postman collection file. Existing test results will not be affected.</p>
+        <div class="file-upload-area" id="edit-collection-upload-area">
+          <p id="edit-collection-upload-prompt">Click to select or drag and drop</p>
+          <p class="file-upload-hint">Supports .json Postman collection files (v2.0 / v2.1)</p>
+          <input type="file" id="edit-collection-file" accept=".json" style="display: none;">
+        </div>
+        <div id="edit-collection-selected-card" class="selected-file-card" style="display: none;">
+          <div class="selected-file-card-inner">
+            <svg class="selected-file-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <div class="selected-file-info">
+              <span class="selected-file-label">File selected</span>
+              <span id="edit-collection-file-name" class="selected-file-name"></span>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm selected-file-change" id="edit-collection-change-btn">Change file</button>
+          </div>
+        </div>
+      </div>
+      <div id="edit-collection-error" class="form-error" style="display:none;color:var(--color-danger,#e53e3e);margin-bottom:8px;"></div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save changes</button>
+      </div>
+    </form>
+  `;
+
+  showModal('Edit Collection', content);
+
+  const fileInput = document.getElementById('edit-collection-file');
+  const uploadArea = document.getElementById('edit-collection-upload-area');
+  const selectedCard = document.getElementById('edit-collection-selected-card');
+  const selectedFileName = document.getElementById('edit-collection-file-name');
+  const uploadPrompt = document.getElementById('edit-collection-upload-prompt');
+  const errorEl = document.getElementById('edit-collection-error');
+
+  function updateFileDisplay() {
+    const hasFile = fileInput.files && fileInput.files.length > 0;
+    if (hasFile) {
+      selectedFileName.textContent = fileInput.files[0].name;
+      selectedCard.style.display = 'block';
+      uploadPrompt.textContent = 'Drop a different file or click to replace';
+      uploadArea.classList.add('has-file');
+    } else {
+      selectedCard.style.display = 'none';
+      uploadPrompt.textContent = 'Click to select or drag and drop';
+      uploadArea.classList.remove('has-file');
+    }
+  }
+
+  uploadArea.addEventListener('click', (e) => {
+    if (!e.target.closest('#edit-collection-change-btn')) fileInput.click();
+  });
+
+  document.getElementById('edit-collection-change-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    fileInput.value = '';
+    updateFileDisplay();
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', () => updateFileDisplay());
+
+  uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+  uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+  uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    if (e.dataTransfer.files.length > 0) {
+      fileInput.files = e.dataTransfer.files;
+      updateFileDisplay();
+    }
+  });
+
+  document.getElementById('edit-collection-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorEl.style.display = 'none';
+
+    if (!fileInput.files.length) {
+      errorEl.textContent = 'Please select a Postman collection file.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+
+    try {
+      const response = await fetch(`/api/collections/${collectionId}`, {
+        method: 'PUT',
+        body: formData
+      });
+
+      if (!response.ok) {
+        let msg = 'Update failed';
+        try { const err = await response.json(); msg = err.error || msg; } catch (_) {}
+        throw new Error(msg);
+      }
+
+      hideModal();
+      viewProject(projectId);
+      alert('Collection updated successfully. Existing test results are unchanged.');
+    } catch (error) {
+      console.error('Edit collection error:', error);
+      errorEl.textContent = 'Error updating collection: ' + error.message;
+      errorEl.style.display = 'block';
+    }
+  });
+};
 
 // Upload Postman Collection
 function showUploadPostmanCollectionModal() {

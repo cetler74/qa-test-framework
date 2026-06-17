@@ -1094,6 +1094,48 @@ main {
     color: var(--color-text-inverse, #ffffff);
 }
 
+.project-test-source-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    margin-top: 4px;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.project-test-source-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.4;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.project-test-source-badge.removed {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+.project-test-source-badge.cleared {
+    background: #e0f2fe;
+    color: #075985;
+    border: 1px solid #bae6fd;
+}
+
+.project-test-source-name {
+    color: var(--color-text-muted, #6b7280);
+    font-size: 12px;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 p.run-status-in-progress {
     margin-top: 6px;
     font-size: 13px;
@@ -2198,6 +2240,280 @@ p.run-status-in-progress {
     border-top: 1px solid var(--color-gray-200);
 }
 
+/* My Environments manager */
+.user-env-toolbar {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) 180px;
+    gap: var(--spacing-sm);
+    align-items: center;
+    margin-bottom: var(--spacing-lg);
+}
+
+.user-env-search-wrap,
+.user-env-search-wrap input,
+.user-env-toolbar select {
+    min-width: 0;
+    width: 100%;
+}
+
+.user-env-card {
+    border: 1px solid var(--color-gray-200);
+    border-radius: var(--radius-md);
+    background: var(--color-white);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+    box-shadow: var(--shadow-sm);
+}
+
+.user-env-card-header {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    align-items: flex-start;
+}
+
+.user-env-title-wrap {
+    min-width: 0;
+}
+
+.user-env-title-wrap strong {
+    display: block;
+    color: var(--color-text-primary);
+    font-size: 15px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+
+.user-env-title-wrap span,
+.user-env-details-toolbar,
+.user-env-empty {
+    color: var(--color-text-secondary);
+    font-size: 12px;
+}
+
+.user-env-card-actions,
+.user-env-footer-actions {
+    display: flex;
+    gap: var(--spacing-xs);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.user-env-summary {
+    margin-top: var(--spacing-sm);
+}
+
+.user-env-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    align-items: center;
+    min-height: 26px;
+}
+
+.user-env-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    padding: 3px 7px;
+    border: 1px solid var(--color-gray-200);
+    border-radius: var(--radius-sm);
+    background: var(--color-gray-50);
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.user-env-chip strong {
+    color: var(--color-text-primary);
+    font-weight: 600;
+}
+
+.user-env-chip span {
+    min-width: 0;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.user-env-chip-secret span,
+.user-env-secret {
+    font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+    letter-spacing: 0;
+}
+
+.user-env-details {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--color-gray-200);
+}
+
+.user-env-details-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+}
+
+.user-env-var-grid {
+    display: grid;
+    grid-template-columns: minmax(140px, 240px) minmax(0, 1fr);
+    border: 1px solid var(--color-gray-200);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.user-env-var-key,
+.user-env-var-value,
+.user-env-var-empty {
+    padding: 7px 9px;
+    border-bottom: 1px solid var(--color-gray-200);
+    font-size: 12px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.user-env-var-key {
+    background: var(--color-gray-50);
+    color: var(--color-text-primary);
+    font-weight: 600;
+    border-right: 1px solid var(--color-gray-200);
+}
+
+.user-env-var-value {
+    color: var(--color-text-secondary);
+}
+
+.user-env-var-grid > :nth-last-child(-n + 2) {
+    border-bottom: none;
+}
+
+.user-env-var-empty {
+    grid-column: 1 / -1;
+    color: var(--color-text-secondary);
+}
+
+.user-env-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+    margin-top: var(--spacing-lg);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--color-gray-200);
+}
+
+.user-env-import-label {
+    cursor: pointer;
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+}
+
+.user-env-editor-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+}
+
+.user-env-editor-tools {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+}
+
+.user-env-editor-tools input {
+    min-width: 220px;
+}
+
+.user-env-vars-list {
+    margin-bottom: var(--spacing-sm);
+}
+
+.user-env-var-row {
+    display: grid;
+    grid-template-columns: minmax(130px, 1fr) minmax(180px, 2fr) auto;
+    gap: var(--spacing-sm);
+    align-items: center;
+    margin-bottom: var(--spacing-sm);
+}
+
+.user-env-editor-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-lg);
+}
+
+@media (max-width: 760px) {
+    .user-env-toolbar,
+    .user-env-var-grid,
+    .user-env-var-row {
+        grid-template-columns: 1fr;
+    }
+
+    .user-env-card-header,
+    .user-env-editor-toolbar,
+    .user-env-footer,
+    .user-env-editor-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .user-env-card-actions,
+    .user-env-footer-actions,
+    .user-env-editor-tools {
+        justify-content: flex-start;
+    }
+
+    .user-env-var-key {
+        border-right: none;
+    }
+
+    .user-env-var-grid > :nth-last-child(-n + 2) {
+        border-bottom: 1px solid var(--color-gray-200);
+    }
+}
+
+.dark-theme .user-env-card,
+.dark-theme .user-env-chip,
+.dark-theme .user-env-var-key {
+    background: var(--color-bg-tertiary) !important;
+    border-color: var(--color-border) !important;
+}
+
+.dark-theme .user-env-details,
+.dark-theme .user-env-footer,
+.dark-theme .user-env-var-grid,
+.dark-theme .user-env-var-key,
+.dark-theme .user-env-var-value,
+.dark-theme .user-env-var-empty {
+    border-color: var(--color-border) !important;
+}
+
+.dark-theme .user-env-title-wrap strong,
+.dark-theme .user-env-chip strong,
+.dark-theme .user-env-var-key {
+    color: var(--color-text-primary) !important;
+}
+
+.dark-theme .user-env-title-wrap span,
+.dark-theme .user-env-details-toolbar,
+.dark-theme .user-env-empty,
+.dark-theme .user-env-chip,
+.dark-theme .user-env-var-value,
+.dark-theme .user-env-var-empty {
+    color: var(--color-text-secondary) !important;
+}
+
 /* Schedule form: time/date presets and repeat */
 .schedule-form .form-group {
     margin-bottom: var(--spacing-lg);
@@ -2369,6 +2685,27 @@ p.run-status-in-progress {
     font-size: 14px;
 }
 
+.form-control {
+    width: 100%;
+    height: 43px;
+    padding: 10px var(--spacing-md);
+    border: 2px solid var(--color-primary) !important;
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    line-height: 1.3;
+    background: var(--color-white);
+    color: var(--color-text-primary);
+    transition: all var(--transition-fast);
+    font-family: inherit;
+}
+
+.form-control:focus {
+    outline: none !important;
+    border-color: var(--color-primary) !important;
+    box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.25) !important;
+    border-width: 2px !important;
+}
+
 .form-group input,
 .form-group textarea,
 .form-group select {
@@ -2381,6 +2718,13 @@ p.run-status-in-progress {
     color: var(--color-text-primary);
     transition: all var(--transition-fast);
     font-family: inherit;
+}
+
+.form-group .form-control {
+    height: 43px;
+    padding: 10px var(--spacing-md);
+    font-size: 14px;
+    line-height: 1.3;
 }
 
 .form-group input:focus,

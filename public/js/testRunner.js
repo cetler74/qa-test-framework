@@ -368,11 +368,11 @@ function showRunTestsModal(initialState = null) {
       <form id="run-tests-form" style="display: flex; flex-direction: column; height: 100%;">
         <div class="form-group" style="margin-bottom: 20px;">
           <label for="test-run-name">Test Run Name *</label>
-          <input type="text" id="test-run-name" placeholder="e.g., Release 1.0" required style="width: 100%; padding: 10px; font-size: 14px;">
+          <input type="text" id="test-run-name" class="form-control" placeholder="e.g., Release 1.0" required>
         </div>
         <div class="form-group" style="margin-bottom: 20px;">
           <label for="collection-select">Select API Collection *</label>
-          <select id="collection-select" required style="width: 100%; padding: 10px; border: 2px solid var(--color-primary, #14b8a6); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937); font-size: 14px;">
+          <select id="collection-select" class="form-control" required>
             <option value="">Choose a collection...</option>
             ${collectionOptions}
           </select>
@@ -399,11 +399,13 @@ function showRunTestsModal(initialState = null) {
         <div class="form-group" style="margin-bottom: 20px; flex-shrink: 0;">
           <label for="env-select">Select Environment (optional)</label>
           <div style="display:flex; gap:10px; align-items: center;">
-            <select id="env-select" style="flex: 1; padding:8px; border:2px solid var(--color-primary, #14b8a6); border-radius:4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);">
+            <select id="env-select" class="form-control" style="flex: 1;">
               <option value="">Choose environment...</option>
             </select>
             <button type="button" class="btn btn-sm btn-secondary" id="manage-envs-btn">Manage</button>
             <button type="button" class="btn btn-sm btn-secondary" id="create-env-btn">Create</button>
+            <button type="button" class="btn btn-sm btn-secondary" id="export-envs-btn" title="Export all environments to a JSON file">Export</button>
+            <label class="btn btn-sm btn-secondary" style="cursor:pointer;margin:0;display:inline-flex;align-items:center;">Import<input type="file" id="import-envs-input" accept=".json,application/json" style="display:none;"></label>
           </div>
           <p style="font-size:12px; color: var(--color-text-secondary, #6b7280); margin-top:6px;">Environments store values for <code>{{endpoint}}</code>, <code>{{version}}</code> and <code>{{ixs}}</code>. Selecting one will pre-fill these variables.</p>
         </div>
@@ -438,7 +440,7 @@ function showRunTestsModal(initialState = null) {
         </div>
         <div class="form-group">
           <label for="delay-between-tests">Delay between tests (seconds)</label>
-          <input type="number" id="delay-between-tests" min="0" placeholder="e.g., 2" style="width: 120px; padding: 6px; border: 2px solid var(--color-primary, #14b8a6);">
+          <input type="number" id="delay-between-tests" class="form-control" min="0" placeholder="e.g., 2" style="width: 160px;">
           <p style="font-size:12px; color: var(--color-text-secondary, #6b7280); margin-top:6px;">If set, waits this many seconds before running the next test. Per-test delays override this value.</p>
         </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--color-gray-200, #e5e7eb); flex-shrink: 0;">
@@ -924,8 +926,8 @@ function showRunTestsModal(initialState = null) {
       // If a saved environment was selected, merge all its variables into envVars (except id/name)
       const envSelectEl = document.getElementById('env-select');
       if (envSelectEl && envSelectEl.value) {
-        const savedEnvs = loadSavedEnvs(projectId);
-        const selectedEnv = savedEnvs.find(e => e.id === envSelectEl.value);
+        const savedEnvs = loadSavedEnvs();
+        const selectedEnv = savedEnvs.find(e => String(e.id) === String(envSelectEl.value));
         if (selectedEnv) {
           Object.keys(selectedEnv).forEach(k => {
             if (k === 'id' || k === 'name') return;
@@ -1173,32 +1175,49 @@ function removeEnvVar(button) {
   }
 }
 
-// Environment storage helpers (stored in localStorage per project)
-function getEnvStorageKey(projectId) {
-  return `qa_envs_${projectId}`;
+// ===========================================================================
+// Environment storage — server-side per user, cached in memory.
+// Environments are user-scoped and reusable across all projects.
+// The cache is populated by loadUserEnvironments() called from app.js after login.
+// ===========================================================================
+
+/** In-memory cache of the current user's environments (flat objects). */
+window._userEnvsCache = window._userEnvsCache || [];
+
+/**
+ * Fetch all environments for the current user from the server and update the cache.
+ * @returns {Promise<Array>}
+ */
+async function loadUserEnvironments() {
+  try {
+    const envs = await apiRequest('/user/environments');
+    window._userEnvsCache = Array.isArray(envs) ? envs : [];
+  } catch (e) {
+    window._userEnvsCache = [];
+  }
+  return window._userEnvsCache;
 }
 
-function loadSavedEnvs(projectId) {
-  try {
-    const raw = localStorage.getItem(getEnvStorageKey(projectId));
-    return raw ? JSON.parse(raw) : [];
-  } catch (e) {
-    return [];
-  }
+/**
+ * Return environments from the in-memory cache (synchronous).
+ * The projectId parameter is accepted for backward compatibility but is ignored —
+ * environments are now user-scoped, not project-scoped.
+ */
+function loadSavedEnvs(/* projectId */) {
+  return window._userEnvsCache || [];
 }
 
 /**
  * Merge a saved environment (by id) into base env vars — same rules as Run API Tests when env-select is set.
- * @param {string|number} projectId
- * @param {string} [envId] - saved environment id from loadSavedEnvs, or empty
+ * @param {string|number} _projectId - unused (kept for backward compat)
+ * @param {string|number} [envId] - saved environment id, or empty
  * @param {Record<string, string>} [baseEnv]
  * @returns {Record<string, string>}
  */
-function mergeSavedEnvironmentIntoEnvVars(projectId, envId, baseEnv = {}) {
+function mergeSavedEnvironmentIntoEnvVars(_projectId, envId, baseEnv = {}) {
   const out = { ...(baseEnv && typeof baseEnv === 'object' ? baseEnv : {}) };
   if (!envId) return out;
-  const savedEnvs = loadSavedEnvs(projectId);
-  const selectedEnv = savedEnvs.find((e) => e.id === envId);
+  const selectedEnv = (window._userEnvsCache || []).find((e) => String(e.id) === String(envId));
   if (!selectedEnv) return out;
   Object.keys(selectedEnv).forEach((k) => {
     if (k === 'id' || k === 'name') return;
@@ -1214,17 +1233,45 @@ if (typeof window !== 'undefined') {
   window.getProjectSavedEnvironments = loadSavedEnvs;
   window.mergeSavedEnvironmentIntoEnvVars = mergeSavedEnvironmentIntoEnvVars;
   window.extractCollectionVariables = extractCollectionVariables;
+  window.loadUserEnvironments = loadUserEnvironments;
 }
 
-function saveSavedEnvs(projectId, envs) {
-  localStorage.setItem(getEnvStorageKey(projectId), JSON.stringify(envs));
+/**
+ * Create a new environment on the server and update the cache.
+ * @param {object} envData - flat object with name + variable keys
+ * @returns {Promise<object>} - saved env object
+ */
+async function createSavedEnv(envData) {
+  const created = await apiRequest('/user/environments', { method: 'POST', body: envData });
+  window._userEnvsCache = [...window._userEnvsCache.filter(e => e.id !== created.id), created];
+  return created;
+}
+
+/**
+ * Update an existing environment on the server and update the cache.
+ * @param {string|number} id
+ * @param {object} envData - flat object with name + variable keys
+ * @returns {Promise<object>}
+ */
+async function updateSavedEnv(id, envData) {
+  const updated = await apiRequest(`/user/environments/${id}`, { method: 'PUT', body: envData });
+  window._userEnvsCache = window._userEnvsCache.map(e => String(e.id) === String(id) ? updated : e);
+  return updated;
+}
+
+/**
+ * Delete an environment from the server and remove it from the cache.
+ * @param {string|number} id
+ */
+async function deleteSavedEnv(id) {
+  await apiRequest(`/user/environments/${id}`, { method: 'DELETE' });
+  window._userEnvsCache = window._userEnvsCache.filter(e => String(e.id) !== String(id));
 }
 
 function populateEnvSelect() {
   const envSelect = document.getElementById('env-select');
   if (!envSelect) return;
-  const projectId = document.getElementById('run-tests-btn').getAttribute('data-project-id');
-  const envs = loadSavedEnvs(projectId);
+  const envs = loadSavedEnvs();
   envSelect.innerHTML = '<option value="">Choose environment...</option>';
   envs.forEach(env => {
     const opt = document.createElement('option');
@@ -1239,9 +1286,8 @@ function populateEnvSelect() {
 
 function onEnvSelected(e) {
   const envId = e.target.value;
-  const projectId = document.getElementById('run-tests-btn').getAttribute('data-project-id');
-  const envs = loadSavedEnvs(projectId);
-  const env = envs.find(x => x.id === envId);
+  const envs = loadSavedEnvs();
+  const env = envs.find(x => String(x.id) === String(envId));
   if (env) {
     // Pre-fill common collection variables if present
     ['endpoint', 'version', 'ixs'].forEach(k => {
@@ -1415,13 +1461,30 @@ function showCreateEnvModal(existingEnv = null) {
     keys.forEach(k => addVarRow(k, varsObj[k]));
   }
 
+  // Add only keys not already present — existing rows and their values are untouched.
+  function mergeVarRows(newVarsObj) {
+    const list = document.getElementById('create-env-vars-list');
+    if (!list) return;
+    const existingKeys = new Set(
+      Array.from(list.querySelectorAll('.create-env-var-key'))
+        .map(el => (el.value || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    Object.keys(newVarsObj || {}).forEach(k => {
+      if (!existingKeys.has(k.toLowerCase())) {
+        addVarRow(k, newVarsObj[k] != null ? newVarsObj[k] : '');
+        existingKeys.add(k.toLowerCase());
+      }
+    });
+  }
+
   const prefillSelect = document.getElementById('create-env-prefill-select');
   let projectCollections = [];
 
   // Populate pre-fill dropdown and apply selection
   function initPrefillDropdown() {
     if (!prefillSelect) return;
-    const envs = projectId ? loadSavedEnvs(projectId) : [];
+    const envs = loadSavedEnvs();
     let html = '<option value="">None</option>';
     if (projectCollections.length > 0) {
       html += '<optgroup label="From collection">';
@@ -1471,17 +1534,17 @@ function showCreateEnvModal(existingEnv = null) {
       }
       const obj = {};
       names.forEach(n => { obj[n] = defaults[n] != null ? defaults[n] : ''; });
-      setVarRows(obj);
+      mergeVarRows(obj);
       return;
     }
     if (val.startsWith('env-')) {
       const id = val.replace('env-', '');
-      const envs = projectId ? loadSavedEnvs(projectId) : [];
-      const env = envs.find(e => e.id === id);
+      const envs = loadSavedEnvs();
+      const env = envs.find(e => String(e.id) === String(id));
       if (!env) return;
       const obj = {};
       Object.keys(env).forEach(k => { if (k !== 'id' && k !== 'name') obj[k] = env[k] != null ? env[k] : ''; });
-      setVarRows(obj);
+      mergeVarRows(obj);
     }
   });
 
@@ -1521,70 +1584,217 @@ function showCreateEnvModal(existingEnv = null) {
     hideModal();
   });
 
-  document.getElementById('create-env-form').addEventListener('submit', (ev) => {
+  document.getElementById('create-env-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const name = document.getElementById('env-name').value.trim();
     if (!name) { alert('Please provide a name'); return; }
 
-    const envs = loadSavedEnvs(projectId);
-    const id = existingEnv ? existingEnv.id : ('env-' + Date.now());
-
-    const envObj = { id, name };
-
-    // Collect variables from modal
+    // Collect variables from modal (exclude id/name)
+    const envPayload = { name };
     const rows = Array.from(document.querySelectorAll('.create-env-var-item'));
     rows.forEach(r => {
       const k = (r.querySelector('.create-env-var-key')?.value || '').trim();
       const v = (r.querySelector('.create-env-var-value')?.value || '').trim();
-      if (k) envObj[k] = v;
+      if (k) envPayload[k] = v;
     });
 
-    // Save (replace existing if editing)
-    const existingIdx = envs.findIndex(e => e.id === id);
-    if (existingIdx !== -1) {
-      envs[existingIdx] = envObj;
-    } else {
-      envs.push(envObj);
-    }
-
-    saveSavedEnvs(projectId, envs);
-    if (runTestsModalRestoreState) {
-      restoreRunTestsModalState({ selectedEnvId: id });
-    } else {
-      hideModal();
-      populateEnvSelect();
-
-      // Select newly created/updated env
-      const sel = document.getElementById('env-select');
-      if (sel) {
-        setTimeout(() => { sel.value = id; onEnvSelected({ target: sel }); }, 50);
+    try {
+      let saved;
+      if (existingEnv && existingEnv.id) {
+        saved = await updateSavedEnv(existingEnv.id, envPayload);
+      } else {
+        saved = await createSavedEnv(envPayload);
       }
+
+      if (runTestsModalRestoreState) {
+        restoreRunTestsModalState({ selectedEnvId: String(saved.id) });
+      } else {
+        hideModal();
+        populateEnvSelect();
+        const sel = document.getElementById('env-select');
+        if (sel) {
+          setTimeout(() => { sel.value = String(saved.id); onEnvSelected({ target: sel }); }, 50);
+        }
+      }
+    } catch (err) {
+      alert('Error saving environment: ' + (err.message || err));
     }
   });
 }
 
 function showManageEnvsModal() {
-  const projectId = document.getElementById('run-tests-btn').getAttribute('data-project-id');
-  const envs = loadSavedEnvs(projectId);
-  const list = envs.map(e => {
-    // Build a display of all keys for clarity (mask token)
-    const keys = Object.keys(e).filter(k => k !== 'id' && k !== 'name');
-    const details = keys.map(k => `${k}:${k.toLowerCase() === 'token' ? '***' : (e[k] || '')}`).join(' ');
-    return `
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-        <strong style="flex:1">${e.name}</strong>
-        <div style="font-size:12px;color: var(--color-text-secondary, #6b7280);flex:3">${details}</div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-sm btn-secondary edit-env" data-id="${e.id}">Edit</button>
-          <button class="btn btn-sm btn-danger delete-env" data-id="${e.id}">Delete</button>
+  const expandedEnvIds = new Set();
+  const revealedEnvIds = new Set();
+  let searchText = '';
+  let sortMode = 'name';
+
+  function escapeEnvHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = value == null ? '' : String(value);
+    return div.innerHTML;
+  }
+
+  function envEntries(env) {
+    return Object.entries(env || {}).filter(([key]) => key !== 'id' && key !== 'name');
+  }
+
+  function isSensitiveKey(key) {
+    return /token|secret|jwt|password|authorization|bearer|api[_-]?key|private/i.test(String(key || ''));
+  }
+
+  function displayValue(key, value, revealSecrets) {
+    if (isSensitiveKey(key) && !revealSecrets) return '********';
+    if (value == null || String(value) === '') return 'empty';
+    return String(value);
+  }
+
+  function variableLabel(count) {
+    return `${count} variable${count === 1 ? '' : 's'}`;
+  }
+
+  function getPreviewEntries(entries) {
+    const priority = ['baseurl', 'base_url', 'baseurlauth', 'endpoint', 'url', 'phonenumber', 'phone_number', 'clientid', 'client_id'];
+    const picked = [];
+    const used = new Set();
+    priority.forEach(priorityKey => {
+      const match = entries.find(([key]) => String(key).toLowerCase() === priorityKey);
+      if (match && !used.has(match[0])) {
+        picked.push(match);
+        used.add(match[0]);
+      }
+    });
+    entries.forEach(entry => {
+      if (picked.length >= 4) return;
+      if (!used.has(entry[0])) {
+        picked.push(entry);
+        used.add(entry[0]);
+      }
+    });
+    return picked;
+  }
+
+  function getFilteredEnvs() {
+    const query = searchText.trim().toLowerCase();
+    let envs = [...loadSavedEnvs()];
+    if (query) {
+      envs = envs.filter(env => {
+        const name = String(env.name || '').toLowerCase();
+        const keys = envEntries(env).map(([key]) => String(key).toLowerCase());
+        return name.includes(query) || keys.some(key => key.includes(query));
+      });
+    }
+    envs.sort((a, b) => {
+      if (sortMode === 'variables') return envEntries(b).length - envEntries(a).length || String(a.name || '').localeCompare(String(b.name || ''));
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+    return envs;
+  }
+
+  function buildUniqueCopyName(baseName) {
+    const names = new Set((window._userEnvsCache || []).map(env => String(env.name || '').toLowerCase()));
+    let candidate = `Copy of ${baseName || 'Environment'}`;
+    let suffix = 2;
+    while (names.has(candidate.toLowerCase())) {
+      candidate = `Copy of ${baseName || 'Environment'} ${suffix}`;
+      suffix += 1;
+    }
+    return candidate;
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  }
+
+  function renderList() {
+    const allEnvs = loadSavedEnvs();
+    const envs = getFilteredEnvs();
+    if (allEnvs.length === 0) return '<p class="user-env-empty">No environments defined.</p>';
+    if (envs.length === 0) return '<p class="user-env-empty">No environments match your search.</p>';
+
+    return envs.map(env => {
+      const envId = String(env.id);
+      const entries = envEntries(env);
+      const expanded = expandedEnvIds.has(envId);
+      const revealSecrets = revealedEnvIds.has(envId);
+      const preview = getPreviewEntries(entries).map(([key, value]) => `
+        <span class="user-env-chip${isSensitiveKey(key) ? ' user-env-chip-secret' : ''}">
+          <strong>${escapeEnvHtml(key)}</strong>
+          <span>${escapeEnvHtml(displayValue(key, value, false))}</span>
+        </span>
+      `).join('');
+      const details = expanded ? `
+        <div class="user-env-details">
+          <div class="user-env-details-toolbar">
+            <span>${variableLabel(entries.length)}</span>
+            ${entries.some(([key]) => isSensitiveKey(key)) ? `<button type="button" class="btn btn-sm btn-secondary manage-env-reveal" data-id="${envId}">${revealSecrets ? 'Hide values' : 'Show values'}</button>` : ''}
+          </div>
+          <div class="user-env-var-grid">
+            ${entries.length ? entries.map(([key, value]) => `
+              <div class="user-env-var-key">${escapeEnvHtml(key)}</div>
+              <div class="user-env-var-value${isSensitiveKey(key) && !revealSecrets ? ' user-env-secret' : ''}">${escapeEnvHtml(displayValue(key, value, revealSecrets))}</div>
+            `).join('') : '<div class="user-env-var-empty">No variables saved in this environment.</div>'}
+          </div>
         </div>
-      </div>
-    `;
-  }).join('') || '<p>No environments defined.</p>';
+      ` : '';
+      return `
+        <div class="user-env-card" data-env-id="${envId}">
+          <div class="user-env-card-header">
+            <div class="user-env-title-wrap">
+              <strong>${escapeEnvHtml(env.name || 'Unnamed environment')}</strong>
+              <span>${variableLabel(entries.length)}</span>
+            </div>
+            <div class="user-env-card-actions">
+              <button type="button" class="btn btn-sm btn-secondary manage-env-toggle" data-id="${envId}">${expanded ? 'Hide variables' : 'View variables'}</button>
+              <button type="button" class="btn btn-sm btn-secondary manage-env-copy" data-id="${envId}">Copy JSON</button>
+              <button type="button" class="btn btn-sm btn-secondary manage-env-duplicate" data-id="${envId}">Duplicate</button>
+              <button type="button" class="btn btn-sm btn-secondary edit-env" data-id="${envId}">Edit</button>
+              <button type="button" class="btn btn-sm btn-danger delete-env" data-id="${envId}">Delete</button>
+            </div>
+          </div>
+          <div class="user-env-summary">
+            <div class="user-env-preview">${preview || '<em>No variables</em>'}</div>
+          </div>
+          ${details}
+        </div>
+      `;
+    }).join('');
+  }
+
+  function updateList() {
+    const list = document.getElementById('manage-envs-list');
+    if (list) list.innerHTML = renderList();
+    wireListButtons();
+  }
 
   const content = `
-    <div>${list}</div>
-    <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+    <div class="user-env-toolbar">
+      <div class="user-env-search-wrap">
+        <input type="search" id="manage-env-search" class="form-control" placeholder="Search environments or variable names" value="">
+      </div>
+      <select id="manage-env-sort" class="form-control" aria-label="Sort environments">
+        <option value="name">Name A-Z</option>
+        <option value="variables">Most variables</option>
+      </select>
+    </div>
+    <div id="manage-envs-list">${renderList()}</div>
+    <div class="user-env-footer">
+      <div class="user-env-footer-actions">
+        <button type="button" class="btn btn-primary btn-sm" id="manage-envs-new-btn">New</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="manage-envs-export-btn">Export</button>
+        <label class="btn btn-secondary btn-sm user-env-import-label">Import<input type="file" id="manage-envs-import-input" accept=".json,application/json" style="display:none;"></label>
+      </div>
       <button class="btn btn-secondary" id="manage-envs-close-btn">Close</button>
     </div>
   `;
@@ -1599,31 +1809,121 @@ function showManageEnvsModal() {
     hideModal();
   });
 
-  document.querySelectorAll('.delete-env').forEach(b => {
-    b.addEventListener('click', (ev) => {
-      const id = ev.target.getAttribute('data-id');
-      const arr = loadSavedEnvs(projectId);
-      const newArr = arr.filter(x => x.id !== id);
-      saveSavedEnvs(projectId, newArr);
-      showManageEnvsModal();
-    });
+  document.getElementById('manage-env-search')?.addEventListener('input', (ev) => {
+    searchText = ev.target.value || '';
+    updateList();
   });
 
-  document.querySelectorAll('.edit-env').forEach(b => {
-    b.addEventListener('click', (ev) => {
-      const id = ev.target.getAttribute('data-id');
-      const arr = loadSavedEnvs(projectId);
-      const env = arr.find(x => x.id === id);
-      if (env) {
-        hideModal();
-        // Open the create/edit modal pre-filled
-        setTimeout(() => showCreateEnvModal(env), 50);
-      }
-    });
+  document.getElementById('manage-env-sort')?.addEventListener('change', (ev) => {
+    sortMode = ev.target.value || 'name';
+    updateList();
   });
+
+  document.getElementById('manage-envs-new-btn')?.addEventListener('click', () => {
+    hideModal();
+    setTimeout(() => showCreateEnvModal(), 50);
+  });
+
+  document.getElementById('manage-envs-export-btn')?.addEventListener('click', () => {
+    exportUserEnvironments();
+  });
+
+  document.getElementById('manage-envs-import-input')?.addEventListener('change', async (ev) => {
+    await importUserEnvironments(ev.target);
+    ev.target.value = '';
+    populateEnvSelect();
+    updateList();
+  });
+
+  function wireListButtons() {
+    document.querySelectorAll('.manage-env-toggle').forEach(button => {
+      button.addEventListener('click', () => {
+        const id = button.getAttribute('data-id');
+        if (expandedEnvIds.has(id)) {
+          expandedEnvIds.delete(id);
+          revealedEnvIds.delete(id);
+        } else {
+          expandedEnvIds.add(id);
+        }
+        updateList();
+      });
+    });
+
+    document.querySelectorAll('.manage-env-reveal').forEach(button => {
+      button.addEventListener('click', () => {
+        const id = button.getAttribute('data-id');
+        if (revealedEnvIds.has(id)) revealedEnvIds.delete(id);
+        else revealedEnvIds.add(id);
+        updateList();
+      });
+    });
+
+    document.querySelectorAll('.manage-env-copy').forEach(button => {
+      button.addEventListener('click', async () => {
+        const id = button.getAttribute('data-id');
+        const env = (window._userEnvsCache || []).find(item => String(item.id) === String(id));
+        if (!env) return;
+        const { id: _id, name, ...variables } = env;
+        try {
+          await copyText(JSON.stringify({ name, variables }, null, 2));
+          button.textContent = 'Copied';
+          setTimeout(() => { button.textContent = 'Copy JSON'; }, 1200);
+        } catch (err) {
+          alert('Could not copy environment JSON: ' + (err.message || err));
+        }
+      });
+    });
+
+    document.querySelectorAll('.manage-env-duplicate').forEach(button => {
+      button.addEventListener('click', async () => {
+        const id = button.getAttribute('data-id');
+        const env = (window._userEnvsCache || []).find(item => String(item.id) === String(id));
+        if (!env) return;
+        const { id: _id, name, ...variables } = env;
+        try {
+          await createSavedEnv({ name: buildUniqueCopyName(name), ...variables });
+          populateEnvSelect();
+          updateList();
+        } catch (err) {
+          alert('Error duplicating environment: ' + (err.message || err));
+        }
+      });
+    });
+
+    document.querySelectorAll('.delete-env').forEach(b => {
+      b.addEventListener('click', async (ev) => {
+        const id = ev.target.getAttribute('data-id');
+        const env = (window._userEnvsCache || []).find(item => String(item.id) === String(id));
+        const varCount = env ? envEntries(env).length : 0;
+        if (!confirm(`Delete environment "${env ? env.name : id}" with ${variableLabel(varCount)}?`)) return;
+        try {
+          await deleteSavedEnv(id);
+          expandedEnvIds.delete(id);
+          revealedEnvIds.delete(id);
+          populateEnvSelect();
+          updateList();
+        } catch (err) {
+          alert('Error deleting environment: ' + (err.message || err));
+        }
+      });
+    });
+
+    document.querySelectorAll('.edit-env').forEach(b => {
+      b.addEventListener('click', (ev) => {
+        const id = ev.target.getAttribute('data-id');
+        const env = (window._userEnvsCache || []).find(x => String(x.id) === String(id));
+        if (env) {
+          hideModal();
+          setTimeout(() => showCreateEnvModal(env), 50);
+        }
+      });
+    });
+  }
+
+  wireListButtons();
 }
 
-// Wire up the manage/create buttons on the run modal (buttons are present when the modal is shown)
+// Wire up the manage/create/export/import buttons on the run modal
 document.addEventListener('click', (ev) => {
   if (ev.target && ev.target.id === 'create-env-btn') {
     runTestsModalRestoreState = captureRunTestsModalState();
@@ -1633,7 +1933,79 @@ document.addEventListener('click', (ev) => {
     runTestsModalRestoreState = captureRunTestsModalState();
     showManageEnvsModal();
   }
+  if (ev.target && ev.target.id === 'export-envs-btn') {
+    exportUserEnvironments();
+  }
 });
+
+document.addEventListener('change', async (ev) => {
+  if (ev.target && ev.target.id === 'import-envs-input') {
+    await importUserEnvironments(ev.target);
+    ev.target.value = '';
+    populateEnvSelect();
+  }
+});
+
+function exportUserEnvironments() {
+  if (typeof window.showEnvExportModal === 'function') {
+    window.showEnvExportModal();
+    return;
+  }
+  // Fallback: export all without selection UI
+  const envs = window._userEnvsCache || [];
+  if (envs.length === 0) { alert('No environments to export.'); return; }
+  const exportData = envs.map(e => { const { id, name, ...vars } = e; return { name, variables: vars }; });
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'my-environments-' + new Date().toISOString().slice(0, 10) + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function importUserEnvironments(fileInput) {
+  const file = fileInput.files && fileInput.files[0];
+  if (!file) return;
+  let parsed;
+  try {
+    const text = await file.text();
+    parsed = JSON.parse(text);
+  } catch {
+    alert('Invalid JSON file. Please select a valid exported environments file.');
+    return;
+  }
+  const items = Array.isArray(parsed) ? parsed : [parsed];
+  const valid = items.filter(item => item && typeof item === 'object' && typeof item.name === 'string' && item.name.trim());
+  if (valid.length === 0) {
+    alert('No valid environments found.\nExpected: [{ "name": "...", "variables": { "key": "value" } }]');
+    return;
+  }
+  // Always skip environments that already exist — only new ones are imported
+  const existingNames = new Set((window._userEnvsCache || []).map(e => e.name));
+  const mode = 'skip';
+  let created = 0, updated = 0, skipped = 0, errors = 0;
+  for (const item of valid) {
+    const name = item.name.trim();
+    const vars = (item.variables && typeof item.variables === 'object') ? item.variables : {};
+    const payload = { name, ...vars };
+    const existing = (window._userEnvsCache || []).find(e => e.name === name);
+    try {
+      if (existing) {
+        if (mode === 'overwrite') { await updateSavedEnv(existing.id, payload); updated++; }
+        else skipped++;
+      } else {
+        await createSavedEnv(payload); created++;
+      }
+    } catch { errors++; }
+  }
+  const parts = ['Import complete:'];
+  if (created) parts.push('  \u2022 ' + created + ' created');
+  if (updated) parts.push('  \u2022 ' + updated + ' updated');
+  if (skipped) parts.push('  \u2022 ' + skipped + ' skipped');
+  if (errors) parts.push('  \u2022 ' + errors + ' failed');
+  alert(parts.join('\n'));
+}
 
 // Make existing functions available globally
 window.toggleEnvVars = toggleEnvVars;

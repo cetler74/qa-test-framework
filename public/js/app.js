@@ -48,6 +48,10 @@ async function checkAuth() {
       }
       const userMgmtItem = document.getElementById('settings-item-user-management');
       if (userMgmtItem) userMgmtItem.style.display = currentUser.is_admin ? 'flex' : 'none';
+      // Load user-scoped environments into the in-memory cache
+      if (typeof window.loadUserEnvironments === 'function') {
+        window.loadUserEnvironments().catch(() => {});
+      }
       return true;
     }
   } catch (e) {}
@@ -223,6 +227,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
     } catch (e) {}
     showLoginView();
+  });
+
+  document.getElementById('user-dropdown-environments')?.addEventListener('click', () => {
+    closeUserDropdown();
+    showUserEnvironmentsModal();
   });
 
   document.getElementById('user-dropdown-profile')?.addEventListener('click', () => {
@@ -1174,6 +1183,564 @@ async function loadUserManagement() {
     listEl.innerHTML = '<p class="empty-state">Failed to load users.</p>';
   }
 }
+
+// ===== My Environments modal (accessible from the user dropdown) =====
+function showUserEnvironmentsModal() {
+  const expandedEnvIds = new Set();
+  const revealedEnvIds = new Set();
+  let searchText = '';
+  let sortMode = 'name';
+
+  function envEntries(env) {
+    return Object.entries(env || {}).filter(([key]) => key !== 'id' && key !== 'name');
+  }
+
+  function isSensitiveKey(key) {
+    return /token|secret|jwt|password|authorization|bearer|api[_-]?key|private/i.test(String(key || ''));
+  }
+
+  function displayValue(key, value, revealSecrets) {
+    if (isSensitiveKey(key) && !revealSecrets) return '********';
+    if (value == null || String(value) === '') return 'empty';
+    return String(value);
+  }
+
+  function variableLabel(count) {
+    return `${count} variable${count === 1 ? '' : 's'}`;
+  }
+
+  function getPreviewEntries(entries) {
+    const priority = ['baseurl', 'base_url', 'baseurlauth', 'endpoint', 'url', 'phonenumber', 'phone_number', 'clientid', 'client_id'];
+    const used = new Set();
+    const picked = [];
+    priority.forEach(priorityKey => {
+      const match = entries.find(([key]) => String(key).toLowerCase() === priorityKey);
+      if (match && !used.has(match[0])) {
+        picked.push(match);
+        used.add(match[0]);
+      }
+    });
+    entries.forEach(entry => {
+      if (picked.length >= 4) return;
+      if (!used.has(entry[0])) {
+        picked.push(entry);
+        used.add(entry[0]);
+      }
+    });
+    return picked;
+  }
+
+  function getFilteredEnvs() {
+    const query = searchText.trim().toLowerCase();
+    let envs = [...(window._userEnvsCache || [])];
+    if (query) {
+      envs = envs.filter(env => {
+        const name = String(env.name || '').toLowerCase();
+        const keys = envEntries(env).map(([key]) => String(key).toLowerCase());
+        return name.includes(query) || keys.some(key => key.includes(query));
+      });
+    }
+    envs.sort((a, b) => {
+      if (sortMode === 'variables') return envEntries(b).length - envEntries(a).length || String(a.name || '').localeCompare(String(b.name || ''));
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+    return envs;
+  }
+
+  function buildUniqueCopyName(baseName) {
+    const names = new Set((window._userEnvsCache || []).map(env => String(env.name || '').toLowerCase()));
+    let candidate = `Copy of ${baseName || 'Environment'}`;
+    let suffix = 2;
+    while (names.has(candidate.toLowerCase())) {
+      candidate = `Copy of ${baseName || 'Environment'} ${suffix}`;
+      suffix += 1;
+    }
+    return candidate;
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  }
+
+  function renderList() {
+    const allEnvs = window._userEnvsCache || [];
+    const envs = getFilteredEnvs();
+    if (allEnvs.length === 0) {
+      return '<p class="user-env-empty">No environments saved yet. Click <strong>New</strong> to create one.</p>';
+    }
+    if (envs.length === 0) {
+      return '<p class="user-env-empty">No environments match your search.</p>';
+    }
+    return envs.map(e => {
+      const envId = String(e.id);
+      const entries = envEntries(e);
+      const expanded = expandedEnvIds.has(envId);
+      const revealSecrets = revealedEnvIds.has(envId);
+      const safeName = escapeHtmlLite(e.name || 'Unnamed environment');
+      const preview = getPreviewEntries(entries).map(([key, value]) => `
+        <span class="user-env-chip${isSensitiveKey(key) ? ' user-env-chip-secret' : ''}">
+          <strong>${escapeHtmlLite(key)}</strong>
+          <span>${escapeHtmlLite(displayValue(key, value, false))}</span>
+        </span>
+      `).join('');
+      const details = expanded ? `
+        <div class="user-env-details">
+          <div class="user-env-details-toolbar">
+            <span>${variableLabel(entries.length)}</span>
+            ${entries.some(([key]) => isSensitiveKey(key)) ? `<button type="button" class="btn btn-sm btn-secondary user-env-reveal" data-env-id="${envId}">${revealSecrets ? 'Hide values' : 'Show values'}</button>` : ''}
+          </div>
+          <div class="user-env-var-grid">
+            ${entries.length ? entries.map(([key, value]) => `
+              <div class="user-env-var-key">${escapeHtmlLite(key)}</div>
+              <div class="user-env-var-value${isSensitiveKey(key) && !revealSecrets ? ' user-env-secret' : ''}">${escapeHtmlLite(displayValue(key, value, revealSecrets))}</div>
+            `).join('') : '<div class="user-env-var-empty">No variables saved in this environment.</div>'}
+          </div>
+        </div>
+      ` : '';
+      return `
+        <div class="user-env-card" data-env-id="${envId}">
+          <div class="user-env-card-header">
+            <div class="user-env-title-wrap">
+              <strong>${safeName}</strong>
+              <span>${variableLabel(entries.length)}</span>
+            </div>
+            <div class="user-env-card-actions">
+              <button type="button" class="btn btn-sm btn-secondary user-env-toggle" data-env-id="${envId}">${expanded ? 'Hide variables' : 'View variables'}</button>
+              <button type="button" class="btn btn-sm btn-secondary user-env-copy-json" data-env-id="${envId}">Copy JSON</button>
+              <button type="button" class="btn btn-sm btn-secondary user-env-duplicate" data-env-id="${envId}">Duplicate</button>
+              <button type="button" class="btn btn-sm btn-secondary user-env-edit" data-env-id="${envId}">Edit</button>
+              <button type="button" class="btn btn-sm btn-danger user-env-delete" data-env-id="${envId}">Delete</button>
+            </div>
+          </div>
+          <div class="user-env-summary">
+            <div class="user-env-preview">${preview || '<em>No variables</em>'}</div>
+          </div>
+          ${details}
+        </div>
+      `;
+    }).join('');
+  }
+
+  function updateList() {
+    const list = document.getElementById('user-envs-list');
+    if (list) list.innerHTML = renderList();
+    wireListButtons();
+  }
+
+  function open() {
+    const content = `
+      <div class="user-env-toolbar">
+        <div class="user-env-search-wrap">
+          <input type="search" id="user-env-search" class="form-control" placeholder="Search environments or variable names" value="${escapeHtmlLite(searchText)}">
+        </div>
+        <select id="user-env-sort" class="form-control" aria-label="Sort environments">
+          <option value="name" ${sortMode === 'name' ? 'selected' : ''}>Name A-Z</option>
+          <option value="variables" ${sortMode === 'variables' ? 'selected' : ''}>Most variables</option>
+        </select>
+      </div>
+      <div id="user-envs-list">${renderList()}</div>
+      <div class="user-env-footer">
+        <div class="user-env-footer-actions">
+          <button class="btn btn-primary btn-sm" id="user-env-new-btn">New</button>
+          <button class="btn btn-secondary btn-sm" id="user-env-export-btn" title="Export all environments to a JSON file">Export</button>
+          <label class="btn btn-secondary btn-sm user-env-import-label">Import<input type="file" id="user-env-import-input" accept=".json,application/json" style="display:none;"></label>
+        </div>
+        <button class="btn btn-secondary" id="user-envs-close-btn">Close</button>
+      </div>
+    `;
+    showModal('My Environments', content);
+    wireButtons();
+  }
+
+  function wireButtons() {
+    document.getElementById('user-envs-close-btn')?.addEventListener('click', hideModal);
+
+    document.getElementById('user-env-search')?.addEventListener('input', (ev) => {
+      searchText = ev.target.value || '';
+      updateList();
+    });
+
+    document.getElementById('user-env-sort')?.addEventListener('change', (ev) => {
+      sortMode = ev.target.value || 'name';
+      updateList();
+    });
+
+    document.getElementById('user-env-new-btn')?.addEventListener('click', () => {
+      hideModal();
+      setTimeout(() => openEnvEditor(null, open), 50);
+    });
+
+    // Export — opens selection modal
+    document.getElementById('user-env-export-btn')?.addEventListener('click', () => {
+      hideModal();
+      setTimeout(() => showEnvExportModal(open), 50);
+    });
+
+    // Import
+    document.getElementById('user-env-import-input')?.addEventListener('change', async (ev) => {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      ev.target.value = '';
+      let parsed;
+      try {
+        const text = await file.text();
+        parsed = JSON.parse(text);
+      } catch {
+        alert('Invalid JSON file. Please select a valid exported environments file.');
+        return;
+      }
+      const items = Array.isArray(parsed) ? parsed : [parsed];
+      const valid = items.filter(item => item && typeof item === 'object' && typeof item.name === 'string' && item.name.trim());
+      if (valid.length === 0) {
+        alert('No valid environments found.\nExpected: [{ "name": "...", "variables": { "key": "value" } }]');
+        return;
+      }
+      // Always skip environments that already exist — only new ones are imported
+      const mode = 'skip';
+      let created = 0, updated = 0, skipped = 0, errors = 0;
+      for (const item of valid) {
+        const name = item.name.trim();
+        const vars = (item.variables && typeof item.variables === 'object') ? item.variables : {};
+        const payload = { name, ...vars };
+        const existing = (window._userEnvsCache || []).find(e => e.name === name);
+        try {
+          if (existing) {
+            if (mode === 'overwrite') {
+              await (typeof updateSavedEnv === 'function'
+                ? updateSavedEnv(existing.id, payload)
+                : apiRequest(`/user/environments/${existing.id}`, { method: 'PUT', body: payload }).then(up => {
+                    window._userEnvsCache = (window._userEnvsCache || []).map(e => e.name === name ? up : e);
+                  }));
+              updated++;
+            } else skipped++;
+          } else {
+            await (typeof createSavedEnv === 'function'
+              ? createSavedEnv(payload)
+              : apiRequest('/user/environments', { method: 'POST', body: payload }).then(cr => {
+                  window._userEnvsCache = [...(window._userEnvsCache || []), cr];
+                }));
+            created++;
+          }
+        } catch { errors++; }
+      }
+      const parts = ['Import complete:'];
+      if (created) parts.push('  \u2022 ' + created + ' created');
+      if (updated) parts.push('  \u2022 ' + updated + ' updated');
+      if (skipped) parts.push('  \u2022 ' + skipped + ' skipped');
+      if (errors) parts.push('  \u2022 ' + errors + ' failed');
+      alert(parts.join('\n'));
+      updateList();
+    });
+
+    wireListButtons();
+  }
+
+  function wireListButtons() {
+    document.querySelectorAll('.user-env-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-env-id');
+        if (expandedEnvIds.has(id)) {
+          expandedEnvIds.delete(id);
+          revealedEnvIds.delete(id);
+        } else {
+          expandedEnvIds.add(id);
+        }
+        updateList();
+      });
+    });
+
+    document.querySelectorAll('.user-env-reveal').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-env-id');
+        if (revealedEnvIds.has(id)) revealedEnvIds.delete(id);
+        else revealedEnvIds.add(id);
+        updateList();
+      });
+    });
+
+    document.querySelectorAll('.user-env-copy-json').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-env-id');
+        const env = (window._userEnvsCache || []).find(e => String(e.id) === id);
+        if (!env) return;
+        const { id: _id, name, ...variables } = env;
+        try {
+          await copyText(JSON.stringify({ name, variables }, null, 2));
+          btn.textContent = 'Copied';
+          setTimeout(() => { btn.textContent = 'Copy JSON'; }, 1200);
+        } catch (err) {
+          alert('Could not copy environment JSON: ' + (err.message || err));
+        }
+      });
+    });
+
+    document.querySelectorAll('.user-env-duplicate').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-env-id');
+        const env = (window._userEnvsCache || []).find(e => String(e.id) === id);
+        if (!env) return;
+        const { id: _id, name, ...variables } = env;
+        const payload = { name: buildUniqueCopyName(name), ...variables };
+        try {
+          if (typeof createSavedEnv === 'function') {
+            await createSavedEnv(payload);
+          } else {
+            const created = await apiRequest('/user/environments', { method: 'POST', body: payload });
+            window._userEnvsCache = [...(window._userEnvsCache || []), created];
+          }
+          updateList();
+          if (typeof populateEnvSelect === 'function') populateEnvSelect();
+        } catch (err) {
+          alert('Error duplicating environment: ' + (err.message || err));
+        }
+      });
+    });
+
+    document.querySelectorAll('.user-env-delete').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-env-id');
+        const env = (window._userEnvsCache || []).find(e => String(e.id) === id);
+        const varCount = env ? envEntries(env).length : 0;
+        if (!confirm(`Delete environment "${env ? env.name : id}" with ${variableLabel(varCount)}?`)) return;
+        try {
+          await (typeof deleteSavedEnv === 'function'
+            ? deleteSavedEnv(id)
+            : apiRequest(`/user/environments/${id}`, { method: 'DELETE' }).then(() => {
+                window._userEnvsCache = (window._userEnvsCache || []).filter(e => String(e.id) !== id);
+              }));
+          expandedEnvIds.delete(id);
+          revealedEnvIds.delete(id);
+          updateList();
+        } catch (err) {
+          alert('Error deleting: ' + (err.message || err));
+        }
+      });
+    });
+
+    document.querySelectorAll('.user-env-edit').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-env-id');
+        const env = (window._userEnvsCache || []).find(e => String(e.id) === id);
+        if (!env) return;
+        hideModal();
+        setTimeout(() => openEnvEditor(env, open), 50);
+      });
+    });
+  }
+
+  function openEnvEditor(existingEnv, onBack) {
+    const escapedName = existingEnv ? escapeHtmlLite(existingEnv.name || '') : '';
+
+    // Build rows from existing variables (exclude id/name)
+    const existingVars = existingEnv
+      ? Object.entries(existingEnv).filter(([k]) => k !== 'id' && k !== 'name')
+      : [];
+
+    function varRowHtml(k = '', v = '') {
+      return `
+        <div class="user-env-var-row">
+          <input type="text" class="user-env-var-key form-control" placeholder="Variable name" value="${escapeHtmlLite(k)}">
+          <input type="text" class="user-env-var-val form-control" placeholder="Value" value="${escapeHtmlLite(v)}">
+          <button type="button" class="btn btn-sm btn-danger user-env-var-remove">×</button>
+        </div>
+      `;
+    }
+
+    const content = `
+      <form id="user-env-editor-form">
+        <div class="form-group" style="margin-bottom:14px;">
+          <label for="user-env-name-input">Environment name *</label>
+          <input type="text" id="user-env-name-input" class="form-control" value="${escapedName}" placeholder="e.g. Sandbox, Production…" required style="width:100%;">
+        </div>
+        <div class="form-group">
+          <div class="user-env-editor-toolbar">
+            <label>Variables</label>
+            <div class="user-env-editor-tools">
+              <input type="search" id="user-env-var-filter" class="form-control" placeholder="Filter variables">
+              <button type="button" class="btn btn-sm btn-secondary" id="user-env-sort-vars">Sort keys A-Z</button>
+            </div>
+          </div>
+          <div id="user-env-vars-list" class="user-env-vars-list">
+            ${existingVars.map(([k, v]) => varRowHtml(k, v)).join('')}
+          </div>
+          <button type="button" class="btn btn-sm btn-secondary" id="user-env-add-var">+ Add variable</button>
+        </div>
+        <div class="user-env-editor-actions">
+          <button type="button" class="btn btn-secondary" id="user-env-editor-back">Back</button>
+          <button type="submit" class="btn btn-primary">${existingEnv ? 'Save changes' : 'Create'}</button>
+        </div>
+      </form>
+    `;
+
+    showModal(existingEnv ? 'Edit Environment' : 'New Environment', content);
+
+    document.getElementById('user-env-add-var')?.addEventListener('click', () => {
+      const list = document.getElementById('user-env-vars-list');
+      if (list) list.insertAdjacentHTML('beforeend', varRowHtml());
+      // Wire remove on newly added rows
+      wireRemoveButtons();
+      applyVariableFilter();
+    });
+
+    document.getElementById('user-env-sort-vars')?.addEventListener('click', () => {
+      const list = document.getElementById('user-env-vars-list');
+      if (!list) return;
+      const rows = Array.from(list.querySelectorAll('.user-env-var-row'));
+      rows.sort((a, b) => {
+        const aKey = a.querySelector('.user-env-var-key')?.value || '';
+        const bKey = b.querySelector('.user-env-var-key')?.value || '';
+        return aKey.localeCompare(bKey);
+      });
+      rows.forEach(row => list.appendChild(row));
+      applyVariableFilter();
+    });
+
+    document.getElementById('user-env-var-filter')?.addEventListener('input', applyVariableFilter);
+
+    function applyVariableFilter() {
+      const query = (document.getElementById('user-env-var-filter')?.value || '').trim().toLowerCase();
+      document.querySelectorAll('#user-env-vars-list .user-env-var-row').forEach(row => {
+        const key = row.querySelector('.user-env-var-key')?.value || '';
+        row.style.display = !query || key.toLowerCase().includes(query) ? '' : 'none';
+      });
+    }
+
+    function wireRemoveButtons() {
+      document.querySelectorAll('.user-env-var-remove').forEach(rb => {
+        rb.onclick = () => rb.closest('.user-env-var-row')?.remove();
+      });
+    }
+    wireRemoveButtons();
+
+    document.getElementById('user-env-editor-back')?.addEventListener('click', () => {
+      hideModal();
+      setTimeout(onBack, 50);
+    });
+
+    document.getElementById('user-env-editor-form')?.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const name = document.getElementById('user-env-name-input')?.value.trim();
+      if (!name) { alert('Please enter a name.'); return; }
+
+      const payload = { name };
+      document.querySelectorAll('#user-env-vars-list .user-env-var-row').forEach(row => {
+        const k = (row.querySelector('.user-env-var-key')?.value || '').trim();
+        const v = (row.querySelector('.user-env-var-val')?.value || '').trim();
+        if (k) payload[k] = v;
+      });
+
+      try {
+        if (existingEnv) {
+          if (typeof updateSavedEnv === 'function') {
+            await updateSavedEnv(existingEnv.id, payload);
+          } else {
+            const updated = await apiRequest(`/user/environments/${existingEnv.id}`, { method: 'PUT', body: payload });
+            window._userEnvsCache = (window._userEnvsCache || []).map(e => String(e.id) === String(existingEnv.id) ? updated : e);
+          }
+        } else {
+          if (typeof createSavedEnv === 'function') {
+            await createSavedEnv(payload);
+          } else {
+            const created = await apiRequest('/user/environments', { method: 'POST', body: payload });
+            window._userEnvsCache = [...(window._userEnvsCache || []), created];
+          }
+        }
+        hideModal();
+        setTimeout(open, 50);
+      } catch (err) {
+        alert('Error saving environment: ' + (err.message || err));
+      }
+    });
+  }
+
+  open();
+}
+
+/**
+ * Export-selection modal: lets the user pick which environments to export.
+ * @param {Function} [onBack] - called after export or cancel to reopen the previous modal
+ */
+function showEnvExportModal(onBack) {
+  const envs = window._userEnvsCache || [];
+  if (envs.length === 0) {
+    alert('No environments to export.');
+    if (onBack) setTimeout(onBack, 50);
+    return;
+  }
+
+  function buildContent(selectedIds) {
+    const rows = envs.map(e => {
+      const checked = selectedIds.has(String(e.id)) ? 'checked' : '';
+      const safeName = String(e.name || '').replace(/</g, '&lt;');
+      const varCount = Object.keys(e).filter(k => k !== 'id' && k !== 'name').length;
+      return `
+        <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--color-gray-200,#e5e7eb);border-radius:6px;cursor:pointer;margin-bottom:6px;background:var(--color-gray-50,#f9fafb);">
+          <input type="checkbox" class="export-env-check" data-env-id="${e.id}" ${checked} style="width:16px;height:16px;cursor:pointer;flex-shrink:0;">
+          <span style="flex:1;font-weight:500;">${safeName}</span>
+          <span style="font-size:12px;color:var(--color-text-secondary,#6b7280);">${varCount} variable${varCount !== 1 ? 's' : ''}</span>
+        </label>`;
+    }).join('');
+    return `
+      <div style="margin-bottom:10px;display:flex;gap:8px;">
+        <button type="button" class="btn btn-sm btn-secondary" id="export-select-all">Select All</button>
+        <button type="button" class="btn btn-sm btn-secondary" id="export-deselect-all">Deselect All</button>
+      </div>
+      <div style="max-height:320px;overflow-y:auto;">${rows}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
+        <button type="button" class="btn btn-secondary" id="export-back-btn">${onBack ? '\u2190 Back' : 'Cancel'}</button>
+        <button type="button" class="btn btn-primary" id="export-download-btn">Export Selected</button>
+      </div>`;
+  }
+
+  showModal('Export Environments', buildContent(new Set(envs.map(e => String(e.id)))));
+
+  document.getElementById('export-back-btn')?.addEventListener('click', () => {
+    hideModal();
+    if (onBack) setTimeout(onBack, 50);
+  });
+
+  document.getElementById('export-select-all')?.addEventListener('click', () => {
+    document.querySelectorAll('.export-env-check').forEach(cb => { cb.checked = true; });
+  });
+
+  document.getElementById('export-deselect-all')?.addEventListener('click', () => {
+    document.querySelectorAll('.export-env-check').forEach(cb => { cb.checked = false; });
+  });
+
+  document.getElementById('export-download-btn')?.addEventListener('click', () => {
+    const selected = new Set(Array.from(document.querySelectorAll('.export-env-check:checked')).map(cb => cb.getAttribute('data-env-id')));
+    const toExport = envs.filter(e => selected.has(String(e.id)));
+    if (toExport.length === 0) { alert('Please select at least one environment.'); return; }
+    const exportData = toExport.map(e => { const { id, name, ...vars } = e; return { name, variables: vars }; });
+    const filename = toExport.length === 1
+      ? toExport[0].name.replace(/[^a-z0-9_-]/gi, '_') + '.json'
+      : 'my-environments-' + new Date().toISOString().slice(0, 10) + '.json';
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    hideModal();
+    if (onBack) setTimeout(onBack, 50);
+  });
+}
+window.showEnvExportModal = showEnvExportModal;
 
 // Dashboard (unified recent runs: API + UI with type badge, Quick Run, Next scheduled)
 async function loadDashboard() {

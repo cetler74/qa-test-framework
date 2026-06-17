@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { Collection, TestRun, TestResult, ApiSpec, ProjectTest, ProjectTestStat } = require('../models');
 const { isInternalUrl } = require('../lib/urlUtils');
+const { buildApiOperationKey } = require('./testCatalogue');
 
 // In-memory set of test run IDs that have been requested to cancel (API runs only).
 // Runner checks this so it can stop after the current collection and mark run as cancelled.
@@ -445,6 +446,7 @@ async function updateProjectTestStatsForApiResult(testRun, testResult, catalogue
     const method = (testResult.method || '').toString().trim() || 'GET';
     const name = (testResult.test_name || '').toString().trim() || testResult.endpoint || 'Request';
     const stableKey = `api:${method}:${name}`;
+    const operationKey = buildApiOperationKey(method, testResult.endpoint, name, catalogueLocator?.sourcePath || null);
 
     let projectTest = null;
     if (catalogueLocator?.sourceId && catalogueLocator?.sourcePath) {
@@ -454,6 +456,17 @@ async function updateProjectTestStatsForApiResult(testRun, testResult, catalogue
           source_kind: 'postman_item',
           source_id: catalogueLocator.sourceId,
           source_path: catalogueLocator.sourcePath
+        }
+      });
+    }
+
+    if (!projectTest && operationKey) {
+      projectTest = await ProjectTest.findOne({
+        where: {
+          project_id: testRun.project_id,
+          test_type: 'api',
+          source_kind: 'postman_item',
+          source_api_operation_key: operationKey
         }
       });
     }
@@ -472,6 +485,8 @@ async function updateProjectTestStatsForApiResult(testRun, testResult, catalogue
           source_id: catalogueLocator?.sourceId || null,
           source_kind: 'postman_item',
           source_path: catalogueLocator?.sourcePath || null,
+          source_api_operation_key: operationKey || null,
+          source_api_spec_status: 'current',
           is_active: true
         }
       });
@@ -483,7 +498,8 @@ async function updateProjectTestStatsForApiResult(testRun, testResult, catalogue
       endpoint: testResult.endpoint || projectTest.endpoint,
       method,
       ...(catalogueLocator?.sourceId ? { source_id: catalogueLocator.sourceId } : {}),
-      ...(catalogueLocator?.sourcePath ? { source_path: catalogueLocator.sourcePath } : {})
+      ...(catalogueLocator?.sourcePath ? { source_path: catalogueLocator.sourcePath } : {}),
+      ...(operationKey ? { source_api_operation_key: operationKey } : {})
     });
 
     const [stats] = await ProjectTestStat.findOrCreate({
