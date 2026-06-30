@@ -1899,6 +1899,7 @@ async function loadProjects() {
         const ownerName = project.owner
           ? (project.owner.display_name || project.owner.username || 'Unknown owner')
           : 'No owner';
+        const ownerEmail = project.owner?.email || '';
         const rawVisibility = String(project.visibility || 'private').toLowerCase();
         const visibility = ['private', 'shared', 'public'].includes(rawVisibility) ? rawVisibility : 'private';
         const visibilityLabel = visibility === 'private' ? 'Private' : visibility === 'shared' ? 'Shared' : 'Public';
@@ -1911,7 +1912,7 @@ async function loadProjects() {
               <h3 style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${escapeHtmlLite(project.name)} <span class="status-badge ${statusClass}">${statusLabel}</span></h3>
               <p>${escapeHtmlLite(project.description || 'No description')}</p>
               <div class="project-card-meta">
-                <span class="project-card-meta-item"><strong>Owner</strong> ${escapeHtmlLite(ownerName)}</span>
+                <span class="project-card-meta-item"><strong>Owner</strong> ${escapeHtmlLite(ownerName)}${ownerEmail ? ` <span class="project-owner-email">${escapeHtmlLite(ownerEmail)}</span>` : ''}</span>
                 <span class="project-card-meta-item"><strong>Access</strong> <span class="visibility-badge visibility-${visibility}">${visibilityLabel}</span></span>
                 <span class="project-card-meta-item">${project.apiSpecs?.length || 0} API spec(s)</span>
               </div>

@@ -1060,6 +1060,11 @@ main {
     font-weight: 600;
 }
 
+.project-owner-email {
+    color: var(--color-text-secondary);
+    overflow-wrap: anywhere;
+}
+
 .list-item-actions {
     display: flex;
     gap: var(--spacing-sm);
