@@ -1895,25 +1895,39 @@ async function loadProjects() {
         </div>
       `;
     } else {
-      projectsList.innerHTML = projects.map(project => `
-        <div class="list-item" data-project-id="${project.id}" role="button" tabindex="0" aria-label="Open project ${String(project.name || '').replace(/"/g, '&quot;')}">
-          <div class="list-item-info" style="cursor: pointer;">
-            <h3 style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${escapeHtmlLite(project.name)} <span class="status-badge ${window.normalizeProjectStatus ? window.normalizeProjectStatus(project.status) : 'ongoing'}">${window.getProjectStatusLabel ? window.getProjectStatusLabel(project.status) : 'On going'}</span></h3>
-            <p>${escapeHtmlLite(project.description || 'No description')}</p>
-            <p style="font-size: 12px; color: #999; margin-top: 5px;">
-              ${project.apiSpecs?.length || 0} API spec(s)
-            </p>
+      projectsList.innerHTML = projects.map(project => {
+        const ownerName = project.owner
+          ? (project.owner.display_name || project.owner.username || 'Unknown owner')
+          : 'No owner';
+        const ownerEmail = project.owner?.email || '';
+        const rawVisibility = String(project.visibility || 'private').toLowerCase();
+        const visibility = ['private', 'shared', 'public'].includes(rawVisibility) ? rawVisibility : 'private';
+        const visibilityLabel = visibility === 'private' ? 'Private' : visibility === 'shared' ? 'Shared' : 'Public';
+        const statusClass = window.normalizeProjectStatus ? window.normalizeProjectStatus(project.status) : 'ongoing';
+        const statusLabel = window.getProjectStatusLabel ? window.getProjectStatusLabel(project.status) : 'On going';
+
+        return `
+          <div class="list-item" data-project-id="${project.id}" role="button" tabindex="0" aria-label="Open project ${String(project.name || '').replace(/"/g, '&quot;')}">
+            <div class="list-item-info" style="cursor: pointer;">
+              <h3 style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${escapeHtmlLite(project.name)} <span class="status-badge ${statusClass}">${statusLabel}</span></h3>
+              <p>${escapeHtmlLite(project.description || 'No description')}</p>
+              <div class="project-card-meta">
+                <span class="project-card-meta-item"><strong>Owner</strong> ${escapeHtmlLite(ownerName)}${ownerEmail ? ` <span class="project-owner-email">${escapeHtmlLite(ownerEmail)}</span>` : ''}</span>
+                <span class="project-card-meta-item"><strong>Access</strong> <span class="visibility-badge visibility-${visibility}">${visibilityLabel}</span></span>
+                <span class="project-card-meta-item">${project.apiSpecs?.length || 0} API spec(s)</span>
+              </div>
+            </div>
+            <div class="list-item-actions">
+              <button type="button" class="btn btn-secondary" onclick="window.editProject(${project.id})">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                Edit
+              </button>
+            </div>
           </div>
-          <div class="list-item-actions">
-            <button type="button" class="btn btn-secondary" onclick="window.editProject(${project.id})">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px;">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-              Edit
-            </button>
-          </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
   } catch (error) {
     console.error('Error loading projects:', error);

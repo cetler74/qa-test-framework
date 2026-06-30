@@ -361,7 +361,38 @@ function registerDraftValidationArtifact(kind, filePath, testResultsDir) {
   });
   return token;
 }
+async function getBrowserProxyForUrl(url) {
+  const targetProxy = await getProxyForUrlAsync(url || '');
+  const proxyConfig = loadProxyConfig();
+  let proxy = null;
 
+  if (proxyConfig.activeProxy && proxyConfig.activeProxy !== 'no-proxy') {
+    const configuredProxy = getProxyByName(proxyConfig.activeProxy);
+
+    if (configuredProxy && (configuredProxy.http || configuredProxy.https)) {
+      proxy = { ...configuredProxy };
+
+      if (!targetProxy && url) {
+        try {
+          const targetHost = new URL(url).hostname;
+          const bypass = new Set(
+            String(proxy.bypass || '')
+              .split(',')
+              .map(value => value.trim())
+              .filter(Boolean)
+          );
+
+          bypass.add(targetHost);
+          proxy.bypass = [...bypass].join(',');
+        } catch (_) {
+          // Keep configured bypass if URL parsing fails.
+        }
+      }
+    }
+  }
+
+  return proxy || targetProxy;
+}
 // ==================== USER ENVIRONMENTS ====================
 // Stored per-user (not per-project). Variables are a flat key→value object.
 // The client representation keeps variables flat on the env object for backward compat:
@@ -4058,7 +4089,33 @@ router.post('/playwright-recorded-tests/launch-codegen', async (req, res) => {
     const url = (baseUrl && typeof baseUrl === 'string' ? baseUrl.trim() : playwrightConfig.baseUrl) || 'https://example.com';
     const slug = `recorded-${Date.now()}`;
 
-    const proxy = await getProxyForUrlAsync(url);
+const targetProxy = await getProxyForUrlAsync(url);
+
+const proxyConfig = loadProxyConfig();
+let proxy = null;
+
+if (proxyConfig.activeProxy && proxyConfig.activeProxy !== 'no-proxy') {
+  const configuredProxy = getProxyByName(proxyConfig.activeProxy);
+  if (configuredProxy && (configuredProxy.http || configuredProxy.https)) {
+    proxy = { ...configuredProxy };
+
+    if (!targetProxy) {
+      try {
+        const targetHost = new URL(url).hostname;
+        const bypass = new Set(
+          String(proxy.bypass || '')
+            .split(',')
+            .map(value => value.trim())
+            .filter(Boolean)
+        );
+        bypass.add(targetHost);
+        proxy.bypass = [...bypass].join(',');
+      } catch (_) {
+        // Keep configured bypass if URL parsing fails.
+      }
+    }
+  }
+}
 
     // --- Remote Codegen path (headless Linux with Xvfb + noVNC) ---
     if (codegenSessionManager.isRemoteCodegenAvailable()) {
@@ -4210,7 +4267,7 @@ router.post('/playwright-recorded-tests/validate-draft', async (req, res) => {
     const videoOpt = ['off', 'on', 'retain-on-failure'].includes(bodyVideo) ? bodyVideo : defaultVideo;
     const traceOpt = ['off', 'on', 'retain-on-failure'].includes(bodyTrace) ? bodyTrace : 'off';
     const slowMo = typeof bodySlowMo === 'number' && bodySlowMo >= 0 ? bodySlowMo : 0;
-    const proxy = await getProxyForUrlAsync(url || playwrightConfig.baseUrl || '');
+    const proxy = await getBrowserProxyForUrl(url || playwrightConfig.baseUrl || '');
 
     const execution = await executeRecordedSpec({
       recordedName: trimmedName,

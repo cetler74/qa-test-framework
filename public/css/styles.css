@@ -1037,6 +1037,34 @@ main {
     line-height: 1.5;
 }
 
+.project-card-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+    margin-top: var(--spacing-sm);
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.project-card-meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    min-width: 0;
+}
+
+.project-card-meta-item strong {
+    color: var(--color-text-primary);
+    font-weight: 600;
+}
+
+.project-owner-email {
+    color: var(--color-text-secondary);
+    overflow-wrap: anywhere;
+}
+
 .list-item-actions {
     display: flex;
     gap: var(--spacing-sm);
