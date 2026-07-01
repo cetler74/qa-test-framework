@@ -1127,9 +1127,14 @@
     const addToProjectSelect = document.getElementById('recorded-test-add-to-project');
     const variableGroupSelect = document.getElementById('recorded-test-variable-group');
     if (!form) return;
+    const activeProjectId = window._projectRecordedTestsProjectId || window._runUiTestsProjectId || null;
+    let selectedProjectId = !editId && activeProjectId ? String(activeProjectId) : '';
 
     if (addToProjectWrap) addToProjectWrap.style.display = 'block';
-    if (addToProjectSelect) addToProjectSelect.innerHTML = '<option value="">None</option>';
+    if (addToProjectSelect) {
+      addToProjectSelect.setAttribute('required', 'required');
+      addToProjectSelect.innerHTML = '<option value="">Select project...</option>';
+    }
 
     // Proxy is inferred from base URL by the backend (no dropdown)
     if (!editId) {
@@ -1162,7 +1167,8 @@
 
     apiRequest('/projects').then(projects => {
       if (addToProjectSelect && Array.isArray(projects) && projects.length > 0) {
-        addToProjectSelect.innerHTML = '<option value="">None</option>' + projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+        addToProjectSelect.innerHTML = '<option value="">Select project...</option>' + projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+        if (selectedProjectId) addToProjectSelect.value = selectedProjectId;
       }
     }).catch(() => {});
 
@@ -1175,7 +1181,8 @@
           clearRecordedTestValidationResults();
           codegenUrlInput.value = (t.base_url || '').trim() || codegenUrlInput.placeholder;
           if (addToProjectSelect && Array.isArray(t.project_ids) && t.project_ids.length > 0) {
-            addToProjectSelect.value = String(t.project_ids[0]);
+            selectedProjectId = String(t.project_ids[0]);
+            addToProjectSelect.value = selectedProjectId;
           }
         })
         .catch(err => alert('Error loading recorded test: ' + err.message));
@@ -1299,6 +1306,7 @@
     const addToProjectId = addToProjectEl?.value?.trim() || null;
     if (!name) { alert('Test name is required'); return; }
     if (!spec) { alert('Generated spec is required'); return; }
+    if (!addToProjectId) { alert('Please select a project for this recorded test.'); return; }
     const editId = idInput?.value?.trim() || null;
     const buildRecordedTestSavedMessage = (action, response) => {
       const variableNames = Array.isArray(response && response.variable_names) ? response.variable_names : [];
@@ -1318,12 +1326,12 @@
     try {
       if (editId) {
         const body = { name, spec_content: spec, base_url: null };
-        if (addToProjectId) body.projectIds = [Number(addToProjectId)];
+        body.projectIds = [Number(addToProjectId)];
         const response = await apiRequest(`/playwright-recorded-tests/${editId}`, { method: 'PUT', body });
         alert(buildRecordedTestSavedMessage('updated', response));
       } else {
         const body = { name, spec_content: spec, base_url: null };
-        if (addToProjectId) body.addToProjectIds = [Number(addToProjectId)];
+        body.addToProjectIds = [Number(addToProjectId)];
         const response = await apiRequest('/playwright-recorded-tests', { method: 'POST', body });
         alert(buildRecordedTestSavedMessage('saved', response));
       }

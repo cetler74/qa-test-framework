@@ -4051,6 +4051,9 @@ router.post('/playwright-recorded-tests', async (req, res) => {
       return res.status(400).json({ error: validation.error });
     }
     const projectIds = Array.isArray(addToProjectIds) ? addToProjectIds.filter(id => Number.isInteger(Number(id))) : [];
+    if (projectIds.length === 0) {
+      return res.status(400).json({ error: 'At least one associated project is required' });
+    }
     for (const projectId of projectIds) {
       const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, projectId);
       if (!canManage) return res.status(403).json({ error: 'Forbidden: cannot add to one or more projects' });
@@ -4386,8 +4389,8 @@ router.get('/playwright-recorded-tests/:id', async (req, res) => {
     if (!test) return res.status(404).json({ error: 'Recorded test not found' });
     const links = await ProjectRecordedTest.findAll({ where: { recorded_test_id: test.id }, attributes: ['project_id'] });
     const projectIds = links.map(l => l.project_id);
-    if (projectIds.length === 0) return res.status(403).json({ error: 'Forbidden' });
     let allowed = req.user.is_admin;
+    if (projectIds.length === 0 && !allowed) return res.status(403).json({ error: 'Forbidden' });
     if (!allowed) for (const pid of projectIds) {
       if (await userCanAccessProjectId(req.user.id, false, pid)) { allowed = true; break; }
     }
@@ -4409,8 +4412,8 @@ router.put('/playwright-recorded-tests/:id', async (req, res) => {
     if (!test) return res.status(404).json({ error: 'Recorded test not found' });
     const links = await ProjectRecordedTest.findAll({ where: { recorded_test_id: test.id }, attributes: ['project_id'] });
     const projectIds = links.map(l => l.project_id);
-    if (projectIds.length === 0) return res.status(403).json({ error: 'Forbidden' });
     let allowed = req.user.is_admin;
+    if (projectIds.length === 0 && !allowed) return res.status(403).json({ error: 'Forbidden' });
     if (!allowed) for (const pid of projectIds) {
       if (await userCanAccessProjectId(req.user.id, false, pid)) { allowed = true; break; }
     }
@@ -4489,8 +4492,8 @@ router.delete('/playwright-recorded-tests/:id', async (req, res) => {
     if (!test) return res.status(404).json({ error: 'Recorded test not found' });
     const links = await ProjectRecordedTest.findAll({ where: { recorded_test_id: test.id }, attributes: ['project_id'] });
     const projectIds = links.map(l => l.project_id);
-    if (projectIds.length === 0) return res.status(403).json({ error: 'Forbidden' });
     let canManage = req.user.is_admin;
+    if (projectIds.length === 0 && !canManage) return res.status(403).json({ error: 'Forbidden' });
     if (!canManage) for (const pid of projectIds) {
       if (await userCanManageProjectId(req.user.id, false, pid)) { canManage = true; break; }
     }
