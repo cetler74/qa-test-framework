@@ -15,6 +15,7 @@ A comprehensive API testing tool with Postman integration that allows you to man
 - **Postman to OpenAPI**: Convert Postman collection JSON to OpenAPI 3.0 (Swagger) YAML for use with CATS, documentation, or other OpenAPI tools
 - **Test proxy (URL-based)**: Proxy is inferred from the URL or endpoint used for each run (API, UI, SOAP, Fuzz). Internal URLs (localhost, 127.0.0.1, 10.x.x.x) use no proxy; external URLs use the proxy set in `config/proxies.json` (`activeProxy`). No per-project proxy selection.
 - **Test Catalogue / Coverage**: Per-project and global catalogue of all runnable tests (API, SOAP, UI), auto-populated from specs and test definitions, showing last status, last run date, total run count, and per-test notes.
+- **Project Archive / Export**: Export a full project as a ZIP archive, including all API specs, collections, test run reports, test results, note evidence files, and a structured JSON manifest — useful for offline sharing, compliance, or backup.
 
 ## Prerequisites and dependencies
 
@@ -28,6 +29,7 @@ The following software is required or optional depending on which features you u
 | **Playwright** | Installed via `npm install` | UI tests and recorded tests (built-in and Codegen) |
 | **Playwright browsers** | Chromium (required); Firefox & WebKit optional | Run UI tests; install with `npx playwright install chromium` (or `chromium firefox webkit` for all) |
 | **Newman** | Installed via `npm install` | Postman collection test execution (API tests) |
+| **archiver** | Installed via `npm install` | Project archive/export — generates ZIP bundles of project data and reports |
 | **Java** | 17+ | REST API fuzzing (CATS) when using the JAR; not needed if using CATS native binary or Docker |
 | **CATS** | JAR or native binary | Optional; required only for **Run Fuzz** (OpenAPI fuzzing). See [SETUP.md – CATS](SETUP.md#6-optional-rest-api-fuzzing-cats) |
 

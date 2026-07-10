@@ -5,274 +5,322 @@ window.projectTestsEditMode = false;
 window.currentProject = null;
 
 function projectRunsAreClosed(project) {
-  return typeof window.isProjectClosed === 'function' ? window.isProjectClosed(project) : false;
+    return typeof window.isProjectClosed === 'function' ? window.isProjectClosed(project) : false;
 }
 
 function getProjectClosedMessage(project) {
-  return typeof window.getProjectRunBlockedMessage === 'function'
-    ? window.getProjectRunBlockedMessage(project)
-    : 'This project is closed. New test runs are disabled.';
+    return typeof window.getProjectRunBlockedMessage === 'function' ?
+        window.getProjectRunBlockedMessage(project) :
+        'This project is closed. New test runs are disabled.';
 }
 
 function ensureCurrentProjectRunsAllowed(projectId) {
-  if (!window.currentProject || String(window.currentProject.id) !== String(projectId)) return true;
-  if (!projectRunsAreClosed(window.currentProject)) return true;
-  alert(getProjectClosedMessage(window.currentProject));
-  return false;
+    if (!window.currentProject || String(window.currentProject.id) !== String(projectId)) return true;
+    if (!projectRunsAreClosed(window.currentProject)) return true;
+    alert(getProjectClosedMessage(window.currentProject));
+    return false;
 }
 
 function setProjectRunButtonState(button, disabled, title) {
-  if (!button) return;
-  button.disabled = !!disabled;
-  button.setAttribute('aria-disabled', disabled ? 'true' : 'false');
-  if (title) button.title = title;
-  else button.removeAttribute('title');
+    if (!button) return;
+    button.disabled = !!disabled;
+    button.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+    if (title) button.title = title;
+    else button.removeAttribute('title');
 }
 
 function applyProjectRunAvailability(project) {
-  const isClosed = projectRunsAreClosed(project);
-  const blockedTitle = isClosed ? getProjectClosedMessage(project) : '';
-  setProjectRunButtonState(document.getElementById('run-tests-btn'), isClosed, blockedTitle);
-  setProjectRunButtonState(document.getElementById('run-ui-test-btn'), isClosed, blockedTitle);
-  setProjectRunButtonState(document.getElementById('run-fuzz-btn'), isClosed, blockedTitle);
-  setProjectRunButtonState(document.getElementById('run-soap-btn'), isClosed, blockedTitle);
-  setProjectRunButtonState(document.getElementById('project-tests-run-selected-btn'), isClosed, blockedTitle);
+    const isClosed = projectRunsAreClosed(project);
+    const blockedTitle = isClosed ? getProjectClosedMessage(project) : '';
+    setProjectRunButtonState(document.getElementById('run-tests-btn'), isClosed, blockedTitle);
+    setProjectRunButtonState(document.getElementById('run-ui-test-btn'), isClosed, blockedTitle);
+    setProjectRunButtonState(document.getElementById('run-fuzz-btn'), isClosed, blockedTitle);
+    setProjectRunButtonState(document.getElementById('run-soap-btn'), isClosed, blockedTitle);
+    setProjectRunButtonState(document.getElementById('project-tests-run-selected-btn'), isClosed, blockedTitle);
 
-  const statusEl = document.getElementById('project-detail-status');
-  if (statusEl) {
-    const statusClass = typeof window.normalizeProjectStatus === 'function'
-      ? window.normalizeProjectStatus(project?.status)
-      : 'ongoing';
-    const label = typeof window.getProjectStatusLabel === 'function'
-      ? window.getProjectStatusLabel(project?.status)
-      : 'On going';
-    statusEl.innerHTML = `Status: <span class="status-badge ${statusClass}">${label}</span>`;
-  }
-
-  const closedNoteEl = document.getElementById('project-detail-closed-note');
-  if (closedNoteEl) {
-    if (isClosed) {
-      closedNoteEl.textContent = getProjectClosedMessage(project);
-      closedNoteEl.style.display = 'block';
-    } else {
-      closedNoteEl.style.display = 'none';
-      closedNoteEl.textContent = '';
+    const statusEl = document.getElementById('project-detail-status');
+    if (statusEl) {
+        const statusClass = typeof window.normalizeProjectStatus === 'function' ?
+            window.normalizeProjectStatus(project?.status) :
+            'ongoing';
+        const label = typeof window.getProjectStatusLabel === 'function' ?
+            window.getProjectStatusLabel(project?.status) :
+            'On going';
+        statusEl.innerHTML = `Status: <span class="status-badge ${statusClass}">${label}</span>`;
     }
-  }
+
+    const closedNoteEl = document.getElementById('project-detail-closed-note');
+    if (closedNoteEl) {
+        if (isClosed) {
+            closedNoteEl.textContent = getProjectClosedMessage(project);
+            closedNoteEl.style.display = 'block';
+        } else {
+            closedNoteEl.style.display = 'none';
+            closedNoteEl.textContent = '';
+        }
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Create project button
-  document.getElementById('create-project-btn')?.addEventListener('click', showCreateProjectModal);
-  
-  // Upload API spec button
-  document.getElementById('upload-api-spec-btn')?.addEventListener('click', showUploadApiSpecModal);
-  
-  // Upload Postman collection button
-  document.getElementById('upload-postman-collection-btn')?.addEventListener('click', showUploadPostmanCollectionModal);
-  
-  // Add API spec to project button
-  document.getElementById('add-api-spec-btn')?.addEventListener('click', showAddApiSpecToProjectModal);
+    // Create project button
+    document.getElementById('create-project-btn')?.addEventListener('click', showCreateProjectModal);
 
-  // Run API tests: listener is registered in testRunner.js (do not duplicate — a stub here overwrote the real handler)
+    // Upload API spec button
+    document.getElementById('upload-api-spec-btn')?.addEventListener('click', showUploadApiSpecModal);
 
-  // Run Fuzz button (from project): open Run Fuzz modal
-  document.getElementById('run-fuzz-btn')?.addEventListener('click', showRunFuzzModal);
+    // Upload Postman collection button
+    document.getElementById('upload-postman-collection-btn')?.addEventListener('click', showUploadPostmanCollectionModal);
 
-  // Run SOAP button (from project): open Run SOAP modal
-  document.getElementById('run-soap-btn')?.addEventListener('click', showRunSoapModal);
-  
-  // Run UI Test button (from project): open run UI tests flow with project context
-  document.getElementById('run-ui-test-btn')?.addEventListener('click', () => {
-    const projectId = document.getElementById('run-ui-test-btn')?.getAttribute('data-project-id');
-    if (!projectId) {
-      alert('Please select a project first.');
-      return;
-    }
-    if (!ensureCurrentProjectRunsAllowed(projectId)) return;
-    if (typeof window.showRunUiTestsPage === 'function') {
-      window.showRunUiTestsPage(Number(projectId));
-    }
-  });
-  
-  // Manage recorded tests for this project
-  document.getElementById('manage-project-recorded-tests-btn')?.addEventListener('click', () => {
-    const projectId = document.getElementById('manage-project-recorded-tests-btn')?.getAttribute('data-project-id');
-    if (!projectId) return;
-    if (typeof window.showProjectRecordedTestsView === 'function') {
-      window.showProjectRecordedTestsView(Number(projectId));
-    }
-  });
+    // Add API spec to project button
+    document.getElementById('add-api-spec-btn')?.addEventListener('click', showAddApiSpecToProjectModal);
 
-  // Create flow
-  document.getElementById('create-flow-btn')?.addEventListener('click', () => {
-    const projectId = document.getElementById('create-flow-btn')?.getAttribute('data-project-id');
-    if (!projectId) return;
-    showCreateFlowModal(Number(projectId));
-  });
+    // Run API tests: listener is registered in testRunner.js (do not duplicate — a stub here overwrote the real handler)
 
-  // Create schedule
-  document.getElementById('create-schedule-btn')?.addEventListener('click', () => {
-    const projectId = document.getElementById('create-schedule-btn')?.getAttribute('data-project-id');
-    if (!projectId) return;
-    showCreateScheduleModal(Number(projectId));
-  });
+    // Run Fuzz button (from project): open Run Fuzz modal
+    document.getElementById('run-fuzz-btn')?.addEventListener('click', showRunFuzzModal);
 
-  // Collapsible Flows and Schedules sections
-  document.getElementById('project-flows-toggle')?.addEventListener('click', () => {
-    const section = document.getElementById('project-flows-section');
-    const btn = document.getElementById('project-flows-toggle');
-    if (section && btn) {
-      section.classList.toggle('collapsed');
-      btn.setAttribute('aria-expanded', section.classList.contains('collapsed') ? 'false' : 'true');
-    }
-  });
-  document.getElementById('project-schedules-toggle')?.addEventListener('click', () => {
-    const section = document.getElementById('project-schedules-section');
-    const btn = document.getElementById('project-schedules-toggle');
-    if (section && btn) {
-      section.classList.toggle('collapsed');
-      btn.setAttribute('aria-expanded', section.classList.contains('collapsed') ? 'false' : 'true');
-    }
-  });
+    // Run SOAP button (from project): open Run SOAP modal
+    document.getElementById('run-soap-btn')?.addEventListener('click', showRunSoapModal);
 
-  // Toggle Tests & Coverage edit mode
-  const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
-  editModeBtn?.addEventListener('click', () => {
-    window.projectTestsEditMode = !window.projectTestsEditMode;
-    const projectId = editModeBtn.getAttribute('data-project-id');
+    // Run UI Test button (from project): open run UI tests flow with project context
+    document.getElementById('run-ui-test-btn')?.addEventListener('click', () => {
+      const projectId = document.getElementById('run-ui-test-btn')?.getAttribute('data-project-id');
+        if (!projectId) {
+            alert('Please select a project first.');
+            return;
+        }
+        if (!ensureCurrentProjectRunsAllowed(projectId)) return;
+        if (typeof window.showRunUiTestsPage === 'function') {
+            window.showRunUiTestsPage(Number(projectId));
+        }
+    });
 
-    // Update button label/state
-    editModeBtn.textContent = window.projectTestsEditMode ? 'Done editing' : 'Edit mode';
+    // Manage recorded tests for this project
+    document.getElementById('manage-project-recorded-tests-btn')?.addEventListener('click', () => {
+      const projectId = document.getElementById('manage-project-recorded-tests-btn')?.getAttribute('data-project-id');
+        if (!projectId) return;
+        if (typeof window.showProjectRecordedTestsView === 'function') {
+            window.showProjectRecordedTestsView(Number(projectId));
+        }
+    });
 
-    // Show/hide management buttons based on edit mode
-    const syncBtn = document.getElementById('sync-project-tests-btn');
-    const clearBtn = document.getElementById('clear-project-tests-btn');
-    const addBtn = document.getElementById('add-project-test-btn');
-    const uploadTestsBtn = document.getElementById('upload-project-tests-btn');
-    const displayStyle = window.projectTestsEditMode ? 'inline-flex' : 'none';
-    if (syncBtn) syncBtn.style.display = displayStyle;
-    if (clearBtn) clearBtn.style.display = displayStyle;
-    if (addBtn) addBtn.style.display = displayStyle;
-    if (uploadTestsBtn) uploadTestsBtn.style.display = displayStyle;
+    // Create flow
+    document.getElementById('create-flow-btn')?.addEventListener('click', () => {
+      const projectId = document.getElementById('create-flow-btn')?.getAttribute('data-project-id');
+        if (!projectId) return;
+        showCreateFlowModal(Number(projectId));
+    });
 
-    if (projectId) {
-      loadProjectTests(Number(projectId));
-    }
-  });
+    // Create schedule
+    document.getElementById('create-schedule-btn')?.addEventListener('click', () => {
+      const projectId = document.getElementById('create-schedule-btn')?.getAttribute('data-project-id');
+        if (!projectId) return;
+        showCreateScheduleModal(Number(projectId));
+    });
 
-  // Sync project tests catalogue
-  document.getElementById('sync-project-tests-btn')?.addEventListener('click', async () => {
-    const btn = document.getElementById('sync-project-tests-btn');
-    const projectId = btn?.getAttribute('data-project-id');
-    if (!projectId) {
-      alert('Please select a project first.');
-      return;
-    }
-    btn.disabled = true;
-    try {
-      await apiRequest(`/projects/${projectId}/tests/catalogue/sync`, { method: 'POST' });
-      await loadProjectTests(Number(projectId));
-      if (typeof window.loadProjectCoverageSummary === 'function') {
-        window.loadProjectCoverageSummary(Number(projectId));
-      }
-    } catch (err) {
-      alert('Error syncing tests: ' + (err.message || err));
-    } finally {
-      btn.disabled = false;
-    }
-  });
+    // Collapsible Flows and Schedules sections
+    document.getElementById('project-flows-toggle')?.addEventListener('click', () => {
+        const section = document.getElementById('project-flows-section');
+        const btn = document.getElementById('project-flows-toggle');
+        if (section && btn) {
+            section.classList.toggle('collapsed');
+            btn.setAttribute('aria-expanded', section.classList.contains('collapsed') ? 'false' : 'true');
+        }
+    });
+    document.getElementById('project-schedules-toggle')?.addEventListener('click', () => {
+        const section = document.getElementById('project-schedules-section');
+        const btn = document.getElementById('project-schedules-toggle');
+        if (section && btn) {
+            section.classList.toggle('collapsed');
+            btn.setAttribute('aria-expanded', section.classList.contains('collapsed') ? 'false' : 'true');
+        }
+    });
 
-  // Clear project tests catalogue
-  document.getElementById('clear-project-tests-btn')?.addEventListener('click', async () => {
-    const btn = document.getElementById('clear-project-tests-btn');
-    const projectId = btn?.getAttribute('data-project-id');
-    if (!projectId) {
-      alert('Please select a project first.');
-      return;
-    }
-    if (!confirm('Clear active tests from coverage? This hides them from active coverage but preserves last status, run counts, history links, notes, and tickets. Sync from specs can reactivate matching tests.')) {
-      return;
-    }
-    btn.disabled = true;
-    try {
-      await apiRequest(`/projects/${projectId}/tests/catalogue`, { method: 'DELETE' });
-      await loadProjectTests(Number(projectId));
-      if (typeof window.loadProjectCoverageSummary === 'function') {
-        window.loadProjectCoverageSummary(Number(projectId));
-      }
-    } catch (err) {
-      alert('Error clearing tests: ' + (err.message || err));
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
-  // Export project tests & coverage as CSV
-  document.getElementById('export-project-tests-btn')?.addEventListener('click', async () => {
-    const btn = document.getElementById('export-project-tests-btn');
-    const projectId = btn?.getAttribute('data-project-id');
-    if (!projectId) {
-      alert('Please select a project first.');
-      return;
-    }
-    // Simple navigation to download CSV (browser handles file download)
-    const url = `/api/projects/${projectId}/tests/catalogue/export`;
-    window.location.href = url;
-  });
-
-  // Download Tests & Coverage report (filters + coverage summary)
-  document.getElementById('download-project-tests-report-btn')?.addEventListener('click', () => {
-    if (typeof window.downloadProjectTestsReport === 'function') {
-      window.downloadProjectTestsReport();
-    }
-  });
-
-  // Add manual project test
-  document.getElementById('add-project-test-btn')?.addEventListener('click', () => {
-    const btn = document.getElementById('add-project-test-btn');
-    const projectId = btn?.getAttribute('data-project-id');
-    if (!projectId) {
-      alert('Please select a project first.');
-      return;
-    }
-    window.addProjectTest(Number(projectId));
-  });
-
-  // Upload project tests from file (edit mode only)
-  document.getElementById('upload-project-tests-btn')?.addEventListener('click', () => {
-    const btn = document.getElementById('upload-project-tests-btn');
-    const projectId = btn?.getAttribute('data-project-id');
-    if (!projectId) {
-      alert('Please select a project first.');
-      return;
-    }
-    window.showUploadProjectTestsModal(Number(projectId));
-  });
-
-  document.getElementById('project-tests-run-selected-btn')?.addEventListener('click', () => {
+    // Toggle Tests & Coverage edit mode
     const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
-    const projectId = editModeBtn?.getAttribute('data-project-id');
-    if (!projectId) {
-      alert('Please open a project first.');
-      return;
-    }
-    if (!ensureCurrentProjectRunsAllowed(projectId)) return;
-    if (typeof window.runBatchProjectCatalogueTests === 'function') {
-      window.runBatchProjectCatalogueTests(Number(projectId));
-    }
-  });
+    editModeBtn?.addEventListener('click', () => {
+        window.projectTestsEditMode = !window.projectTestsEditMode;
+        const projectId = editModeBtn.getAttribute('data-project-id');
 
-  document.getElementById('generate-jwks-btn')?.addEventListener('click', () => {
-    const projectId = document.getElementById('generate-jwks-btn')?.getAttribute('data-project-id');
-    if (!projectId) { alert('Please open a project first.'); return; }
-    showGenerateJwksModal(projectId);
-  });
+        // Update button label/state
+        editModeBtn.textContent = window.projectTestsEditMode ? 'Done editing' : 'Edit mode';
+
+        // Show/hide management buttons based on edit mode
+        const syncBtn = document.getElementById('sync-project-tests-btn');
+        const clearBtn = document.getElementById('clear-project-tests-btn');
+        const addBtn = document.getElementById('add-project-test-btn');
+        const uploadTestsBtn = document.getElementById('upload-project-tests-btn');
+        const displayStyle = window.projectTestsEditMode ? 'inline-flex' : 'none';
+        if (syncBtn) syncBtn.style.display = displayStyle;
+        if (clearBtn) clearBtn.style.display = displayStyle;
+        if (addBtn) addBtn.style.display = displayStyle;
+        if (uploadTestsBtn) uploadTestsBtn.style.display = displayStyle;
+
+        if (projectId) {
+            loadProjectTests(Number(projectId));
+        }
+    });
+
+    // Sync project tests catalogue
+    document.getElementById('sync-project-tests-btn')?.addEventListener('click', async() => {
+        const btn = document.getElementById('sync-project-tests-btn');
+        const projectId = btn?.getAttribute('data-project-id');
+        if (!projectId) {
+            alert('Please select a project first.');
+            return;
+        }
+        btn.disabled = true;
+        try {
+            await apiRequest(`/projects/${projectId}/tests/catalogue/sync`, { method: 'POST' });
+            await loadProjectTests(Number(projectId));
+            if (typeof window.loadProjectCoverageSummary === 'function') {
+                window.loadProjectCoverageSummary(Number(projectId));
+            }
+        } catch (err) {
+            alert('Error syncing tests: ' + (err.message || err));
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    // Clear project tests catalogue
+    document.getElementById('clear-project-tests-btn')?.addEventListener('click', async() => {
+        const btn = document.getElementById('clear-project-tests-btn');
+        const projectId = btn?.getAttribute('data-project-id');
+        if (!projectId) {
+            alert('Please select a project first.');
+            return;
+        }
+        if (!confirm('Clear active tests from coverage? This hides them from active coverage but preserves last status, run counts, history links, notes, and tickets. Sync from specs can reactivate matching tests.')) {
+            return;
+        }
+        btn.disabled = true;
+        try {
+            await apiRequest(`/projects/${projectId}/tests/catalogue`, { method: 'DELETE' });
+            await loadProjectTests(Number(projectId));
+            if (typeof window.loadProjectCoverageSummary === 'function') {
+                window.loadProjectCoverageSummary(Number(projectId));
+            }
+        } catch (err) {
+            alert('Error clearing tests: ' + (err.message || err));
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    // Export project tests & coverage as CSV
+    document.getElementById('export-project-tests-btn')?.addEventListener('click', async() => {
+        const btn = document.getElementById('export-project-tests-btn');
+        const projectId = btn?.getAttribute('data-project-id');
+        if (!projectId) {
+            alert('Please select a project first.');
+            return;
+        }
+        // Simple navigation to download CSV (browser handles file download)
+        const url = `/api/projects/${projectId}/tests/catalogue/export`;
+        window.location.href = url;
+    });
+
+    // Download Tests & Coverage report (filters + coverage summary)
+    document.getElementById('download-project-tests-report-btn')?.addEventListener('click', () => {
+        if (typeof window.downloadProjectTestsReport === 'function') {
+            window.downloadProjectTestsReport();
+        }
+    });
+
+    // Download full project audit archive (tests, notes, evidence, ticket links, and run artifacts)
+    document.getElementById('download-project-audit-archive-btn')?.addEventListener('click', async() => {
+        const btn = document.getElementById('download-project-audit-archive-btn');
+        const projectId = btn?.getAttribute('data-project-id');
+        if (!projectId) {
+            alert('Please select a project first.');
+            return;
+        }
+
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = 'Generating archive...';
+        try {
+            const response = await fetch(`/api/projects/${projectId}/audit-archive`);
+            if (!response.ok) {
+                let message = `Archive download failed (${response.status})`;
+                try {
+                    const payload = await response.json();
+                    if (payload && payload.error) message = payload.error;
+                } catch (_) {
+                    const text = await response.text().catch(() => '');
+                    if (text) message = text;
+                }
+                throw new Error(message);
+            }
+
+            const blob = await response.blob();
+            const disposition = response.headers.get('Content-Disposition') || '';
+            const filenameMatch = disposition.match(/filename\*?=(?:UTF-8''|\")?([^";]+)/i);
+            const filename = filenameMatch ?
+                decodeURIComponent(filenameMatch[1].replace(/"/g, '').trim()) :
+                `project-${projectId}-audit-archive.zip`;
+            const downloadUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(downloadUrl);
+        } catch (err) {
+            alert('Error generating archive: ' + (err.message || err));
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    });
+
+    // Add manual project test
+    document.getElementById('add-project-test-btn')?.addEventListener('click', () => {
+        const btn = document.getElementById('add-project-test-btn');
+        const projectId = btn?.getAttribute('data-project-id');
+        if (!projectId) {
+            alert('Please select a project first.');
+            return;
+        }
+        window.addProjectTest(Number(projectId));
+    });
+
+    // Upload project tests from file (edit mode only)
+    document.getElementById('upload-project-tests-btn')?.addEventListener('click', () => {
+        const btn = document.getElementById('upload-project-tests-btn');
+        const projectId = btn?.getAttribute('data-project-id');
+        if (!projectId) {
+            alert('Please select a project first.');
+            return;
+        }
+        window.showUploadProjectTestsModal(Number(projectId));
+    });
+
+    document.getElementById('project-tests-run-selected-btn')?.addEventListener('click', () => {
+        const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
+        const projectId = editModeBtn?.getAttribute('data-project-id');
+        if (!projectId) {
+            alert('Please open a project first.');
+            return;
+        }
+        if (!ensureCurrentProjectRunsAllowed(projectId)) return;
+        if (typeof window.runBatchProjectCatalogueTests === 'function') {
+            window.runBatchProjectCatalogueTests(Number(projectId));
+        }
+    });
+
+    document.getElementById('generate-jwks-btn')?.addEventListener('click', () => {
+      const projectId = document.getElementById('generate-jwks-btn')?.getAttribute('data-project-id');
+        if (!projectId) { alert('Please open a project first.'); return; }
+        showGenerateJwksModal(projectId);
+    });
 });
 
 // Create Project
 function showCreateProjectModal() {
-  const content = `
+    const content = `
     <form id="create-project-form">
       <div class="form-group">
         <label for="project-name">Project Name *</label>
@@ -295,50 +343,50 @@ function showCreateProjectModal() {
       </div>
     </form>
   `;
-  
-  showModal('Create Project', content);
-  
-  document.getElementById('create-project-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const name = document.getElementById('project-name').value;
-    const description = document.getElementById('project-description').value;
-    const status = document.getElementById('project-status').value;
-    
-    try {
-      await apiRequest('/projects', {
-        method: 'POST',
-        body: { name, description, status }
-      });
-      
-      hideModal();
-      loadProjects();
-    } catch (error) {
-      alert('Error creating project: ' + error.message);
-    }
-  });
+
+    showModal('Create Project', content);
+
+    document.getElementById('create-project-form').addEventListener('submit', async(e) => {
+        e.preventDefault();
+
+        const name = document.getElementById('project-name').value;
+        const description = document.getElementById('project-description').value;
+        const status = document.getElementById('project-status').value;
+
+        try {
+            await apiRequest('/projects', {
+                method: 'POST',
+                body: { name, description, status }
+            });
+
+            hideModal();
+            loadProjects();
+        } catch (error) {
+            alert('Error creating project: ' + error.message);
+        }
+    });
 }
 
 // Edit Project
-window.editProject = async (projectId) => {
-  try {
-    const project = await apiRequest(`/projects/${projectId}`);
-    let users = [];
+window.editProject = async(projectId) => {
     try {
-      users = await apiRequest('/users') || [];
-    } catch (e) {}
-    const vis = project.visibility || 'private';
-    const status = (typeof window.normalizeProjectStatus === 'function' ? window.normalizeProjectStatus(project.status) : (project.status || 'ongoing'));
-    const sharedIds = (project.shared_users || []).map(u => u.id);
-    const ownerId = project.owner && project.owner.id;
-    const canChangeSharing = window.currentUser && (window.currentUser.is_admin || ownerId === window.currentUser.id);
-    const otherUsers = (users || []).filter(u => u.id !== ownerId);
-    const sharedOptions = otherUsers.map(u =>
-      `<option value="${u.id}" ${sharedIds.includes(u.id) ? 'selected' : ''}>${escapeHtml(u.display_name || u.username)}</option>`
-    ).join('');
+        const project = await apiRequest(`/projects/${projectId}`);
+        let users = [];
+        try {
+            users = await apiRequest('/users') || [];
+        } catch (e) {}
+        const vis = project.visibility || 'private';
+        const status = (typeof window.normalizeProjectStatus === 'function' ? window.normalizeProjectStatus(project.status) : (project.status || 'ongoing'));
+        const sharedIds = (project.shared_users || []).map(u => u.id);
+        const ownerId = project.owner && project.owner.id;
+        const canChangeSharing = window.currentUser && (window.currentUser.is_admin || ownerId === window.currentUser.id);
+        const otherUsers = (users || []).filter(u => u.id !== ownerId);
+        const sharedOptions = otherUsers.map(u =>
+            `<option value="${u.id}" ${sharedIds.includes(u.id) ? 'selected' : ''}>${escapeHtml(u.display_name || u.username)}</option>`
+        ).join('');
 
-    const sharingBlock = canChangeSharing
-      ? `
+        const sharingBlock = canChangeSharing ?
+            `
         <div class="form-group">
           <label for="edit-project-status">Project status</label>
           <select id="edit-project-status">
@@ -359,16 +407,16 @@ window.editProject = async (projectId) => {
           <label for="edit-project-shared-users">Shared with</label>
           <select id="edit-project-shared-users" multiple size="4">${sharedOptions}</select>
           <p class="form-hint">Hold Ctrl/Cmd to select multiple users. Only applies when visibility is Shared.</p>
-        </div>`
-      : '';
+        </div>` :
+            '';
 
-    const deleteBlock = canChangeSharing
-      ? `<div>
+        const deleteBlock = canChangeSharing ?
+            `<div>
             <button type="button" class="btn btn-danger" id="edit-project-delete-btn">Delete project</button>
-          </div>`
-      : '';
+          </div>` :
+            '';
 
-    const content = `
+        const content = `
       <form id="edit-project-form">
         <div class="form-group">
           <label for="edit-project-name">Project Name *</label>
@@ -389,94 +437,94 @@ window.editProject = async (projectId) => {
       </form>
     `;
 
-    showModal('Edit project', content);
+        showModal('Edit project', content);
 
-    const visSelect = document.getElementById('edit-project-visibility');
-    const sharedWrap = document.getElementById('edit-project-shared-wrap');
-    if (visSelect && sharedWrap) {
-      visSelect.addEventListener('change', function () {
-        sharedWrap.style.display = this.value === 'shared' ? 'block' : 'none';
-      });
-    }
+        const visSelect = document.getElementById('edit-project-visibility');
+        const sharedWrap = document.getElementById('edit-project-shared-wrap');
+        if (visSelect && sharedWrap) {
+            visSelect.addEventListener('change', function() {
+                sharedWrap.style.display = this.value === 'shared' ? 'block' : 'none';
+            });
+        }
 
-    document.getElementById('edit-project-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
+        document.getElementById('edit-project-form').addEventListener('submit', async(e) => {
+            e.preventDefault();
 
-      const name = document.getElementById('edit-project-name').value;
-      const description = document.getElementById('edit-project-description').value;
-      const status = document.getElementById('edit-project-status')?.value || 'ongoing';
-      const visibility = document.getElementById('edit-project-visibility')?.value || 'private';
-      const sharedEl = document.getElementById('edit-project-shared-users');
-      const shared_user_ids = sharedEl ? Array.from(sharedEl.selectedOptions).map(o => Number(o.value)) : [];
+            const name = document.getElementById('edit-project-name').value;
+            const description = document.getElementById('edit-project-description').value;
+            const status = document.getElementById('edit-project-status')?.value || 'ongoing';
+            const visibility = document.getElementById('edit-project-visibility')?.value || 'private';
+            const sharedEl = document.getElementById('edit-project-shared-users');
+            const shared_user_ids = sharedEl ? Array.from(sharedEl.selectedOptions).map(o => Number(o.value)) : [];
 
-      const body = canChangeSharing
-        ? { name, description, status, visibility, shared_user_ids }
-        : { name, description };
+            const body = canChangeSharing ?
+                { name, description, status, visibility, shared_user_ids } :
+                { name, description };
 
-      try {
-        await apiRequest(`/projects/${projectId}`, {
-          method: 'PUT',
-          body
+            try {
+                await apiRequest(`/projects/${projectId}`, {
+                    method: 'PUT',
+                    body
+                });
+
+                hideModal();
+                loadProjects();
+                const currentProjectDetailName = document.getElementById('project-detail-name');
+                if (currentProjectDetailName && currentProjectDetailName.textContent === project.name) {
+                    viewProject(projectId);
+                }
+
+                alert('Project updated successfully');
+            } catch (error) {
+                alert('Error updating project: ' + error.message);
+            }
         });
 
-        hideModal();
-        loadProjects();
-        const currentProjectDetailName = document.getElementById('project-detail-name');
-        if (currentProjectDetailName && currentProjectDetailName.textContent === project.name) {
-          viewProject(projectId);
+        const delBtn = document.getElementById('edit-project-delete-btn');
+        if (delBtn) {
+            delBtn.addEventListener('click', async() => {
+                if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) return;
+                try {
+                    await apiRequest(`/projects/${projectId}`, { method: 'DELETE' });
+                    hideModal();
+                    showView('projects');
+                    loadProjects();
+                    alert('Project deleted successfully');
+                } catch (error) {
+                    alert('Error deleting project: ' + error.message);
+                }
+            });
         }
-
-        alert('Project updated successfully');
-      } catch (error) {
-        alert('Error updating project: ' + error.message);
-      }
-    });
-
-    const delBtn = document.getElementById('edit-project-delete-btn');
-    if (delBtn) {
-      delBtn.addEventListener('click', async () => {
-        if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) return;
-        try {
-          await apiRequest(`/projects/${projectId}`, { method: 'DELETE' });
-          hideModal();
-          showView('projects');
-          loadProjects();
-          alert('Project deleted successfully');
-        } catch (error) {
-          alert('Error deleting project: ' + error.message);
-        }
-      });
+    } catch (error) {
+        alert('Error loading project: ' + error.message);
     }
-  } catch (error) {
-    alert('Error loading project: ' + error.message);
-  }
 };
 
 function escapeHtml(str) {
-  if (str == null) return '';
-  const s = String(str);
-  const div = document.createElement('div');
-  div.textContent = s;
-  return div.innerHTML;
+    if (str == null) return '';
+    const s = String(str);
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
 }
 
 function formatFileSize(bytes) {
-  const value = Number(bytes || 0);
-  if (!Number.isFinite(value) || value <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let size = value;
-  let unitIndex = 0;
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-  const precision = size >= 10 || unitIndex === 0 ? 0 : 1;
-  return `${size.toFixed(precision)} ${units[unitIndex]}`;
+    const value = Number(bytes || 0);
+    if (!Number.isFinite(value) || value <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let size = value;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex += 1;
+    }
+    const precision = size >= 10 || unitIndex === 0 ? 0 : 1;
+    return `${size.toFixed(precision)} ${units[unitIndex]}`;
 }
 
 function renderProjectTestNoteAttachments(attachments = []) {
-  if (!Array.isArray(attachments) || attachments.length === 0) return '';
-  return `
+    if (!Array.isArray(attachments) || attachments.length === 0) return '';
+    return `
     <div class="project-test-note-attachments">
       ${attachments.map((attachment) => {
         const imageUrl = escapeHtml(attachment.image_url || '');
@@ -684,6 +732,7 @@ window.viewProject = async (projectId) => {
     document.getElementById('sync-project-tests-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('clear-project-tests-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('export-project-tests-btn')?.setAttribute('data-project-id', projectId);
+    document.getElementById('download-project-audit-archive-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('add-project-test-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('upload-project-tests-btn')?.setAttribute('data-project-id', projectId);
     document.getElementById('generate-jwks-btn')?.setAttribute('data-project-id', projectId);
@@ -4564,4 +4613,3 @@ function showJwksResultModal(result) {
     });
   });
 }
-
