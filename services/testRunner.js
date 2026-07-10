@@ -1326,6 +1326,11 @@ async function executeTests(projectId, testRunName, options = {}) {
         testOptions.environment = sharedEnvFile;
         delete testOptions.envVars;
 
+        testOptions.newmanOptions = {
+          ...(testOptions.newmanOptions || {}),
+          exportEnvironment: sharedEnvFile
+        };
+
         // Regenerate signed JWTs for each iteration so every Newman call gets a fresh
         // token with a unique jti/iat/exp — prevents the CAMARA auth server from
         // rejecting reused jti values on subsequent bc-authorize / token requests.
