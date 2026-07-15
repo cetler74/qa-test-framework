@@ -272,6 +272,11 @@ ProjectTestNote.belongsTo(ProjectTest, {
   as: 'projectTest'
 });
 
+ProjectTestNote.belongsTo(User, {
+  foreignKey: 'author_id',
+  as: 'author'
+});
+
 ProjectTestNote.hasMany(ProjectTestNoteAttachment, {
   foreignKey: 'project_test_note_id',
   as: 'attachments'
