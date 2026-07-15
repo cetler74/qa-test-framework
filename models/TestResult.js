@@ -71,6 +71,14 @@ const TestResult = sequelize.define('TestResult', {
     type: DataTypes.STRING(255),
     allowNull: true
   },
+  project_test_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'project_tests',
+      key: 'id'
+    }
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

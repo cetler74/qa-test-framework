@@ -232,6 +232,9 @@ async function executeSoapTests(projectId, apiSpecId, operationIds, runName, tes
                 last_run_type: 'soap',
                 last_run_id: testRun.id
               });
+              if (testResult.project_test_id !== projectTest.id) {
+                await testResult.update({ project_test_id: projectTest.id });
+              }
             }
           } catch (statsError) {
             console.error('[soapRunner] Failed to update project test stats for SOAP result:', statsError.message || statsError);

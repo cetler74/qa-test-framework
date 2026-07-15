@@ -123,6 +123,11 @@ PlaywrightRun.belongsTo(Project, {
   as: 'project'
 });
 
+PlaywrightRun.belongsTo(User, {
+  foreignKey: 'run_by_user_id',
+  as: 'runByUser'
+});
+
 Project.belongsToMany(PlaywrightRecordedTest, {
   through: ProjectRecordedTest,
   foreignKey: 'project_id',
@@ -262,6 +267,36 @@ ProjectTestStat.belongsTo(User, {
   as: 'lastRunByUser'
 });
 
+ProjectTest.hasMany(TestResult, {
+  foreignKey: 'project_test_id',
+  as: 'apiSoapResults'
+});
+
+TestResult.belongsTo(ProjectTest, {
+  foreignKey: 'project_test_id',
+  as: 'projectTest'
+});
+
+ProjectTest.hasMany(PlaywrightResult, {
+  foreignKey: 'project_test_id',
+  as: 'uiResults'
+});
+
+PlaywrightResult.belongsTo(ProjectTest, {
+  foreignKey: 'project_test_id',
+  as: 'projectTest'
+});
+
+ProjectTest.hasMany(FuzzResult, {
+  foreignKey: 'project_test_id',
+  as: 'fuzzResults'
+});
+
+FuzzResult.belongsTo(ProjectTest, {
+  foreignKey: 'project_test_id',
+  as: 'projectTest'
+});
+
 ProjectTest.hasMany(ProjectTestNote, {
   foreignKey: 'project_test_id',
   as: 'notes'
@@ -270,6 +305,11 @@ ProjectTest.hasMany(ProjectTestNote, {
 ProjectTestNote.belongsTo(ProjectTest, {
   foreignKey: 'project_test_id',
   as: 'projectTest'
+});
+
+ProjectTestNote.belongsTo(User, {
+  foreignKey: 'author_id',
+  as: 'author'
 });
 
 ProjectTestNote.hasMany(ProjectTestNoteAttachment, {
