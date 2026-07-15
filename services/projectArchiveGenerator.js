@@ -675,7 +675,6 @@ async function loadArchiveData(projectId) {
         PlaywrightRun.findAll({
             where: { project_id: projectId },
             include: [
-                { model: User, as: 'runByUser', attributes: ['id', 'username', 'display_name', 'email'], required: false },
                 { model: PlaywrightResult, as: 'results', required: false }
             ],
             order: [
@@ -687,7 +686,6 @@ async function loadArchiveData(projectId) {
         FuzzRun.findAll({
             where: { project_id: projectId },
             include: [
-                { model: User, as: 'runByUser', attributes: ['id', 'username', 'display_name', 'email'], required: false },
                 { model: FuzzResult, as: 'fuzzResults', required: false },
                 { model: ApiSpec, as: 'apiSpec', attributes: ['id', 'name', 'original_filename'], required: false }
             ],

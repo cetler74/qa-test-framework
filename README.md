@@ -15,7 +15,7 @@ A comprehensive API testing tool with Postman integration that allows you to man
 - **Postman to OpenAPI**: Convert Postman collection JSON to OpenAPI 3.0 (Swagger) YAML for use with CATS, documentation, or other OpenAPI tools
 - **Test proxy (URL-based)**: Proxy is inferred from the URL or endpoint used for each run (API, UI, SOAP, Fuzz). Internal URLs (localhost, 127.0.0.1, 10.x.x.x) use no proxy; external URLs use the proxy set in `config/proxies.json` (`activeProxy`). No per-project proxy selection.
 - **Test Catalogue / Coverage**: Per-project and global catalogue of all runnable tests (API, SOAP, UI), auto-populated from specs and test definitions, showing last status, last run date, total run count, and per-test notes.
-- **Project Archive / Export**: Export a full project as a ZIP archive, including all API specs, collections, test run reports, test results, note evidence files, and a structured JSON manifest — useful for offline sharing, compliance, or backup.
+- **Project Archive / Export**: Export a full project as a ZIP archive, including all API specs, collections, test run reports, test results, note evidence files, note authors, ticket links, and a structured JSON manifest — useful for offline sharing, compliance, or backup.
 
 ## Prerequisites and dependencies
 
@@ -128,6 +128,22 @@ This migration script will:
   - `020_collections_project_id.sql` - makes collections project-specific by adding `project_id` and index to `collections`
   - `021_project_tests_and_stats.sql` - creates `project_tests`, `project_test_stats`, and `project_test_notes` tables for the test catalogue/coverage feature
 
+### Project Archive / Export Migration Notes
+
+Project archive generation depends on the test catalogue and note schema created by the migrations above. After pulling archive-related changes, run:
+
+```bash
+npm run migrate
+```
+
+Then restart the server if it was started with `npm start` so Sequelize reloads the model associations. `npm run dev`/nodemon normally reloads automatically.
+
+Important archive schema notes:
+
+- `project_test_notes.author_id` is used to include note author details in the archive. The model association is required even though no new SQL migration is needed for that relationship.
+- API and SOAP runs store `run_by_user_id` on `test_runs` through migration `023_test_runs_run_by_user_id.sql`.
+- On the `archive_v1` branch, `playwright_runs` and `fuzz_runs` do not have `run_by_user_id` columns. Archive exports therefore include UI and fuzz run evidence, but their run-by value may be shown as `Not recorded` unless a future migration adds those columns and the matching model associations.
+
 ### Migration Files
 
 The `migrations/` directory contains SQL migration files that are executed in alphabetical order:
@@ -235,6 +251,17 @@ The application uses the following main tables:
 **Newman run crashes with "Unknown object type asyncfunction"**
 
 - Solution: The project overrides `object-hash` to v2.x (in `package.json` overrides) so collections that use async code in scripts do not crash. Ensure you run `npm install` (or rebuild the Docker image) so the override is applied.
+
+**Archive download fails with a Sequelize association error**
+
+- Symptoms may include errors such as `User is not associated to ProjectTestNote`, `User is not associated to PlaywrightRun`, or `User is not associated to FuzzRun`.
+- Solution: Pull the latest code, run migrations, and restart the server:
+  ```bash
+  git pull
+  npm run migrate
+  npm start
+  ```
+- Notes: `ProjectTestNote` must be associated to `User` through `author_id` so note authors can be exported. On `archive_v1`, UI and fuzz run tables do not store `run_by_user_id`, so the archive generator should not include `runByUser` for `PlaywrightRun` or `FuzzRun` until a migration adds those columns.
 
 ## Dependency checklist (local run)
 
