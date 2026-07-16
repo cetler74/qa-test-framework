@@ -55,6 +55,14 @@ const PlaywrightResult = sequelize.define('PlaywrightResult', {
     type: DataTypes.STRING(512),
     allowNull: true
   },
+  project_test_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'project_tests',
+      key: 'id'
+    }
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

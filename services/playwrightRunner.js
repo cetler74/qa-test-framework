@@ -307,7 +307,7 @@ async function runPlaywrightTests(options = {}) {
 
   const record = async (orderNum, testName, status, durationMs, endpoint, errorMessage, assertions, screenshotPath = null) => {
     results.push({ test_name: testName, status, duration_ms: durationMs, endpoint, error_message: errorMessage, assertions, execution_order: orderNum, screenshot_path: screenshotPath });
-    await recordResult(runId, orderNum, testName, status, durationMs, endpoint, errorMessage, assertions, screenshotPath);
+    await recordResult(runId, orderNum, testName, status, durationMs, endpoint, errorMessage, assertions, screenshotPath, options.runByUserId || null);
     total++;
     if (status === 'passed') passed++; else failed++;
     // Use actual total so progress shows "X of X" (recorded specs can report more than one result).
@@ -1211,7 +1211,7 @@ function flattenPlaywrightJsonReport(report) {
   return out;
 }
 
-async function recordResult(runId, order, testName, status, durationMs, endpoint, errorMessage, assertions, screenshotPath = null) {
+async function recordResult(runId, order, testName, status, durationMs, endpoint, errorMessage, assertions, screenshotPath = null, runByUserId = null) {
   const uiResult = await PlaywrightResult.create({
     playwright_run_id: runId,
     test_name: testName,
@@ -1226,7 +1226,10 @@ async function recordResult(runId, order, testName, status, durationMs, endpoint
 
   // Update per-test catalogue stats for this UI result
   const run = await PlaywrightRun.findByPk(runId);
-  await updateProjectTestStatsForUiResult(run, uiResult);
+  const projectTest = await updateProjectTestStatsForUiResult(run, uiResult, runByUserId || run?.run_by_user_id || null);
+  if (projectTest && uiResult.project_test_id !== projectTest.id) {
+    await uiResult.update({ project_test_id: projectTest.id });
+  }
 }
 
 async function updateRunSummary(runId, totalTests, passedTests, failedTests, durationMs, status) {
@@ -1260,11 +1263,11 @@ async function updateRunArtifacts(runId, updates = {}) {
  * fall back to the test_name to maintain stability.
  * @param {import('../models/PlaywrightRun')} run
  * @param {import('../models/PlaywrightResult')} result
- * @returns {Promise<void>}
+ * @returns {Promise<import('../models/ProjectTest')|null>}
  */
-async function updateProjectTestStatsForUiResult(run, result) {
+async function updateProjectTestStatsForUiResult(run, result, runByUserId = null) {
   try {
-    if (!run || !run.project_id) return;
+    if (!run || !run.project_id) return null;
 
     const testName = (result.test_name || '').toString();
     const assertions = result.assertions || {};
@@ -1288,7 +1291,7 @@ async function updateProjectTestStatsForUiResult(run, result) {
     } else {
       // Built-in UI test: we do not include these in the project_tests catalogue anymore
       // to avoid polluting coverage with global UI checks.
-      return;
+      return null;
     }
 
     const name = testName || 'UI Test';
@@ -1331,11 +1334,14 @@ async function updateProjectTestStatsForUiResult(run, result) {
       last_run_at: new Date(),
       last_run_source: 'ui_run',
       last_run_type: 'ui',
-      last_run_id: run.id
+      last_run_id: run.id,
+      last_run_by_user_id: runByUserId || null
     });
+    return projectTest;
   } catch (err) {
     // Never break UI execution because catalogue updates failed
     console.error('[playwrightRunner] Failed to update project test stats for UI result:', err.message || err);
+    return null;
   }
 }
 

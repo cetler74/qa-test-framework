@@ -63,6 +63,14 @@ const PlaywrightRun = sequelize.define('PlaywrightRun', {
     type: DataTypes.STRING(50),
     allowNull: true
   },
+  run_by_user_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'users',
+      key: 'id'
+    }
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

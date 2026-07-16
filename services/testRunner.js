@@ -517,11 +517,14 @@ async function updateProjectTestStatsForApiResult(testRun, testResult, catalogue
       last_run_at: new Date(),
       last_run_source: 'api',
       last_run_type: 'api',
-      last_run_id: testRun.id
+      last_run_id: testRun.id,
+      last_run_by_user_id: testRun.run_by_user_id || null
     });
+    return projectTest;
   } catch (err) {
     // Do not break test execution if catalogue update fails
     console.error('[testRunner] Failed to update project test stats for API result:', err.message || err);
+    return null;
   }
 }
 
@@ -1629,11 +1632,14 @@ async function executeTests(projectId, testRunName, options = {}) {
           }
           
           // Update catalogue stats and progress after each test completes
-          await updateProjectTestStatsForApiResult(
+          const projectTest = await updateProjectTestStatsForApiResult(
             testRun,
             testResult,
             explicitOrderMeta ? { sourceId: explicitOrderMeta.collectionId, sourcePath: explicitOrderMeta.pathString } : null
           );
+          if (projectTest && testResult.project_test_id !== projectTest.id) {
+            await testResult.update({ project_test_id: projectTest.id });
+          }
           // Count passed/failed based on saved test results, not execution results
           // This ensures we use the correct status determination logic
           const savedResults = await TestResult.findAll({
@@ -1899,11 +1905,14 @@ async function executeTests(projectId, testRunName, options = {}) {
       testResults.push(testResult);
       
       // Update catalogue stats and progress after each test completes
-      await updateProjectTestStatsForApiResult(
+      const projectTest = await updateProjectTestStatsForApiResult(
         testRun,
         testResult,
         explicitOrderMeta ? { sourceId: explicitOrderMeta.collectionId, sourcePath: explicitOrderMeta.pathString } : null
       );
+      if (projectTest && testResult.project_test_id !== projectTest.id) {
+        await testResult.update({ project_test_id: projectTest.id });
+      }
       const completedTests = testResults.length;
       const passedCount = testResults.filter(tr => tr.status === 'passed').length;
       const failedCount = testResults.filter(tr => tr.status === 'failed').length;

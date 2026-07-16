@@ -834,13 +834,21 @@ router.get('/projects/:id/tests/catalogue', (req, res, next) => {
             const lastRunByUserIds = [...new Set(rows.map(r => r.stats ?.last_run_by_user_id).filter(Boolean))];
             let runByMap = {};
             if (lastRunIds.length > 0) {
-                const runs = await TestRun.findAll({
+                const apiRuns = await TestRun.findAll({
                     where: { id: lastRunIds },
                     include: [{ model: User, as: 'runByUser', attributes: ['id', 'username', 'display_name'], required: false }]
                 });
-                runs.forEach(r => {
+                apiRuns.forEach(r => {
                     const u = r.runByUser;
-                    runByMap[r.id] = u ? (u.display_name || u.username || '') : null;
+                    runByMap[`api:${r.id}`] = u ? (u.display_name || u.username || '') : null;
+                });
+                const uiRuns = await PlaywrightRun.findAll({
+                    where: { id: lastRunIds },
+                    include: [{ model: User, as: 'runByUser', attributes: ['id', 'username', 'display_name'], required: false }]
+                });
+                uiRuns.forEach(r => {
+                    const u = r.runByUser;
+                    runByMap[`ui:${r.id}`] = u ? (u.display_name || u.username || '') : null;
                 });
             }
             let userByMap = {};
@@ -870,7 +878,9 @@ router.get('/projects/:id/tests/catalogue', (req, res, next) => {
             const out = rows.map((r, idx) => {
                 const plain = r.get ? r.get({ plain: true }) : r;
                 const stats = plain.stats || {};
-                const fromRun = stats.last_run_id ? runByMap[stats.last_run_id] : null;
+                const source = String(stats.last_run_source || stats.last_run_type || '').toLowerCase();
+                const runKey = source.includes('ui') ? `ui:${stats.last_run_id}` : `api:${stats.last_run_id}`;
+                const fromRun = stats.last_run_id ? runByMap[runKey] : null;
                 const fromUser = stats.last_run_by_user_id ? userByMap[stats.last_run_by_user_id] : null;
                 stats.last_run_by_username = fromRun ?? fromUser ?? null;
                 const meta = singleRunMeta[idx] || { effective_source_path: plain.source_path, single_run_kind: null };
@@ -1646,7 +1656,8 @@ router.post('/projects/:projectId/tests/:testId/run', (req, res, next) => {
                     passed_tests: 0,
                     failed_tests: 0,
                     duration_ms: 0,
-                    browser_name: browserName
+                    browser_name: browserName,
+                    run_by_user_id: req.user ?.id ?? null
                 });
 
                 runPlaywrightTests({
@@ -1660,7 +1671,8 @@ router.post('/projects/:projectId/tests/:testId/run', (req, res, next) => {
                         browserName,
                         slowMo,
                         proxy,
-                        uiVariables
+                        uiVariables,
+                        runByUserId: req.user ?.id ?? null
                     })
                     .then(() => console.log(`[api] Single UI test run ${run.id} completed`))
                     .catch(async(err) => {
@@ -3825,7 +3837,8 @@ router.post('/playwright-runs/execute', async(req, res) => {
             passed_tests: 0,
             failed_tests: 0,
             duration_ms: 0,
-            browser_name: browserName
+            browser_name: browserName,
+            run_by_user_id: req.user ?.id ?? null
         });
         const proxy = await getProxyForUrlAsync(url || playwrightConfig.baseUrl || '');
         let headless = typeof bodyHeadless === 'boolean' ? bodyHeadless : playwrightConfig.headless;
@@ -3845,7 +3858,8 @@ router.post('/playwright-runs/execute', async(req, res) => {
                 browserName,
                 slowMo,
                 proxy,
-                uiVariables
+                uiVariables,
+                runByUserId: req.user ?.id ?? null
             })
             .then(() => console.log(`[api] Playwright run ${run.id} completed`))
             .catch(async(err) => {

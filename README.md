@@ -15,7 +15,11 @@ A comprehensive API testing tool with Postman integration that allows you to man
 - **Postman to OpenAPI**: Convert Postman collection JSON to OpenAPI 3.0 (Swagger) YAML for use with CATS, documentation, or other OpenAPI tools
 - **Test proxy (URL-based)**: Proxy is inferred from the URL or endpoint used for each run (API, UI, SOAP, Fuzz). Internal URLs (localhost, 127.0.0.1, 10.x.x.x) use no proxy; external URLs use the proxy set in `config/proxies.json` (`activeProxy`). No per-project proxy selection.
 - **Test Catalogue / Coverage**: Per-project and global catalogue of all runnable tests (API, SOAP, UI), auto-populated from specs and test definitions, showing last status, last run date, total run count, and per-test notes.
+<<<<<<< HEAD
+- **Project Archive / Export**: Export a full project as a ZIP archive whose `index.html` opens in the same Tests & Coverage report layout, with per-test historical run context, API request/response proof, and UI video recordings for the latest registered run reflected in coverage.
+=======
 - **Project Archive / Export**: Export a full project as a ZIP archive, including all API specs, collections, test run reports, test results, note evidence files, note authors, ticket links, and a structured JSON manifest — useful for offline sharing, compliance, or backup.
+>>>>>>> origin/main
 
 ## Prerequisites and dependencies
 
@@ -127,6 +131,32 @@ This migration script will:
   - `018_session_store.sql` - creates `session` table for production (express-session with PostgreSQL; avoids in-memory MemoryStore warning)
   - `020_collections_project_id.sql` - makes collections project-specific by adding `project_id` and index to `collections`
   - `021_project_tests_and_stats.sql` - creates `project_tests`, `project_test_stats`, and `project_test_notes` tables for the test catalogue/coverage feature
+  - `034_project_test_result_links.sql` - links result rows back to `project_tests` for Archive V2 history/evidence reporting
+
+### Archive V2 Migration and Backfill Notes
+
+Archive V2 uses `project_test_id` links on result tables to show run history per test and attach the detailed evidence that corresponds to the latest registered coverage result.
+
+After pulling Archive V2 changes, run:
+
+```bash
+npm run migrate
+```
+
+For existing historical results, run the backfill script after migration:
+
+```bash
+node scripts/backfill-project-test-result-links.js --project-id <project_id>
+```
+
+Omit `--project-id` to backfill all projects. The script links historical `test_results`, recorded `playwright_results`, and confidently matched `fuzz_results` to the project test catalogue without changing aggregate coverage stats.
+
+Archive evidence behavior:
+
+- Each test row keeps the same coverage fields shown in the Tests & Coverage report: last status, last run, total runs, and last run by.
+- Each test can show lightweight historical run context once result rows are linked by migration/backfill.
+- Detailed evidence files are attached only for the latest registered run/result represented by the coverage row, including result JSON, API request/response text, run report links, UI screenshots, Playwright traces, and UI video recordings when present.
+- Raw run-level JSON/report folders remain in the ZIP for audit completeness.
 
 ### Project Archive / Export Migration Notes
 
@@ -169,6 +199,7 @@ The `migrations/` directory contains SQL migration files that are executed in al
 - **018_session_store.sql** - `session` table for production session storage (connect-pg-simple; used when `NODE_ENV=production` to avoid MemoryStore warning)
 - **020_collections_project_id.sql** - `project_id` column and index on `collections` so standalone Postman collections can belong to a single project
 - **021_project_tests_and_stats.sql** - `project_tests` (per-project master test catalogue), `project_test_stats` (aggregated per-test execution stats), `project_test_notes` (per-test notes)
+- **034_project_test_result_links.sql** - nullable `project_test_id` links and indexes on `test_results`, `playwright_results`, and `fuzz_results` for Archive V2 evidence mapping
 
 ### Manual Database Setup (Alternative)
 
@@ -252,6 +283,16 @@ The application uses the following main tables:
 
 - Solution: The project overrides `object-hash` to v2.x (in `package.json` overrides) so collections that use async code in scripts do not crash. Ensure you run `npm install` (or rebuild the Docker image) so the override is applied.
 
+<<<<<<< HEAD
+**Archive report shows "No linked run history yet"**
+
+- Solution: Run the Archive V2 migration and historical backfill:
+  ```bash
+  npm run migrate
+  node scripts/backfill-project-test-result-links.js --project-id <project_id>
+  ```
+- Notes: New API/SOAP and recorded UI runs populate `project_test_id` automatically after this update. Older runs need the backfill script. Fuzz results are linked only when endpoint/method matching is unambiguous.
+=======
 **Archive download fails with a Sequelize association error**
 
 - Symptoms may include errors such as `User is not associated to ProjectTestNote`, `User is not associated to PlaywrightRun`, or `User is not associated to FuzzRun`.
@@ -262,6 +303,7 @@ The application uses the following main tables:
   npm start
   ```
 - Notes: `ProjectTestNote` must be associated to `User` through `author_id` so note authors can be exported. On `archive_v1`, UI and fuzz run tables do not store `run_by_user_id`, so the archive generator should not include `runByUser` for `PlaywrightRun` or `FuzzRun` until a migration adds those columns.
+>>>>>>> origin/main
 
 ## Dependency checklist (local run)
 

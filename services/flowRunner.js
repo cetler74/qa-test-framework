@@ -98,7 +98,8 @@ async function executeFlow(flowId, options = {}) {
         total_tests: 0,
         passed_tests: 0,
         failed_tests: 0,
-        duration_ms: 0
+        duration_ms: 0,
+        run_by_user_id: options?.runByUserId ?? null
       });
       uiRunIds.push(run.id);
       const uiProxy = await getProxyForUrlAsync(baseUrl);
@@ -110,7 +111,8 @@ async function executeFlow(flowId, options = {}) {
         timeoutMs: playwrightConfig.timeoutMs,
         runOnly: ['recorded-' + recordedTestId],
         proxy: uiProxy,
-        uiVariables
+        uiVariables,
+        runByUserId: options?.runByUserId ?? null
       }).catch((err) => {
         console.error(`[flowRunner] UI task ${task.id} failed:`, err);
         PlaywrightRun.update({ status: 'failed' }, { where: { id: run.id } }).catch(() => {});
