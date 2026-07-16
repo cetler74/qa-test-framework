@@ -19,7 +19,13 @@ const {
 } = require('../models');
 const { getProjectTestCatalogue } = require('./testCatalogue');
 const { projectTestNoteEvidenceDir } = require('./fileUpload');
+<<<<<<< HEAD
 const { generateReport, getStableReportPath: getTestRunStableReportPath } = require('./reportGenerator');
+=======
+const { generateReport } = require('./reportGenerator');
+const { generatePlaywrightReport } = require('./playwrightReportGenerator');
+const { generateFuzzReport } = require('./fuzzReportGenerator');
+>>>>>>> origin/main
 const { normalizeTicketUrlsList, ticketUrlsToCsvCell } = require('../lib/ticketUrls');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -139,6 +145,178 @@ function detailLinks(paths) {
         .filter(([, archivePath]) => archivePath)
         .map(([label, archivePath]) => archiveLink(archivePath, label, 'small-link'))
         .join(' ');
+}
+
+function groupedReportLinksForTest(test) {
+    const groups = new Map();
+    (test.runEvidence || []).forEach((item) => {
+        const reportPath = item.paths && item.paths['HTML report'];
+        if (!reportPath) return;
+        const groupLabel = `${item.kind} HTML reports`;
+        if (!groups.has(groupLabel)) groups.set(groupLabel, new Map());
+        groups.get(groupLabel).set(reportPath, {
+            run_id: item.run_id,
+            reportPath
+        });
+    });
+    return groups;
+}
+
+function testFilesLinks(test) {
+    const baseLinks = detailLinks(test.paths);
+    const reportGroups = groupedReportLinksForTest(test);
+    if (!reportGroups.size) return baseLinks;
+
+    const reportLinks = [...reportGroups.entries()].map(([groupLabel, entries]) => {
+        const links = [...entries.values()]
+            .map((entry) => archiveLink(entry.reportPath, `HTML report (run ${entry.run_id})`, 'small-link'))
+            .join(' ');
+        return `<div class="muted" style="margin-top:8px;">${escapeHtml(groupLabel)}</div><div>${links}</div>`;
+    }).join('');
+
+    return `${baseLinks}${reportLinks}`;
+}
+
+function normalizeForMatch(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+}
+
+function normalizeMethod(value) {
+    return normalizeForMatch(value).toUpperCase();
+}
+
+function normalizeEndpoint(value) {
+    return normalizeForMatch(value);
+}
+
+function isUiTestType(testType) {
+    return normalizeForMatch(testType).startsWith('ui');
+}
+
+function isApiSoapTestType(testType) {
+    const normalized = normalizeForMatch(testType);
+    return normalized === 'api' || normalized === 'soap';
+}
+
+function isFuzzCapableTestType(testType) {
+    const normalized = normalizeForMatch(testType);
+    return normalized === 'api' || normalized === 'soap' || normalized === 'other';
+}
+
+function matchesApiSoapResultToTest(test, result) {
+    if (!result) return false;
+    const resultTestId = Number(result.test_id);
+    if (!Number.isNaN(resultTestId) && resultTestId === Number(test.id)) return true;
+
+    const resultName = normalizeForMatch(result.test_name);
+    const testName = normalizeForMatch(test.name);
+    const sameName = resultName && testName && resultName === testName;
+    if (resultName && testName) return sameName;
+
+    const sameMethod = normalizeMethod(result.method) && normalizeMethod(result.method) === normalizeMethod(test.method);
+    const sameEndpoint = normalizeEndpoint(result.endpoint) && normalizeEndpoint(result.endpoint) === normalizeEndpoint(test.endpoint);
+    return sameMethod && sameEndpoint;
+}
+
+function matchesUiResultToTest(test, result) {
+    if (!result) return false;
+    return normalizeForMatch(result.test_name) && normalizeForMatch(result.test_name) === normalizeForMatch(test.name);
+}
+
+function matchesFuzzResultToTest(test, result) {
+    if (!result) return false;
+    const resultName = normalizeForMatch(result.test_name);
+    const testName = normalizeForMatch(test.name);
+    const sameName = resultName && testName && resultName === testName;
+    if (resultName && testName) return sameName;
+
+    const sameMethod = normalizeMethod(result.method) && normalizeMethod(result.method) === normalizeMethod(test.method);
+    const sameEndpoint = normalizeEndpoint(result.endpoint) && normalizeEndpoint(result.endpoint) === normalizeEndpoint(test.endpoint);
+    return sameMethod && sameEndpoint;
+}
+
+function attachRunEvidenceToTests(tests, data, archiveMap) {
+    const apiRunById = new Map((archiveMap.apiSoapRuns || []).map((run) => [Number(run.id), run]));
+    const uiRunById = new Map((archiveMap.uiRuns || []).map((run) => [Number(run.id), run]));
+    const fuzzRunById = new Map((archiveMap.fuzzRuns || []).map((run) => [Number(run.id), run]));
+
+    return (tests || []).map((test) => {
+        const runEvidence = [];
+
+        if (isApiSoapTestType(test.test_type)) {
+            (data.testRuns || []).forEach((run) => {
+                const matchedResults = (run.testResults || []).filter((result) => matchesApiSoapResultToTest(test, result));
+                if (!matchedResults.length) return;
+                const entry = apiRunById.get(Number(run.id));
+                if (!entry) return;
+                runEvidence.push({
+                    kind: 'API/SOAP',
+                    run_id: run.id,
+                    created_at: run.created_at,
+                    status: run.status,
+                    run_by: entry.runBy,
+                    matched_results: matchedResults.length,
+                    result_statuses: [...new Set(matchedResults.map((result) => result.status).filter(Boolean))],
+                    paths: entry.paths || {}
+                });
+            });
+        }
+
+        if (isUiTestType(test.test_type)) {
+            (data.playwrightRuns || []).forEach((run) => {
+                const matchedResults = (run.results || []).filter((result) => matchesUiResultToTest(test, result));
+                if (!matchedResults.length) return;
+                const entry = uiRunById.get(Number(run.id));
+                if (!entry) return;
+                const resultArtifacts = [];
+                matchedResults.forEach((result) => {
+                    (entry.artifacts || []).forEach((artifact) => {
+                        if (String(artifact.label || '').includes(` ${result.id}`)) {
+                            resultArtifacts.push(artifact);
+                        }
+                    });
+                });
+                runEvidence.push({
+                    kind: 'UI',
+                    run_id: run.id,
+                    created_at: run.created_at,
+                    status: run.status,
+                    run_by: entry.runBy,
+                    matched_results: matchedResults.length,
+                    result_statuses: [...new Set(matchedResults.map((result) => result.status).filter(Boolean))],
+                    paths: entry.paths || {},
+                    artifacts: resultArtifacts
+                });
+            });
+        }
+
+        if (isFuzzCapableTestType(test.test_type)) {
+            (data.fuzzRuns || []).forEach((run) => {
+                const matchedResults = (run.fuzzResults || []).filter((result) => matchesFuzzResultToTest(test, result));
+                if (!matchedResults.length) return;
+                const entry = fuzzRunById.get(Number(run.id));
+                if (!entry) return;
+                runEvidence.push({
+                    kind: 'Fuzz',
+                    run_id: run.id,
+                    created_at: run.created_at,
+                    status: run.status,
+                    run_by: entry.runBy,
+                    matched_results: matchedResults.length,
+                    result_statuses: [...new Set(matchedResults.map((result) => result.status).filter(Boolean))],
+                    paths: entry.paths || {}
+                });
+            });
+        }
+
+        return {
+            ...test,
+            runEvidence
+        };
+    });
 }
 
 function appendJson(archive, archivePath, data) {
@@ -263,6 +441,7 @@ function catalogueToCsv(rows) {
     return `${lines.join('\n')}\n`;
 }
 
+<<<<<<< HEAD
 function typeLabel(testType) {
         if (testType === 'soap') return 'SOAP';
         if (testType === 'ui_builtin') return 'UI (built-in)';
@@ -360,9 +539,32 @@ function buildIndexHtml({ project, generatedAt, manifest, archiveMap }) {
                 <div class="card"><div class="card-label">Total tests failed</div><div class="card-value error">${coverage.failed + coverage.partial}</div><div class="card-subtext">${coverage.coveragePct}% coverage (passed / failed / partial)</div></div>
                 <div class="card"><div class="card-label">Not yet run</div><div class="card-value">${coverage.notRun}</div><div class="card-subtext">Active tests with no successful or failed runs yet</div></div>
             </div>`;
+=======
+function buildIndexHtml({ project, generatedAt, manifest, archiveMap }) {
+    const counts = manifest.counts;
+    const tests = archiveMap.tests || [];
+    const apiSoapRuns = archiveMap.apiSoapRuns || [];
+    const uiRuns = archiveMap.uiRuns || [];
+    const fuzzRuns = archiveMap.fuzzRuns || [];
+    const missingRows = manifest.missing_artifacts.length ?
+        manifest.missing_artifacts.map((item) => `<tr><td>${escapeHtml(item.archive_path)}</td><td>${escapeHtml(item.reason)}</td><td>${escapeHtml(item.source_path)}</td></tr>`).join('') :
+        '<tr><td colspan="3">No missing artifacts recorded.</td></tr>';
 
-        const testRows = tests.length ? tests.map((test) => {
+    const summaryCards = [
+        ['Tests', counts.project_tests],
+        ['Notes', counts.project_test_notes],
+        ['Evidence images', counts.project_test_note_attachments],
+        ['API/SOAP runs', counts.api_soap_runs],
+        ['UI runs', counts.ui_runs],
+        ['Fuzz runs', counts.fuzz_runs],
+        ['Included files', manifest.included_artifacts.length],
+        ['Missing files', manifest.missing_artifacts.length]
+    ].map(([label, value]) => `<div class="summary-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+>>>>>>> origin/main
+
+    const testRows = tests.length ? tests.map((test) => {
                 const stats = test.stats || {};
+<<<<<<< HEAD
                 const lastStatus = stats.last_status || 'not_run';
                 const folder = test.effective_folder_path || test.folder_path_override || test.default_folder_path || '';
                 const ticketText = (test.ticketUrls || []).join(' ');
@@ -400,10 +602,71 @@ function buildIndexHtml({ project, generatedAt, manifest, archiveMap }) {
                             </div>
                         </details>
                     </td>
+=======
+                const filesHtml = testFilesLinks(test);
+                const runEvidenceHtml = (test.runEvidence || []).length ?
+                    `<div>${test.runEvidence.map((item) => {
+                                const statuses = item.result_statuses && item.result_statuses.length ? item.result_statuses.join(', ') : 'not recorded';
+                                const artifacts = (item.artifacts || []).length ? (item.artifacts || []).map((artifact) => archiveLink(artifact.archivePath, artifact.label, 'small-link')).join(' ') : '';
+                                const reportLink = item.paths && item.paths['HTML report'] ? archiveLink(item.paths['HTML report'], 'HTML report', 'small-link') : '<span class="muted">HTML report not available</span>';
+                                const otherLinks = detailLinks(Object.fromEntries(Object.entries(item.paths || {}).filter(([label]) => label !== 'HTML report')));
+                                return `<div class="note-card"><div class="note-meta">${escapeHtml(item.kind)} run #${escapeHtml(item.run_id)} - ${escapeHtml(toIso(item.created_at) || '')} - ${escapeHtml(item.run_by || 'Not recorded')}</div><p><span class="status ${statusClass(item.status)}">${escapeHtml(item.status || 'not_run')}</span> Matched results: ${escapeHtml(item.matched_results)} (${escapeHtml(statuses)})</p><div><strong>Report:</strong> ${reportLink}</div><div>${otherLinks} ${artifacts}</div></div>`;
+                        }).join('')}</div>` :
+                    '<p class="muted">No linked run evidence for this test.</p>';
+                const notesHtml = test.notes.length ? test.notes.map((note) => {
+                            const attachments = note.attachments.length ? note.attachments.map((attachment) => {
+                                        const image = attachment.archivePath && attachment.isImage ?
+                                            `<a href="${escapeHtml(attachment.archivePath)}"><img src="${escapeHtml(attachment.archivePath)}" alt="${escapeHtml(attachment.original_name || 'Evidence image')}"></a>` :
+                                            '';
+                                        return `<div class="evidence-item">${image}${archiveLink(attachment.archivePath, attachment.original_name || `Attachment ${attachment.id}`)}</div>`;
+                        }).join('') : '<p class="muted">No evidence images.</p>';
+                        return `<div class="note-card"><div class="note-meta">Note ${escapeHtml(note.id)} - ${escapeHtml(toIso(note.created_at) || '')} - ${escapeHtml(note.author || 'Not recorded')}</div><p>${escapeHtml(note.note || '')}</p><div class="evidence-grid">${attachments}</div></div>`;
+                }).join('') : '<p class="muted">No notes recorded.</p>';
+                return `<tr>
+                        <td><strong>${escapeHtml(test.name)}</strong><div class="muted">Test ID ${escapeHtml(test.id)} - ${escapeHtml(test.test_type || '')}${test.method ? ` - ${escapeHtml(test.method)}` : ''}</div>${test.endpoint ? `<div class="muted">${escapeHtml(test.endpoint)}</div>` : ''}</td>
+                        <td><span class="status ${statusClass(stats.last_status)}">${escapeHtml(stats.last_status || 'not_run')}</span></td>
+                        <td>${escapeHtml(toIso(stats.last_run_at) || 'Not run')}</td>
+                        <td>${escapeHtml(test.lastRunBy || 'Not recorded')}</td>
+                        <td>${ticketLinks(test.ticketUrls)}</td>
+                        <td>${filesHtml}</td>
+                </tr>
+                <tr class="notes-row"><td colspan="6"><strong>Run evidence</strong>${runEvidenceHtml}<strong>Notes</strong>${notesHtml}</td></tr>`;
+        }).join('') : '<tr><td colspan="6">No project tests were archived.</td></tr>';
+
+        const apiRows = apiSoapRuns.length ? apiSoapRuns.map((run) => `<tr>
+                <td><strong>${escapeHtml(run.name)}</strong><div class="muted">${escapeHtml(run.run_type || 'api')}</div></td>
+                <td><span class="status ${statusClass(run.status)}">${escapeHtml(run.status || '')}</span></td>
+                <td>${escapeHtml(toIso(run.created_at) || '')}</td>
+                <td>${escapeHtml(run.runBy || 'Not recorded')}</td>
+                <td>${escapeHtml(`${run.passed_tests || 0}/${run.total_tests || 0} passed`)}</td>
+                <td>${detailLinks(run.paths)}</td>
+        </tr>`).join('') : '<tr><td colspan="6">No API/SOAP runs were archived.</td></tr>';
+
+        const uiRows = uiRuns.length ? uiRuns.map((run) => {
+                const artifacts = run.artifacts.length ? run.artifacts.map((artifact) => archiveLink(artifact.archivePath, artifact.label, 'small-link')).join(' ') : '<span class="muted">No artifacts</span>';
+                return `<tr>
+                        <td><strong>${escapeHtml(run.name)}</strong><div class="muted">Browser: ${escapeHtml(run.browser_name || 'Not recorded')}</div></td>
+                        <td><span class="status ${statusClass(run.status)}">${escapeHtml(run.status || '')}</span></td>
+                        <td>${escapeHtml(toIso(run.created_at) || '')}</td>
+                        <td>${escapeHtml(run.runBy || 'Not recorded')}</td>
+                        <td>${escapeHtml(`${run.passed_tests || 0}/${run.total_tests || 0} passed`)}</td>
+                        <td>${detailLinks(run.paths)} ${artifacts}</td>
+>>>>>>> origin/main
                 </tr>`;
         }).join('') : '<tr><td colspan="8">No project tests were archived.</td></tr>';
 
+<<<<<<< HEAD
         const missingRows = manifest.missing_artifacts.length ? manifest.missing_artifacts.map((item) => `<tr><td>${escapeHtml(item.archive_path)}</td><td>${escapeHtml(item.reason)}</td><td>${escapeHtml(item.source_path)}</td></tr>`).join('') : '<tr><td colspan="3">No missing artifacts recorded.</td></tr>';
+=======
+        const fuzzRows = fuzzRuns.length ? fuzzRuns.map((run) => `<tr>
+                <td><strong>${escapeHtml(run.name)}</strong><div class="muted">${escapeHtml(run.apiSpecName || '')}</div></td>
+                <td><span class="status ${statusClass(run.status)}">${escapeHtml(run.status || '')}</span></td>
+                <td>${escapeHtml(toIso(run.created_at) || '')}</td>
+                <td>${escapeHtml(run.runBy || 'Not recorded')}</td>
+                <td>${escapeHtml(`${run.passed_tests || 0}/${run.total_tests || 0} passed`)}</td>
+                <td>${detailLinks(run.paths)}</td>
+        </tr>`).join('') : '<tr><td colspan="6">No fuzz runs were archived.</td></tr>';
+>>>>>>> origin/main
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -551,6 +814,7 @@ async function loadArchiveData(projectId) {
                         { model: User, as: 'author', attributes: ['id', 'username', 'display_name', 'email'], required: false },
                         { model: ProjectTestNoteAttachment, as: 'attachments', required: false }
                     ]
+<<<<<<< HEAD
                 },
                 {
                     model: TestResult,
@@ -569,6 +833,8 @@ async function loadArchiveData(projectId) {
                     as: 'fuzzResults',
                     required: false,
                     include: [{ model: FuzzRun, as: 'fuzzRun', required: false }]
+=======
+>>>>>>> origin/main
                 }
             ],
             order: [
@@ -596,7 +862,10 @@ async function loadArchiveData(projectId) {
         PlaywrightRun.findAll({
             where: { project_id: projectId },
             include: [
+<<<<<<< HEAD
                 { model: User, as: 'runByUser', attributes: ['id', 'username', 'display_name', 'email'], required: false },
+=======
+>>>>>>> origin/main
                 { model: PlaywrightResult, as: 'results', required: false }
             ],
             order: [
@@ -909,6 +1178,7 @@ async function addApiSoapRuns(archive, manifest, runs) {
         const reportHtml = `${runDir}/report.html`;
         appendJson(archive, runJson, run);
         appendJson(archive, resultsJson, run.testResults || []);
+<<<<<<< HEAD
         let reportPath = null;
         const stableReportPath = getTestRunStableReportPath(run.id);
         const resolvedStableReportPath = resolveAllowedFilePath(stableReportPath);
@@ -917,6 +1187,9 @@ async function addApiSoapRuns(archive, manifest, runs) {
         } else {
             reportPath = await addGeneratedReport(archive, manifest, generateReport, run.id, reportHtml, { skipCache: true });
         }
+=======
+        const generatedReportPath = await addGeneratedReport(archive, manifest, generateReport, run.id, reportHtml, { skipCache: true });
+>>>>>>> origin/main
         entries.push({
             id: run.id,
             name: run.name,
@@ -929,33 +1202,49 @@ async function addApiSoapRuns(archive, manifest, runs) {
             paths: {
                 'Run JSON': runJson,
                 'Results JSON': resultsJson,
+<<<<<<< HEAD
                 'HTML report': reportPath
+=======
+                'HTML report': generatedReportPath
+>>>>>>> origin/main
             }
         });
     }
     return entries;
 }
 
-function addPlaywrightRuns(archive, manifest, runs) {
-    return runs.map((run) => {
+async function addPlaywrightRuns(archive, manifest, runs) {
+    const entries = [];
+    for (const run of runs) {
         const runDir = `runs/ui/run-${run.id}-${sanitizePathPart(run.name || 'run')}`;
         const runJson = `${runDir}/run.json`;
         const resultsJson = `${runDir}/results.json`;
+        const reportHtml = `${runDir}/report.html`;
         const artifacts = [];
         appendJson(archive, runJson, run);
         appendJson(archive, resultsJson, run.results || []);
+        const generatedReportPath = await addGeneratedReport(archive, manifest, generatePlaywrightReport, run.id, reportHtml);
         if (run.video_path) {
             const archivePath = `${runDir}/artifacts/run-video-${path.basename(run.video_path)}`;
+<<<<<<< HEAD
             if (addPlaywrightArtifact(archive, manifest, run.video_path, archivePath, 'video')) artifacts.push({ label: 'Run video recording', archivePath, scope: 'run' });
         }
         if (run.trace_path) {
             const archivePath = `${runDir}/artifacts/run-trace-${path.basename(run.trace_path)}`;
             if (addPlaywrightArtifact(archive, manifest, run.trace_path, archivePath, 'trace')) artifacts.push({ label: 'Run trace', archivePath, scope: 'run' });
+=======
+            if (addPlaywrightArtifact(archive, manifest, run.video_path, archivePath, 'video')) artifacts.push({ label: 'Run video', archivePath });
+        }
+        if (run.trace_path) {
+            const archivePath = `${runDir}/artifacts/run-trace-${path.basename(run.trace_path)}`;
+            if (addPlaywrightArtifact(archive, manifest, run.trace_path, archivePath, 'trace')) artifacts.push({ label: 'Run trace', archivePath });
+>>>>>>> origin/main
         }
         (run.results || []).forEach((result) => {
             const resultDir = `${runDir}/artifacts/result-${result.id}`;
             if (result.screenshot_path) {
                 const archivePath = `${resultDir}/screenshot-${path.basename(result.screenshot_path)}`;
+<<<<<<< HEAD
                 if (addPlaywrightArtifact(archive, manifest, result.screenshot_path, archivePath, 'screenshot')) artifacts.push({ label: `Screenshot ${result.id}`, archivePath, resultId: result.id, scope: 'result' });
             }
             if (result.video_path) {
@@ -965,9 +1254,20 @@ function addPlaywrightRuns(archive, manifest, runs) {
             if (result.trace_path) {
                 const archivePath = `${resultDir}/trace-${path.basename(result.trace_path)}`;
                 if (addPlaywrightArtifact(archive, manifest, result.trace_path, archivePath, 'trace')) artifacts.push({ label: `Trace ${result.id}`, archivePath, resultId: result.id, scope: 'result' });
+=======
+                if (addPlaywrightArtifact(archive, manifest, result.screenshot_path, archivePath, 'screenshot')) artifacts.push({ label: `Screenshot ${result.id}`, archivePath });
+            }
+            if (result.video_path) {
+                const archivePath = `${resultDir}/video-${path.basename(result.video_path)}`;
+                if (addPlaywrightArtifact(archive, manifest, result.video_path, archivePath, 'video')) artifacts.push({ label: `Video ${result.id}`, archivePath });
+            }
+            if (result.trace_path) {
+                const archivePath = `${resultDir}/trace-${path.basename(result.trace_path)}`;
+                if (addPlaywrightArtifact(archive, manifest, result.trace_path, archivePath, 'trace')) artifacts.push({ label: `Trace ${result.id}`, archivePath });
+>>>>>>> origin/main
             }
         });
-        return {
+        entries.push({
             id: run.id,
             name: run.name,
             status: run.status,
@@ -975,22 +1275,25 @@ function addPlaywrightRuns(archive, manifest, runs) {
             created_at: run.created_at,
             total_tests: run.total_tests,
             passed_tests: run.passed_tests,
-            paths: { 'Run JSON': runJson, 'Results JSON': resultsJson },
+            runBy: displayUser(run.runByUser),
+            paths: { 'Run JSON': runJson, 'Results JSON': resultsJson, 'HTML report': generatedReportPath },
             artifacts
-        };
-    });
+        });
+    }
+    return entries;
 }
 
-function addFuzzRuns(archive, manifest, runs) {
-    return runs.map((run) => {
+async function addFuzzRuns(archive, manifest, runs) {
+    const entries = [];
+    for (const run of runs) {
         const runDir = `runs/fuzz/run-${run.id}-${sanitizePathPart(run.name || 'run')}`;
         const runJson = `${runDir}/run.json`;
         const resultsJson = `${runDir}/results.json`;
-        const reportPath = `${runDir}/report`;
+        const reportHtml = `${runDir}/report.html`;
         appendJson(archive, runJson, run);
         appendJson(archive, resultsJson, run.fuzzResults || []);
-        const reportIncluded = run.report_path ? addFileOrDirectory(archive, manifest, run.report_path, reportPath) : false;
-        return {
+        const generatedReportPath = await addGeneratedReport(archive, manifest, generateFuzzReport, run.id, reportHtml, { skipCache: true });
+        entries.push({
             id: run.id,
             name: run.name,
             status: run.status,
@@ -998,13 +1301,15 @@ function addFuzzRuns(archive, manifest, runs) {
             created_at: run.created_at,
             total_tests: run.total_tests,
             passed_tests: run.passed_tests,
+            runBy: displayUser(run.runByUser),
             paths: {
                 'Run JSON': runJson,
                 'Results JSON': resultsJson,
-                'Report': reportIncluded ? reportPath : null
+                'HTML report': generatedReportPath
             }
-        };
-    });
+        });
+    }
+    return entries;
 }
 
 function buildManifest(data, generatedAt) {
@@ -1026,6 +1331,8 @@ function buildManifest(data, generatedAt) {
             'project_test_notes',
             'note_evidence_images',
             'jira_ticket_links',
+            'generated_html_reports',
+            'run_by_user_attribution',
             'api_soap_run_history',
             'ui_run_artifacts',
             'fuzz_runs_reports',
@@ -1091,12 +1398,19 @@ async function streamProjectAuditArchive(projectId, outputStream) {
     appendJson(archive, archiveMap.core.testsWithNotesJson, data.projectTests);
 
     archiveMap.apiSoapRuns = await addApiSoapRuns(archive, manifest, data.testRuns);
+<<<<<<< HEAD
     archiveMap.apiSoapRunById = new Map(archiveMap.apiSoapRuns.map((run) => [Number(run.id), run]));
     archiveMap.uiRuns = addPlaywrightRuns(archive, manifest, data.playwrightRuns);
     archiveMap.uiRunById = new Map(archiveMap.uiRuns.map((run) => [Number(run.id), run]));
     archiveMap.fuzzRuns = addFuzzRuns(archive, manifest, data.fuzzRuns);
     archiveMap.fuzzRunById = new Map(archiveMap.fuzzRuns.map((run) => [Number(run.id), run]));
     archiveMap.tests = addProjectTestEvidence(archive, manifest, data.projectTests, archiveMap);
+=======
+    archiveMap.uiRuns = await addPlaywrightRuns(archive, manifest, data.playwrightRuns);
+    archiveMap.fuzzRuns = await addFuzzRuns(archive, manifest, data.fuzzRuns);
+    archiveMap.tests = addProjectTestEvidence(archive, manifest, data.projectTests);
+    archiveMap.tests = attachRunEvidenceToTests(archiveMap.tests, data, archiveMap);
+>>>>>>> origin/main
 
     appendJson(archive, archiveMap.core.manifestJson, manifest);
     appendText(archive, 'index.html', buildIndexHtml({ project: data.project, generatedAt, manifest, archiveMap }));
