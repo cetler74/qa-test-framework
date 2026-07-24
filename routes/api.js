@@ -14,7 +14,7 @@ const { convertToPostmanCollection, parsePostmanCollection } = require('../servi
 const { upload, uploadTestsImport, uploadProjectTestNoteEvidence, validateAndParseApiSpec, validatePostmanCollection, parseWSDLToOperations, projectTestNoteEvidenceDir } = require('../services/fileUpload');
 const { executeTests, requestCancelTestRun } = require('../services/testRunner');
 const { generateReport, getStableReportPath: getTestRunStableReportPath } = require('../services/reportGenerator');
-const { runPlaywrightTests, getPlaywrightTestListWithRecorded, detectUiVariableNamesFromSpec, executeRecordedSpec } = require('../services/playwrightRunner');
+const { runPlaywrightTests, getPlaywrightTestListWithRecorded, cancelPlaywrightRun, detectUiVariableNamesFromSpec, executeRecordedSpec } = require('../services/playwrightRunner');
 const { executeFlow } = require('../services/flowRunner');
 const { computeNextRunAt, runScheduledJob } = require('../services/scheduler');
 const { executeSoapTests } = require('../services/soapRunner');
@@ -2136,6 +2136,49 @@ router.post('/projects/:projectId/recorded-tests/:recordedTestId', (req, res, ne
                 where: { project_id: req.params.projectId, recorded_test_id: recordedTestId }
             });
             res.json({ message: 'Recorded test added to project' });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    }, req.params.projectId, false);
+});
+
+// Add multiple recorded tests to project (manage required)
+router.post('/projects/:projectId/recorded-tests', (req, res, next) => {
+    loadProjectAndCheckAccess(req, res, async() => {
+        try {
+            const ids = Array.isArray(req.body ?.recordedTestIds) ? req.body.recordedTestIds : [];
+            const recordedTestIds = [...new Set(ids.map((id) => parseInt(id, 10)).filter((id) => Number.isInteger(id) && id > 0))];
+            if (recordedTestIds.length === 0) {
+                return res.status(400).json({ error: 'recordedTestIds must contain at least one recorded test id' });
+            }
+
+            const existingTests = await PlaywrightRecordedTest.findAll({
+                where: { id: {
+                        [Op.in]: recordedTestIds } },
+                attributes: ['id']
+            });
+            const existingIds = new Set(existingTests.map((test) => Number(test.id)));
+            const missingIds = recordedTestIds.filter((id) => !existingIds.has(id));
+            if (missingIds.length > 0) {
+                return res.status(404).json({ error: `Recorded test not found: ${missingIds.join(', ')}` });
+            }
+
+            let added = 0;
+            let alreadyLinked = 0;
+            for (const recordedTestId of recordedTestIds) {
+                const [, created] = await ProjectRecordedTest.findOrCreate({
+                    where: { project_id: req.params.projectId, recorded_test_id: recordedTestId }
+                });
+                if (created) added += 1;
+                else alreadyLinked += 1;
+            }
+
+            res.json({
+                message: 'Recorded tests added to project',
+                requested: recordedTestIds.length,
+                added,
+                alreadyLinked
+            });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
