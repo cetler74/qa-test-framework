@@ -72,6 +72,27 @@ function applyUiVariablesToSpec(specContent, uiVariables = {}) {
 /** RunId -> { cancelled: boolean, child?: ChildProcess, browser?: Browser }. Used to cancel running UI tests. */
 const runningPlaywrightState = {};
 
+function terminateChildProcess(child) {
+  if (!child || child.killed) return;
+  if (process.platform === 'win32' && child.pid) {
+    try {
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+        .once('error', () => {
+          try { child.kill('SIGKILL'); } catch (_) {}
+        });
+      return;
+    } catch (_) {
+      // Fall through to direct kill below.
+    }
+  }
+  try { child.kill('SIGTERM'); } catch (_) {}
+  setTimeout(() => {
+    try {
+      if (!child.killed) child.kill('SIGKILL');
+    } catch (_) {}
+  }, 1500).unref?.();
+}
+
 /**
  * Take a full-page screenshot on failure. Returns filename (e.g. "runId_order.png") or null.
  * @param {import('playwright').Page} page
@@ -740,6 +761,11 @@ async function runPlaywrightTests(options = {}) {
     }
   }
 
+  if (runningPlaywrightState[runId] && runningPlaywrightState[runId].cancelled) {
+    await updateRunSummary(runId, total, passed, failed, Date.now() - startTime, 'cancelled');
+    return { summary: { total, passed, failed }, results };
+  }
+
   // Recorded-only run: set run-level video/trace only when there is exactly one recorded test. When there are multiple, each result has its own video/trace — do not set run-level so users use the per-result links (one file cannot contain all tests).
   const artifactSourceDir = (() => {
     if (!recordedRunDirs.length) return null;
@@ -945,18 +971,19 @@ module.exports = {
         chunks[channel].push(data);
         totalLen += data.length;
         if (totalLen > maxBuffer) {
-          try { child.kill('SIGKILL'); } catch (_) {}
+          terminateChildProcess(child);
         }
       }
       child.stdout.on('data', (d) => onData('stdout', d));
       child.stderr.on('data', (d) => onData('stderr', d));
       const timer = setTimeout(() => {
         timedOut = true;
-        try { child.kill('SIGKILL'); } catch (_) {}
+        terminateChildProcess(child);
       }, timeout);
       child.once('close', (code, signal) => {
         if (runId != null && runningPlaywrightState[runId]) runningPlaywrightState[runId].child = null;
-        if (signal && !timedOut) cancelledByUser = true;
+        const cancelledInState = runId != null && !!runningPlaywrightState[runId]?.cancelled;
+        if ((signal && !timedOut) || cancelledInState) cancelledByUser = true;
         clearTimeout(timer);
         const stdout = Buffer.concat(chunks.stdout).toString('utf8').trim();
         const stderr = Buffer.concat(chunks.stderr).toString('utf8').trim();
@@ -971,7 +998,7 @@ module.exports = {
       child.once('error', (err) => {
         if (runId != null && runningPlaywrightState[runId]) runningPlaywrightState[runId].child = null;
         clearTimeout(timer);
-        try { child.kill(); } catch (_) {}
+        terminateChildProcess(child);
         resolve({
           status: 1,
           stdout: Buffer.concat(chunks.stdout).toString('utf8').trim(),
@@ -1397,10 +1424,13 @@ if (isCli) {
  */
 async function cancelPlaywrightRun(runId) {
   const state = runningPlaywrightState[runId];
-  if (!state) return false;
+  if (!state) {
+    await PlaywrightRun.update({ status: 'cancelled' }, { where: { id: runId } });
+    return false;
+  }
   state.cancelled = true;
   if (state.child) {
-    try { state.child.kill('SIGTERM'); } catch (_) {}
+    terminateChildProcess(state.child);
     state.child = null;
   }
   if (state.browser) {

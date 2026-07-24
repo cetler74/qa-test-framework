@@ -96,6 +96,8 @@
 }
 
   let testList = [];
+  let selectedRunUiTestOrder = [];
+  let draggedRunUiTestId = null;
   const UI_TEST_VARIABLES_STORAGE_KEY = 'qa_ui_test_variable_groups';
 
   function extractUiVariableNamesFromSpecText(specContent) {
@@ -398,8 +400,38 @@
   function getSelectedRunUiTests() {
     const listType = document.querySelector('input[name="test-list-type"]:checked')?.value || 'selected';
     if (listType === 'full') return testList.slice();
-    const selectedIds = new Set(Array.from(document.querySelectorAll('.playwright-test-cb:checked')).map((cb) => cb.getAttribute('data-test-id')));
-    return testList.filter((test) => selectedIds.has(String(test.id)));
+    const testById = new Map(testList.map((test) => [String(test.id), test]));
+    return selectedRunUiTestOrder.map((id) => testById.get(String(id))).filter(Boolean);
+  }
+
+  function syncRunUiTestOrderWithList({ selectAll = false } = {}) {
+    const availableIds = testList.map((test) => String(test.id));
+    const availableSet = new Set(availableIds);
+    const existing = selectedRunUiTestOrder.filter((id) => availableSet.has(String(id)));
+    if (selectAll) {
+      selectedRunUiTestOrder = availableIds;
+      return;
+    }
+    selectedRunUiTestOrder = existing;
+  }
+
+  function moveRunUiTestInOrder(testId, targetIndex) {
+    const id = String(testId);
+    const currentIndex = selectedRunUiTestOrder.indexOf(id);
+    if (currentIndex === -1) return false;
+    const next = selectedRunUiTestOrder.slice();
+    const [item] = next.splice(currentIndex, 1);
+    const safeIndex = Math.max(0, Math.min(targetIndex, next.length));
+    next.splice(safeIndex, 0, item);
+    selectedRunUiTestOrder = next;
+    return currentIndex !== safeIndex;
+  }
+
+  function toggleRunUiTestSelected(testId, selected) {
+    const id = String(testId);
+    const exists = selectedRunUiTestOrder.includes(id);
+    if (selected && !exists) selectedRunUiTestOrder.push(id);
+    if (!selected && exists) selectedRunUiTestOrder = selectedRunUiTestOrder.filter((item) => item !== id);
   }
 
   function updateRunUiTestVariablesUI(options = {}) {
@@ -458,6 +490,7 @@
         apiRequest('/playwright-config').catch(() => ({}))
       ]);
       testList = tests;
+      syncRunUiTestOrderWithList({ selectAll: true });
       const showBrowserOptions = document.querySelector('.run-ui-tests-show-browser-options');
       const noDisplayMsg = document.getElementById('run-ui-tests-no-display-msg');
       const showBrowserCb = document.getElementById('run-ui-tests-show-browser');
@@ -486,11 +519,13 @@
           window._runUiTestsProjectId = pid ? Number(pid) : null;
           if (!pid) {
             testList = [];
+            selectedRunUiTestOrder = [];
             renderTestList(document.querySelector('input[name="test-list-type"]:checked')?.value === 'selected');
             return;
           }
           try {
             testList = await apiRequest(`/playwright-tests/list?projectId=${pid}`);
+            syncRunUiTestOrderWithList({ selectAll: true });
             const showCb = document.querySelector('input[name="test-list-type"]:checked')?.value === 'selected';
             renderTestList(showCb);
             updateRunUiTestVariablesUI();
@@ -508,6 +543,12 @@
     const container = document.getElementById('playwright-test-list-container');
     if (!container) return;
     const filtered = testList;
+    syncRunUiTestOrderWithList({ selectAll: !showCheckboxes });
+    const testById = new Map(filtered.map((test) => [String(test.id), test]));
+    const selectedIds = new Set(selectedRunUiTestOrder.map(String));
+    const selectedOrderedTests = selectedRunUiTestOrder.map((id) => testById.get(String(id))).filter(Boolean);
+    const unselectedTests = showCheckboxes ? filtered.filter((test) => !selectedIds.has(String(test.id))) : [];
+    const renderOrder = showCheckboxes ? selectedOrderedTests.concat(unselectedTests) : filtered;
     if (!filtered.length) {
       container.innerHTML = `
         <h3 class="test-list-title">Tests that will run</h3>
@@ -518,12 +559,25 @@
 
     const listHtml = `
       <ul class="playwright-test-list ${showCheckboxes ? 'selectable' : ''}">
-        ${filtered.map((t, i) => `
-          <li class="playwright-test-item">
-            ${showCheckboxes ? `<input type="checkbox" class="playwright-test-cb" data-test-id="${t.id}" id="pt-${t.id}" />` : ''}
-            <span class="playwright-test-name">${i + 1}. ${t.name}</span>
+        ${renderOrder.map((t) => {
+          const testId = String(t.id);
+          const selectedIndex = selectedRunUiTestOrder.indexOf(testId);
+          const isSelected = !showCheckboxes || selectedIndex !== -1;
+          return `
+          <li class="playwright-test-item ordered-ui-test-item ${isSelected ? 'selected' : 'not-selected'}" data-test-id="${escapeHtml(testId)}" draggable="${showCheckboxes && isSelected ? 'true' : 'false'}">
+            <span class="ordered-ui-test-drag" title="Drag to reorder" aria-hidden="true">::</span>
+            ${showCheckboxes ? `<input type="checkbox" class="playwright-test-cb" data-test-id="${escapeHtml(testId)}" id="pt-${escapeHtml(testId)}" ${isSelected ? 'checked' : ''} />` : ''}
+            <span class="ordered-ui-test-number">${isSelected ? selectedIndex + 1 : '—'}</span>
+            <span class="playwright-test-name">${escapeHtml(t.name || '')}</span>
+            ${showCheckboxes ? `
+              <span class="ordered-ui-test-actions">
+                <button type="button" class="btn btn-sm btn-secondary run-ui-test-move-up" data-test-id="${escapeHtml(testId)}" ${!isSelected || selectedIndex === 0 ? 'disabled' : ''} title="Move up">Up</button>
+                <button type="button" class="btn btn-sm btn-secondary run-ui-test-move-down" data-test-id="${escapeHtml(testId)}" ${!isSelected || selectedIndex === selectedRunUiTestOrder.length - 1 ? 'disabled' : ''} title="Move down">Down</button>
+              </span>
+            ` : ''}
           </li>
-        `).join('')}
+        `;
+        }).join('')}
       </ul>
     `;
 
@@ -537,20 +591,77 @@
         </div>
       ` : ''}
       ${listHtml}
+      ${showCheckboxes ? '<p class="test-list-order-hint">Drag selected tests or use Up/Down to choose the execution order.</p>' : ''}
     `;
 
     if (showCheckboxes) {
-      container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = true; });
       container.querySelectorAll('.playwright-test-cb').forEach((cb) => {
-        cb.addEventListener('change', () => updateRunUiTestVariablesUI({ preserveValues: true }));
+        cb.addEventListener('change', () => {
+          toggleRunUiTestSelected(cb.getAttribute('data-test-id'), cb.checked);
+          renderTestList(true);
+          updateRunUiTestVariablesUI({ preserveValues: true });
+        });
       });
       container.querySelector('#select-all-tests')?.addEventListener('click', () => {
-        container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = true; });
+        selectedRunUiTestOrder = filtered.map((test) => String(test.id));
+        renderTestList(true);
         updateRunUiTestVariablesUI({ preserveValues: true });
       });
       container.querySelector('#deselect-all-tests')?.addEventListener('click', () => {
-        container.querySelectorAll('.playwright-test-cb').forEach(cb => { cb.checked = false; });
+        selectedRunUiTestOrder = [];
+        renderTestList(true);
         updateRunUiTestVariablesUI({ preserveValues: true });
+      });
+      container.querySelectorAll('.run-ui-test-move-up').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-test-id');
+          const index = selectedRunUiTestOrder.indexOf(String(id));
+          if (index > 0 && moveRunUiTestInOrder(id, index - 1)) {
+            renderTestList(true);
+            updateRunUiTestVariablesUI({ preserveValues: true });
+          }
+        });
+      });
+      container.querySelectorAll('.run-ui-test-move-down').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-test-id');
+          const index = selectedRunUiTestOrder.indexOf(String(id));
+          if (index !== -1 && index < selectedRunUiTestOrder.length - 1 && moveRunUiTestInOrder(id, index + 1)) {
+            renderTestList(true);
+            updateRunUiTestVariablesUI({ preserveValues: true });
+          }
+        });
+      });
+      container.querySelectorAll('.ordered-ui-test-item').forEach((item) => {
+        item.addEventListener('dragstart', (event) => {
+          draggedRunUiTestId = item.getAttribute('data-test-id');
+          item.classList.add('dragging');
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', draggedRunUiTestId || '');
+        });
+        item.addEventListener('dragend', () => {
+          item.classList.remove('dragging');
+          draggedRunUiTestId = null;
+        });
+        item.addEventListener('dragover', (event) => {
+          if (!draggedRunUiTestId) return;
+          event.preventDefault();
+          item.classList.add('drag-over');
+          event.dataTransfer.dropEffect = 'move';
+        });
+        item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+        item.addEventListener('drop', (event) => {
+          event.preventDefault();
+          item.classList.remove('drag-over');
+          const targetId = item.getAttribute('data-test-id');
+          const sourceId = draggedRunUiTestId || event.dataTransfer.getData('text/plain');
+          if (!sourceId || !targetId || sourceId === targetId) return;
+          const targetIndex = selectedRunUiTestOrder.indexOf(String(targetId));
+          if (targetIndex !== -1 && moveRunUiTestInOrder(sourceId, targetIndex)) {
+            renderTestList(true);
+            updateRunUiTestVariablesUI({ preserveValues: true });
+          }
+        });
       });
     }
   }
@@ -584,10 +695,10 @@
     }
     const filtered = testList;
     const runOnlyIds = listType === 'selected'
-      ? Array.from(document.querySelectorAll('.playwright-test-cb:checked')).map(cb => cb.getAttribute('data-test-id'))
+      ? selectedRunUiTestOrder.slice()
       : filtered.map(t => t.id);
     const selectedTests = listType === 'selected'
-      ? filtered.filter((test) => runOnlyIds.includes(String(test.id)))
+      ? getSelectedRunUiTests()
       : filtered.slice();
     const requiredUiVariables = getUiVariableNamesForTests(selectedTests);
     if (runOnlyIds.length === 0) {
@@ -1484,30 +1595,77 @@
         alert('All recorded tests are already in this project. Add new tests from "UI Tests" → "Add recorded test".');
         return;
       }
-      const options = available.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+      const checklist = available.map((test) => {
+        const usedCount = Array.isArray(test.project_ids) ? test.project_ids.length : 0;
+        const baseUrl = test.base_url ? `<div class="recorded-bulk-test-url">${escapeHtml(test.base_url)}</div>` : '';
+        const usedText = usedCount === 1 ? 'Used in 1 project' : `Used in ${usedCount} projects`;
+        return `
+          <label class="recorded-bulk-test-item">
+            <input type="checkbox" class="recorded-bulk-test-cb" value="${escapeHtml(String(test.id))}">
+            <span class="recorded-bulk-test-body">
+              <span class="recorded-bulk-test-name">${escapeHtml(test.name || '')}</span>
+              ${baseUrl}
+              <span class="recorded-bulk-test-meta">${escapeHtml(formatDateTime(test.created_at) || '')}${usedCount > 0 ? ` • ${escapeHtml(usedText)}` : ' • Not linked to any project yet'}</span>
+            </span>
+          </label>
+        `;
+      }).join('');
       showModal('Add recorded test to project', `
-        <p style="margin-bottom: 12px;">Select a recorded test from the global pool to add to this project.</p>
-        <div class="form-group">
-          <label for="add-to-project-recorded-select">Recorded test</label>
-          <select id="add-to-project-recorded-select" style="width: 100%; padding: 8px;">
-            ${options}
-          </select>
+        <p style="margin-bottom: 12px;">Select recorded tests from the reusable global pool to add to this project.</p>
+        <div class="recorded-bulk-toolbar">
+          <div>
+            <button type="button" class="btn btn-link" id="recorded-bulk-select-all">Select all</button>
+            <span class="test-list-select-sep">|</span>
+            <button type="button" class="btn btn-link" id="recorded-bulk-deselect-all">Deselect all</button>
+          </div>
+          <span class="recorded-bulk-selected-count" id="recorded-bulk-selected-count">0 selected</span>
+        </div>
+        <div class="recorded-bulk-list" role="group" aria-label="Recorded tests available to add">
+          ${checklist}
         </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px;">
           <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-overlay').classList.remove('active')">Cancel</button>
-          <button type="button" class="btn btn-primary" id="add-to-project-recorded-confirm">Add</button>
+          <button type="button" class="btn btn-primary" id="add-to-project-recorded-confirm" disabled>Add selected</button>
         </div>
       `);
+      const checkboxes = Array.from(document.querySelectorAll('.recorded-bulk-test-cb'));
+      const addButton = document.getElementById('add-to-project-recorded-confirm');
+      const countEl = document.getElementById('recorded-bulk-selected-count');
+      const updateSelectedCount = () => {
+        const selectedCount = checkboxes.filter((cb) => cb.checked).length;
+        if (countEl) countEl.textContent = `${selectedCount} selected`;
+        if (addButton) addButton.disabled = selectedCount === 0;
+      };
+      checkboxes.forEach((cb) => cb.addEventListener('change', updateSelectedCount));
+      document.getElementById('recorded-bulk-select-all')?.addEventListener('click', () => {
+        checkboxes.forEach((cb) => { cb.checked = true; });
+        updateSelectedCount();
+      });
+      document.getElementById('recorded-bulk-deselect-all')?.addEventListener('click', () => {
+        checkboxes.forEach((cb) => { cb.checked = false; });
+        updateSelectedCount();
+      });
+      updateSelectedCount();
       document.getElementById('add-to-project-recorded-confirm')?.addEventListener('click', async () => {
-        const sel = document.getElementById('add-to-project-recorded-select');
-        const recordedId = sel ? sel.value : null;
-        if (!recordedId) return;
+        const recordedTestIds = checkboxes.filter((cb) => cb.checked).map((cb) => Number(cb.value)).filter(Boolean);
+        if (recordedTestIds.length === 0) return;
         try {
-          await apiRequest(`/projects/${projectId}/recorded-tests/${recordedId}`, { method: 'POST' });
+          if (addButton) {
+            addButton.disabled = true;
+            addButton.textContent = 'Adding...';
+          }
+          await apiRequest(`/projects/${projectId}/recorded-tests`, {
+            method: 'POST',
+            body: { recordedTestIds }
+          });
           document.getElementById('modal-overlay').classList.remove('active');
           loadProjectRecordedTestsView(projectId);
         } catch (err) {
           alert('Error: ' + err.message);
+          if (addButton) {
+            addButton.textContent = 'Add selected';
+            updateSelectedCount();
+          }
         }
       });
     } catch (err) {
