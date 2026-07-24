@@ -437,6 +437,11 @@ function catalogueToCsv(rows) {
     return `${lines.join('\n')}\n`;
 }
 
+function effectiveFolderPathForTest(test) {
+    if (!test) return null;
+    return test.folder_path_override || test.default_folder_path || null;
+}
+
 function typeLabel(testType) {
         if (testType === 'soap') return 'SOAP';
         if (testType === 'ui_builtin') return 'UI (built-in)';
@@ -479,6 +484,15 @@ function buildCoverageSummary(tests) {
 function evidenceLinks(paths) {
         const links = detailLinks(paths);
         return links || '<span class="muted">No detailed evidence for the latest registered run.</span>';
+}
+
+function compactEvidencePackageLinks(test) {
+    const latestLinks = detailLinks(test.latestEvidence && test.latestEvidence.paths);
+    const archiveLinks = detailLinks(test.paths);
+    const parts = [];
+    if (latestLinks) parts.push(`<div><span>Latest</span>${latestLinks}</div>`);
+    if (archiveLinks) parts.push(`<div><span>Archive</span>${archiveLinks}</div>`);
+    return parts.length ? parts.join('') : '<span class="muted">No evidence package linked.</span>';
 }
 
 function truncateEvidenceText(value, maxLength = 6000) {
@@ -527,6 +541,19 @@ function buildLatestEvidenceProof(latestEvidence) {
 function buildIndexHtml({ project, generatedAt, manifest, archiveMap }) {
         const tests = archiveMap.tests || [];
         const coverage = buildCoverageSummary(tests);
+    const folderGroups = [];
+    const folderGroupByPath = new Map();
+    tests.forEach((test) => {
+        const folder = test.effective_folder_path || test.folder_path_override || test.default_folder_path || '';
+        if (!folderGroupByPath.has(folder)) {
+            const group = { folder, label: folder || 'No folder', tests: [] };
+            folderGroupByPath.set(folder, group);
+            folderGroups.push(group);
+        }
+        folderGroupByPath.get(folder).tests.push(test);
+    });
+    const folderOptions = [...new Set(folderGroups.map((group) => group.folder).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b));
         const coverageSection = `
             <div class="cards">
                 <div class="card"><div class="card-label">Active tests in coverage</div><div class="card-value">${coverage.totalTests}</div><div class="card-subtext">${coverage.testsEverRun} tests have been run at least once</div></div>
@@ -535,47 +562,45 @@ function buildIndexHtml({ project, generatedAt, manifest, archiveMap }) {
                 <div class="card"><div class="card-label">Not yet run</div><div class="card-value">${coverage.notRun}</div><div class="card-subtext">Active tests with no successful or failed runs yet</div></div>
             </div>`;
 
-    const testRows = tests.length ? tests.map((test) => {
-                const stats = test.stats || {};
-                const lastStatus = stats.last_status || 'not_run';
-                const folder = test.effective_folder_path || test.folder_path_override || test.default_folder_path || '';
-                const ticketText = (test.ticketUrls || []).join(' ');
-                const historyHtml = test.history && test.history.length ? `
-                    <table class="nested-table">
-                        <thead><tr><th>Run</th><th>Type</th><th>Status</th><th>Created</th><th>Duration</th><th>Run by</th></tr></thead>
-                        <tbody>${test.history.map((entry) => `<tr><td>${escapeHtml(entry.runName || `Run ${entry.runId || ''}`)}<div class="muted">Result ${escapeHtml(entry.resultId || '')}</div></td><td>${escapeHtml(entry.kind)}</td><td><span class="status-badge ${reportStatusClass(entry.status)}">${escapeHtml(reportStatusLabel(entry.status))}</span></td><td>${escapeHtml(toIso(entry.created_at || entry.runCreatedAt) || '')}</td><td>${entry.duration_ms != null ? escapeHtml(`${entry.duration_ms} ms`) : '—'}</td><td>${escapeHtml(entry.runBy || 'Not recorded')}</td></tr>`).join('')}</tbody>
-                    </table>` : '<p class="muted">No linked run history yet. Run the backfill script to link historical rows.</p>';
-                const notesHtml = test.notes && test.notes.length ? test.notes.map((note) => {
+            const testRows = folderGroups.length ? folderGroups.map((group) => {
+                const folderStatusCounts = group.tests.reduce((acc, test) => {
+                    const status = String((test.stats && test.stats.last_status) || 'not_run').toLowerCase();
+                    if (status === 'passed') acc.passed += 1;
+                    else if (status === 'failed' || status === 'partial_failed') acc.failed += 1;
+                    else acc.notRun += 1;
+                    return acc;
+                }, { passed: 0, failed: 0, notRun: 0 });
+                const latestEvidenceCount = group.tests.filter((test) => test.latestEvidence).length;
+                const noteAttachmentCount = group.tests.reduce((sum, test) => sum + (test.notes || []).reduce((noteSum, note) => noteSum + ((note.attachments || []).length), 0), 0);
+                const outlineItems = group.tests.map((test) => {
+                    const stats = test.stats || {};
+                    const lastStatus = stats.last_status || 'not_run';
+                    const historyCount = (test.history || []).length;
+                    const latestEvidenceLabel = test.latestEvidence ? 'Latest evidence linked' : 'No latest evidence';
+                    const ticketText = (test.ticketUrls || []).join(' ');
+                    const latestEvidenceLinks = detailLinks(test.latestEvidence && test.latestEvidence.paths);
+                    const noteEvidenceLinks = (test.notes || [])
+                        .flatMap((note) => note.attachments || [])
+                        .filter((attachment) => attachment.archivePath)
+                        .map((attachment) => archiveLink(attachment.archivePath, attachment.original_name || `Attachment ${attachment.id}`, 'small-link'))
+                        .join(' ');
+                    const historyHtml = test.history && test.history.length ? `
+                        <table class="nested-table">
+                            <thead><tr><th>Run</th><th>Type</th><th>Status</th><th>Created</th><th>Duration</th><th>Run by</th></tr></thead>
+                            <tbody>${test.history.map((entry) => `<tr><td>${escapeHtml(entry.runName || `Run ${entry.runId || ''}`)}<div class="muted">Result ${escapeHtml(entry.resultId || '')}</div></td><td>${escapeHtml(entry.kind)}</td><td><span class="status-badge ${reportStatusClass(entry.status)}">${escapeHtml(reportStatusLabel(entry.status))}</span></td><td>${escapeHtml(toIso(entry.created_at || entry.runCreatedAt) || '')}</td><td>${entry.duration_ms != null ? escapeHtml(`${entry.duration_ms} ms`) : '—'}</td><td>${escapeHtml(entry.runBy || 'Not recorded')}</td></tr>`).join('')}</tbody>
+                        </table>` : '<p class="muted">No linked run history yet. Run the backfill script to link historical rows.</p>';
+                    const notesHtml = test.notes && test.notes.length ? test.notes.map((note) => {
                         const attachments = note.attachments && note.attachments.length ? note.attachments.map((attachment) => {
-                                const image = attachment.archivePath && attachment.isImage ? `<a href="${escapeHtml(attachment.archivePath)}"><img src="${escapeHtml(attachment.archivePath)}" alt="${escapeHtml(attachment.original_name || 'Evidence image')}"></a>` : '';
-                                return `<div class="evidence-item">${image}${archiveLink(attachment.archivePath, attachment.original_name || `Attachment ${attachment.id}`)}</div>`;
+                            const image = attachment.archivePath && attachment.isImage ? `<a href="${escapeHtml(attachment.archivePath)}"><img src="${escapeHtml(attachment.archivePath)}" alt="${escapeHtml(attachment.original_name || 'Evidence image')}"></a>` : '';
+                            return `<div class="evidence-item">${image}${archiveLink(attachment.archivePath, attachment.original_name || `Attachment ${attachment.id}`)}</div>`;
                         }).join('') : '<p class="muted">No evidence images.</p>';
                         return `<div class="note-card"><div class="note-meta">${escapeHtml(note.author || 'Not recorded')} - ${escapeHtml(toIso(note.created_at) || '')}</div><p>${escapeHtml(note.note || '')}</p><div class="evidence-grid">${attachments}</div></div>`;
-                }).join('') : '<p class="muted">No notes recorded.</p>';
-                return `<tr data-name="${escapeHtml(test.name || '')}" data-type="${escapeHtml(test.test_type || '')}" data-status="${escapeHtml(lastStatus)}" data-ticket="${escapeHtml(ticketText)}" data-folder="${escapeHtml(folder)}">
-                    <td>${escapeHtml(test.name || '')}</td>
-                    <td>${escapeHtml(folder || '—')}</td>
-                    <td>${escapeHtml(typeLabel(test.test_type))}</td>
-                    <td><span class="status-badge ${reportStatusClass(lastStatus)}">${escapeHtml(reportStatusLabel(lastStatus))}</span></td>
-                    <td>${escapeHtml(toIso(stats.last_run_at) || '—')}</td>
-                    <td>${escapeHtml(String(stats.total_runs != null ? stats.total_runs : 0))}</td>
-                    <td>${escapeHtml(test.lastRunBy || '—')}</td>
-                    <td>${ticketLinks(test.ticketUrls)}</td>
-                </tr>
-                <tr class="details-row" data-detail-for="${escapeHtml(test.name || '')}" data-name="${escapeHtml(test.name || '')}" data-type="${escapeHtml(test.test_type || '')}" data-status="${escapeHtml(lastStatus)}" data-ticket="${escapeHtml(ticketText)}" data-folder="${escapeHtml(folder)}">
-                    <td colspan="8">
-                        <details>
-                            <summary>Evidence package</summary>
-                            <div class="evidence-layout">
-                                <div><h3>Latest registered evidence</h3><p class="muted">Matches the last status and last run shown in coverage.</p>${buildLatestEvidenceProof(test.latestEvidence)}<div class="file-grid">${evidenceLinks(test.latestEvidence && test.latestEvidence.paths)}</div></div>
-                                <div><h3>Historical run context</h3>${historyHtml}</div>
-                                <div><h3>Notes and attachments</h3>${notesHtml}</div>
-                                <div><h3>Archive files</h3><div class="file-grid">${detailLinks(test.paths)}</div></div>
-                            </div>
-                        </details>
-                    </td>
-                </tr>`;
-                }).join('') : '<tr><td colspan="8">No project tests were archived.</td></tr>';
+                    }).join('') : '<p class="muted">No notes recorded.</p>';
+                    return `<li class="test-row" data-name="${escapeHtml(test.name || '')}" data-type="${escapeHtml(test.test_type || '')}" data-status="${escapeHtml(lastStatus)}" data-ticket="${escapeHtml(ticketText)}" data-folder="${escapeHtml(group.folder)}"><div class="folder-outline-main"><span class="folder-outline-name">${escapeHtml(test.name || '')}</span><span class="folder-outline-meta"><span>${escapeHtml(typeLabel(test.test_type))}</span><span class="status-badge ${reportStatusClass(lastStatus)}">${escapeHtml(reportStatusLabel(lastStatus))}</span><span>${escapeHtml(toIso(stats.last_run_at) || 'No last run')}</span><span>${escapeHtml(String(stats.total_runs != null ? stats.total_runs : 0))} total runs</span><span>${escapeHtml(test.lastRunBy || 'Not recorded')}</span><span>${escapeHtml(latestEvidenceLabel)}</span><span>${escapeHtml(String(historyCount))} history rows</span></span></div><div class="folder-outline-evidence"><div><span>Evidence package</span>${compactEvidencePackageLinks(test)}</div><div><span>Note attachments</span>${noteEvidenceLinks || '<em>No note attachments</em>'}</div></div><details class="test-evidence-details"><summary>Actual request, response, and full evidence package</summary><div class="evidence-layout"><div><h3>Latest registered evidence</h3><p class="muted">Matches the last status and last run shown in coverage.</p>${buildLatestEvidenceProof(test.latestEvidence)}<div class="file-grid">${evidenceLinks(test.latestEvidence && test.latestEvidence.paths)}</div></div><div><h3>Historical run context</h3>${historyHtml}</div><div><h3>Notes and attachments</h3>${notesHtml}</div><div><h3>Archive files</h3><div class="file-grid">${detailLinks(test.paths)}</div></div></div></details></li>`;
+                }).join('');
+                const folderHeader = `<tr class="folder-group-row" data-folder="${escapeHtml(group.folder)}"><td colspan="9"><details class="folder-card" open><summary class="folder-card-summary"><div class="folder-card-header"><div><div class="folder-kicker">Folder</div><div class="folder-title">${escapeHtml(group.label)}</div></div><div class="folder-metrics"><span>${group.tests.length} tests</span><span>${folderStatusCounts.passed} passed</span><span>${folderStatusCounts.failed} failed</span><span>${folderStatusCounts.notRun} not run</span><span>${latestEvidenceCount} latest evidence</span><span>${noteAttachmentCount} note attachments</span></div></div></summary><ol class="folder-outline">${outlineItems}</ol></details></td></tr>`;
+                return folderHeader;
+        }).join('') : '<tr><td colspan="9">No project tests were archived.</td></tr>';
 
         const missingRows = manifest.missing_artifacts.length ? manifest.missing_artifacts.map((item) => `<tr><td>${escapeHtml(item.archive_path)}</td><td>${escapeHtml(item.reason)}</td><td>${escapeHtml(item.source_path)}</td></tr>`).join('') : '<tr><td colspan="3">No missing artifacts recorded.</td></tr>';
 
@@ -614,6 +639,32 @@ function buildIndexHtml({ project, generatedAt, manifest, archiveMap }) {
         th, td { padding: 8px 10px; font-size: 13px; text-align: left; border-bottom: 1px solid var(--color-gray-200); vertical-align: top; }
         th { font-weight: 600; color: #4b5563; }
         tbody tr:nth-child(4n+3), tbody tr:nth-child(4n+4) { background: var(--color-gray-50); }
+        .folder-group-row td { background: #fff; padding: 14px 10px; border-top: 1px solid var(--color-gray-200); border-bottom: 1px solid var(--color-gray-200); }
+        .folder-card { border: 1px solid var(--color-gray-200); border-left: 5px solid var(--color-primary); border-radius: 8px; padding: 14px; background: linear-gradient(180deg, #fff, var(--color-gray-50)); }
+        .folder-card-summary { cursor: pointer; list-style: none; }
+        .folder-card-summary::-webkit-details-marker { display: none; }
+        .folder-card-summary::before { content: '>'; display: inline-block; margin-right: 8px; color: var(--color-primary-dark); font-weight: 800; transform: rotate(90deg); transition: transform .15s ease; }
+        .folder-card:not([open]) .folder-card-summary::before { transform: rotate(0deg); }
+        .folder-card-header { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+        .folder-kicker { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--color-gray-500); font-weight: 700; }
+        .folder-title { margin-top: 3px; font-size: 15px; font-weight: 800; color: var(--color-text-primary); }
+        .folder-metrics { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+        .folder-metrics span { border: 1px solid var(--color-gray-200); border-radius: 999px; background: #fff; padding: 4px 8px; font-size: 12px; color: var(--color-text-secondary); }
+        .folder-outline { margin: 12px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+        .folder-outline li { padding: 7px 8px; border: 1px solid var(--color-gray-200); border-radius: 8px; background: #fff; }
+        .folder-outline-main { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+        .folder-outline-name { display: block; font-weight: 700; margin-bottom: 5px; }
+        .folder-outline-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--color-gray-500); font-size: 12px; }
+        .folder-outline-evidence { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin-top: 8px; }
+        .folder-outline-evidence div { border-top: 1px solid var(--color-gray-200); padding-top: 7px; }
+        .folder-outline-evidence span { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--color-gray-500); font-weight: 700; margin-bottom: 4px; }
+        .folder-outline-evidence em { color: var(--color-gray-500); font-size: 12px; font-style: normal; }
+        .evidence-package-cell { min-width: 180px; }
+        .evidence-package-cell > div { margin-bottom: 6px; }
+        .evidence-package-cell > div:last-child { margin-bottom: 0; }
+        .evidence-package-cell span:first-child { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--color-gray-500); font-weight: 700; margin-bottom: 3px; }
+        .test-evidence-details { margin-top: 10px; border: 1px solid var(--color-gray-200); border-radius: 8px; background: var(--color-gray-50); padding: 10px; }
+        .test-evidence-details > summary { cursor: pointer; font-weight: 700; }
         a { color: #2563eb; text-decoration: none; }
         a:hover { text-decoration: underline; }
         .count, .muted { font-size: 13px; color: var(--color-gray-500); }
@@ -657,33 +708,39 @@ function buildIndexHtml({ project, generatedAt, manifest, archiveMap }) {
         <div class="page-header"><h1>Tests &amp; Coverage report</h1><div class="meta">Project: <strong>${escapeHtml(project.name)}</strong> (ID: ${escapeHtml(project.id)})<br>Generated at: ${escapeHtml(toIso(generatedAt))}</div></div>
         <div class="page-body">
             <div class="section"><h2>Coverage summary</h2>${coverageSection}</div>
-            <div class="section"><h2>Tests (filtered snapshot)</h2><div class="filters"><input type="text" id="filter-search" placeholder="Search by name or ticket..."><select id="filter-type"><option value="">All Types</option><option value="api">API</option><option value="soap">SOAP</option><option value="ui_builtin">UI (built-in)</option><option value="ui_recorded">UI (recorded)</option><option value="manual">Manual Test</option><option value="other">Other</option></select><select id="filter-status"><option value="">All statuses</option><option value="passed">Passed</option><option value="failed">Failed</option><option value="partial_failed">Partial Failed</option><option value="running">Running</option><option value="cancelled">Cancelled</option><option value="not_run">Not run</option></select><button class="btn-primary" id="filter-apply">Apply</button><button class="btn-secondary" id="filter-clear">Clear</button></div><div class="count" id="filtered-count"></div><table id="tests-table"><thead><tr><th>Name</th><th>Folder</th><th>Type</th><th>Last status</th><th>Last run</th><th>Total runs</th><th>Last run by</th><th>Tickets</th></tr></thead><tbody>${testRows}</tbody></table></div>
+            <div class="section"><h2>Tests (filtered snapshot)</h2><div class="filters"><input type="text" id="filter-search" placeholder="Search by name or ticket..."><select id="filter-type"><option value="">All Types</option><option value="api">API</option><option value="soap">SOAP</option><option value="ui_builtin">UI (built-in)</option><option value="ui_recorded">UI (recorded)</option><option value="manual">Manual Test</option><option value="other">Other</option></select><select id="filter-folder"><option value="">All Folders</option>${folderOptions.map((folder) => `<option value="${escapeHtml(folder)}">${escapeHtml(folder)}</option>`).join('')}</select><select id="filter-status"><option value="">All statuses</option><option value="passed">Passed</option><option value="failed">Failed</option><option value="partial_failed">Partial Failed</option><option value="running">Running</option><option value="cancelled">Cancelled</option><option value="not_run">Not run</option></select><button class="btn-primary" id="filter-apply">Apply</button><button class="btn-secondary" id="filter-clear">Clear</button></div><div class="count" id="filtered-count"></div><table id="tests-table"><thead><tr><th>Name</th><th>Folder</th><th>Type</th><th>Last status</th><th>Last run</th><th>Total runs</th><th>Last run by</th><th>Evidence package</th><th>Tickets</th></tr></thead><tbody>${testRows}</tbody></table></div>
             <div class="section"><h2>Archive files</h2><div class="file-grid">${archiveLink(archiveMap.core.projectJson, 'Project JSON', 'small-link')}${archiveLink(archiveMap.core.manifestJson, 'Manifest JSON', 'small-link')}${archiveLink(archiveMap.core.catalogueCsv, 'Tests CSV', 'small-link')}${archiveLink(archiveMap.core.catalogueJson, 'Tests JSON', 'small-link')}${archiveLink(archiveMap.core.testsWithNotesJson, 'Tests with notes JSON', 'small-link')}</div></div>
             <div class="section"><h2>Missing artifacts</h2><table><thead><tr><th>Archive path</th><th>Reason</th><th>Source path</th></tr></thead><tbody>${missingRows}</tbody></table></div>
         </div>
     </div>
     <script>
         (function() {
-            const rows = Array.from(document.querySelectorAll('#tests-table tbody tr'));
+            const testRows = Array.from(document.querySelectorAll('#tests-table tbody .test-row'));
+            const folderRows = Array.from(document.querySelectorAll('#tests-table tbody tr.folder-group-row'));
             const count = document.getElementById('filtered-count');
             function applyFilters() {
                 const search = (document.getElementById('filter-search').value || '').toLowerCase();
                 const type = document.getElementById('filter-type').value;
+                const folder = document.getElementById('filter-folder').value;
                 const status = document.getElementById('filter-status').value;
                 let visibleTests = 0;
-                for (let i = 0; i < rows.length; i += 2) {
-                    const main = rows[i];
-                    const detail = rows[i + 1];
+                const visibleByFolder = new Map();
+                testRows.forEach((main) => {
                     const haystack = [main.dataset.name, main.dataset.ticket, main.dataset.folder].join(' ').toLowerCase();
-                    const visible = (!search || haystack.includes(search)) && (!type || main.dataset.type === type) && (!status || main.dataset.status === status);
+                    const visible = (!search || haystack.includes(search)) && (!type || main.dataset.type === type) && (!folder || main.dataset.folder === folder) && (!status || main.dataset.status === status);
                     main.style.display = visible ? '' : 'none';
-                    if (detail) detail.style.display = visible ? '' : 'none';
-                    if (visible) visibleTests += 1;
-                }
+                    if (visible) {
+                        visibleTests += 1;
+                        visibleByFolder.set(main.dataset.folder || '', true);
+                    }
+                });
+                folderRows.forEach((row) => {
+                    row.style.display = visibleByFolder.has(row.dataset.folder || '') ? '' : 'none';
+                });
                 count.textContent = visibleTests + ' tests shown in table';
             }
             document.getElementById('filter-apply').addEventListener('click', applyFilters);
-            document.getElementById('filter-clear').addEventListener('click', function() { document.getElementById('filter-search').value = ''; document.getElementById('filter-type').value = ''; document.getElementById('filter-status').value = ''; applyFilters(); });
+            document.getElementById('filter-clear').addEventListener('click', function() { document.getElementById('filter-search').value = ''; document.getElementById('filter-type').value = ''; document.getElementById('filter-folder').value = ''; document.getElementById('filter-status').value = ''; applyFilters(); });
             applyFilters();
         })();
     </script>
@@ -709,7 +766,7 @@ async function loadArchiveData(projectId) {
     const [catalogueRows, projectTests, testRuns, playwrightRuns, fuzzRuns] = await Promise.all([
         getProjectTestCatalogue(projectId),
         ProjectTest.findAll({
-            where: { project_id: projectId },
+            where: { project_id: projectId, is_active: true },
             include: [
                 {
                     model: ProjectTestStat,
@@ -795,7 +852,12 @@ async function loadArchiveData(projectId) {
 
     return {
         project: toPlain(project),
-        catalogueRows: toPlain(catalogueRows),
+        catalogueRows: toPlain(catalogueRows)
+            .filter((test) => test.is_active)
+            .map((test) => ({
+                ...test,
+                effective_folder_path: effectiveFolderPathForTest(test)
+            })),
         projectTests: toPlain(projectTests),
         testRuns: toPlain(testRuns),
         playwrightRuns: toPlain(playwrightRuns),
@@ -834,8 +896,10 @@ function selectLatestRegisteredEvidence(test, history) {
     const stats = test.stats || {};
     const lastRunId = stats.last_run_id == null ? null : Number(stats.last_run_id);
     const source = String(stats.last_run_source || stats.last_run_type || '').toLowerCase();
+    if (lastRunId == null) return history[0] || null;
+
     const candidates = history.filter((entry) => {
-        if (lastRunId != null && Number(entry.runId) !== lastRunId) return false;
+        if (Number(entry.runId) !== lastRunId) return false;
         if (!source) return true;
         if (source.includes('ui')) return entry.kind === 'ui';
         if (source.includes('fuzz')) return entry.kind === 'fuzz';
@@ -843,7 +907,7 @@ function selectLatestRegisteredEvidence(test, history) {
         if (source.includes('api')) return entry.kind === 'api-soap';
         return true;
     });
-    return candidates[0] || history[0] || null;
+    return candidates[0] || null;
 }
 
 function normalizeEvidenceValue(value) {
@@ -852,6 +916,7 @@ function normalizeEvidenceValue(value) {
 
 function resultMatchesTest(test, result) {
     if (!result) return false;
+    if (result.project_test_id != null && Number(result.project_test_id) === Number(test.id)) return true;
     const testName = normalizeEvidenceValue(test.name);
     const resultName = normalizeEvidenceValue(result.test_name);
     const testMethod = normalizeEvidenceValue(test.method);
@@ -880,7 +945,9 @@ function findLatestCoverageResultFallback(test, archiveMap) {
     if (!source || source.includes('api') || source.includes('soap')) {
         const runEntry = archiveMap.apiSoapRunById.get(lastRunId);
         const run = archiveMap.apiSoapRawRunById.get(lastRunId);
-        const result = run && (run.testResults || []).find((item) => resultMatchesTest(test, item));
+        const results = run ? (run.testResults || []) : [];
+        const result = results.find((item) => item.project_test_id != null && Number(item.project_test_id) === Number(test.id)) ||
+            results.find((item) => resultMatchesTest(test, item));
         if (result) {
             return {
                 ...summarizeHistoryEntry('api-soap', result),
@@ -897,7 +964,9 @@ function findLatestCoverageResultFallback(test, archiveMap) {
     if (source.includes('ui')) {
         const runEntry = archiveMap.uiRunById.get(lastRunId);
         const run = archiveMap.uiRawRunById.get(lastRunId);
-        const result = run && (run.results || []).find((item) => resultMatchesTest(test, item));
+        const results = run ? (run.results || []) : [];
+        const result = results.find((item) => item.project_test_id != null && Number(item.project_test_id) === Number(test.id)) ||
+            results.find((item) => resultMatchesTest(test, item));
         if (result) {
             const artifacts = latestUiArtifactsForResult(runEntry && runEntry.artifacts, result.id);
             return {
@@ -916,7 +985,9 @@ function findLatestCoverageResultFallback(test, archiveMap) {
     if (source.includes('fuzz')) {
         const runEntry = archiveMap.fuzzRunById.get(lastRunId);
         const run = archiveMap.fuzzRawRunById.get(lastRunId);
-        const result = run && (run.fuzzResults || []).find((item) => resultMatchesTest(test, item));
+        const results = run ? (run.fuzzResults || []) : [];
+        const result = results.find((item) => item.project_test_id != null && Number(item.project_test_id) === Number(test.id)) ||
+            results.find((item) => resultMatchesTest(test, item));
         if (result) {
             return {
                 ...summarizeHistoryEntry('fuzz', result),
@@ -1063,6 +1134,12 @@ function addProjectTestEvidence(archive, manifest, tests, archiveMap) {
             test_type: test.test_type,
             method: test.method,
             endpoint: test.endpoint,
+            source_kind: test.source_kind,
+            source_order: test.source_order,
+            source_path: test.source_path,
+            default_folder_path: test.default_folder_path,
+            folder_path_override: test.folder_path_override,
+            effective_folder_path: effectiveFolderPathForTest(test),
             stats: test.stats || {},
             lastRunBy: displayUser(lastRunUser),
             ticketUrls: normalizeTicketUrlsList(test),
