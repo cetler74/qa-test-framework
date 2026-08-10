@@ -18,6 +18,18 @@ function escapeHtmlLite(s) {
   return d.innerHTML;
 }
 
+function headerEvidenceHtml(headerEvidence) {
+  const list = headerEvidence && Array.isArray(headerEvidence.list) ? headerEvidence.list : [];
+  if (list.length === 0) return '';
+  return `<pre class="header-evidence-block">${list.map((header) => `${escapeHtmlLite(header.name)}: ${escapeHtmlLite(header.value)}`).join('\n')}</pre>`;
+}
+
+function traceEvidenceHtml(traceEvidence) {
+  const items = traceEvidence && Array.isArray(traceEvidence.items) ? traceEvidence.items : [];
+  if (items.length === 0) return '';
+  return `<pre class="header-evidence-block">${items.map((item) => `${escapeHtmlLite(item.source || 'header')} ${escapeHtmlLite(item.name)}: ${escapeHtmlLite(item.value)}`).join('\n')}</pre>`;
+}
+
 function showLoginView() {
   document.getElementById('login-view').style.display = 'flex';
   document.getElementById('app-container').style.display = 'none';
@@ -2038,7 +2050,17 @@ function renderTestRunsList(allRuns) {
   const pageSizeSelect = document.getElementById('test-runs-page-size');
   const pageInfo = document.getElementById('test-runs-page-info');
   const pageSize = pageSizeSelect ? parseInt(pageSizeSelect.value, 10) || 50 : 50;
-  const total = Array.isArray(allRuns) ? allRuns.length : 0;
+  let runs = Array.isArray(allRuns) ? allRuns.slice() : [];
+  const highlightedRunId = window.highlightTestRunId ? String(window.highlightTestRunId) : null;
+  if (highlightedRunId) {
+    const highlightedIndex = runs.findIndex((run) => String(run.id) === highlightedRunId && (run.runType || 'api') === 'api');
+    if (highlightedIndex > 0) {
+      const [highlightedRun] = runs.splice(highlightedIndex, 1);
+      runs.unshift(highlightedRun);
+    }
+    if (highlightedIndex >= 0) window.testRunsCurrentPage = 1;
+  }
+  const total = runs.length;
   const totalPages = total === 0 ? 1 : Math.ceil(total / pageSize);
   const currentPage = Math.min(Math.max(window.testRunsCurrentPage || 1, 1), totalPages);
   window.testRunsCurrentPage = currentPage;
@@ -2061,7 +2083,7 @@ function renderTestRunsList(allRuns) {
 
   const startIndex = (currentPage - 1) * pageSize;
   const endIndex = Math.min(startIndex + pageSize, total);
-  const pageRuns = allRuns.slice(startIndex, endIndex);
+  const pageRuns = runs.slice(startIndex, endIndex);
 
   testRunsList.innerHTML = pageRuns.map(run => {
     const runType = run.runType || 'api';
@@ -2082,10 +2104,11 @@ function renderTestRunsList(allRuns) {
       : '';
     const runBy = run.runByUser ? (run.runByUser.display_name || run.runByUser.username || '') : null;
     const runByLine = runBy ? `<p style="font-size: 12px; color: #666; margin-top: 4px;">Run by: ${runBy}</p>` : '';
+    const isHighlighted = highlightedRunId && String(run.id) === highlightedRunId && runType === 'api';
     return `
-    <div class="list-item" onclick="${onClick}" style="cursor: pointer;">
+    <div class="list-item" onclick="${onClick}" style="cursor: pointer; ${isHighlighted ? 'border-color: var(--color-primary, #14b8a6); box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.18);' : ''}">
       <div class="list-item-info">
-        <h3>${typeBadge} ${run.name}</h3>
+        <h3>${typeBadge} ${run.name}${isHighlighted ? ' <span style="font-size: 12px; color: var(--color-primary, #14b8a6);">Latest run</span>' : ''}</h3>
         <p>Project: ${projectName}${flowLabel} • ${formatDateTime(run.created_at)}</p>
         <p style="font-size: 12px; color: #666; margin-top: 5px;">
           ${run.passed_tests != null ? run.passed_tests : 0} passed, ${run.failed_tests != null ? run.failed_tests : 0} failed of ${run.total_tests != null ? run.total_tests : 0} total
@@ -2254,23 +2277,31 @@ async function viewTestRun(testRunId) {
         `;
       }
       
-      resultsList.innerHTML = orderedResults.map(result => `
+      resultsList.innerHTML = orderedResults.map(result => {
+        const requestHeaders = headerEvidenceHtml(result.request_headers_sent);
+        const responseHeaders = headerEvidenceHtml(result.response_headers_received);
+        const traceEvidence = traceEvidenceHtml(result.trace_evidence);
+        return `
         <div class="test-result-item">
           <div class="test-result-header">
             <div>
-              ${result.test_id ? `<span style="margin-right: 8px; font-weight: bold; color: #14b8a6;">${result.test_id}</span>` : ''}
-              <span class="method-badge ${result.method}">${result.method}</span>
-              <strong>${result.test_name}</strong>
+              ${result.test_id ? `<span style="margin-right: 8px; font-weight: bold; color: #14b8a6;">${escapeHtmlLite(result.test_id)}</span>` : ''}
+              <span class="method-badge ${escapeHtmlLite(result.method)}">${escapeHtmlLite(result.method)}</span>
+              <strong>${escapeHtmlLite(result.test_name)}</strong>
             </div>
-            <span class="status-badge ${result.status}">${result.status}</span>
+            <span class="status-badge ${escapeHtmlLite(result.status)}">${escapeHtmlLite(result.status)}</span>
           </div>
           <div class="test-result-details">
-            <p><strong>Endpoint:</strong> ${result.endpoint}</p>
+            <p><strong>Endpoint:</strong> ${escapeHtmlLite(result.endpoint)}</p>
             ${result.response_code ? `<p><strong>Response Code:</strong> ${result.response_code}</p>` : ''}
-            ${result.error_message ? `<p style="color: #f44336;"><strong>Error:</strong> ${result.error_message}</p>` : ''}
+            ${traceEvidence ? `<div><strong>Trace Evidence:</strong>${traceEvidence}</div>` : ''}
+            ${requestHeaders ? `<div><strong>Requested Headers Sent:</strong>${requestHeaders}</div>` : ''}
+            ${responseHeaders ? `<div><strong>Headers Received:</strong>${responseHeaders}</div>` : ''}
+            ${result.error_message ? `<p style="color: #f44336;"><strong>Error:</strong> ${escapeHtmlLite(result.error_message)}</p>` : ''}
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     } else {
       const isJwksError = testRun.error_message && /private key not found|signedjwt|generate jwks/i.test(testRun.error_message);
       let emptyMsg;
