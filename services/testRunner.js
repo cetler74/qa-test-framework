@@ -233,6 +233,138 @@ function getRequestHeadersArray(request = {}) {
   return request.headers || request.header || [];
 }
 
+const HEADER_EVIDENCE_FIELDS = [
+  'request_headers_sent',
+  'response_headers_received',
+  'request_meta',
+  'response_meta',
+  'trace_evidence',
+  'trace_id',
+  'npu_id'
+];
+
+const SENSITIVE_HEADER_NAMES = new Set([
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'set-cookie',
+  'x-api-key',
+  'api-key',
+  'apikey'
+]);
+
+const TRACE_HEADER_NAMES = new Set([
+  'traceparent',
+  'tracestate',
+  'x-trace-id',
+  'x-request-id',
+  'x-correlation-id',
+  'correlation-id',
+  'request-id',
+  'x-b3-traceid',
+  'x-amzn-trace-id'
+]);
+
+const NPU_HEADER_NAMES = new Set([
+  'npu',
+  'x-npu',
+  'npu-id',
+  'x-npu-id'
+]);
+
+function shouldMaskHeader(name) {
+  const lower = String(name || '').toLowerCase();
+  return SENSITIVE_HEADER_NAMES.has(lower) || /(^|[-_])(token|secret|password|credential|api[-_]?key)([-_]|$)/i.test(lower);
+}
+
+function maskHeaderValue(name, value) {
+  const stringValue = value == null ? '' : String(value);
+  if (!shouldMaskHeader(name)) return stringValue;
+  if (!stringValue) return '';
+  const authMatch = stringValue.match(/^([A-Za-z]+)\s+(.+)$/);
+  if (authMatch) return `${authMatch[1]} ***redacted***`;
+  if (stringValue.length <= 8) return '***redacted***';
+  return `${stringValue.slice(0, 4)}...${stringValue.slice(-4)}`;
+}
+
+function headerListToArray(headers) {
+  if (!headers) return [];
+  if (Array.isArray(headers)) return headers;
+  if (typeof headers.all === 'function') {
+    try { return headers.all(); } catch (_) { return []; }
+  }
+  if (Array.isArray(headers.members)) return headers.members;
+  if (typeof headers.each === 'function') {
+    const out = [];
+    try { headers.each((header) => out.push(header)); } catch (_) { return []; }
+    return out;
+  }
+  return [];
+}
+
+function normalizeHeaderEvidence(headers) {
+  const list = headerListToArray(headers)
+    .filter((header) => header && header.disabled !== true)
+    .map((header) => {
+      const name = header.key || header.name || '';
+      const value = header.value == null ? '' : String(header.value);
+      return {
+        name: String(name),
+        value: maskHeaderValue(name, value),
+        sensitive: shouldMaskHeader(name)
+      };
+    })
+    .filter((header) => header.name);
+
+  const map = {};
+  for (const header of list) {
+    const key = header.name.toLowerCase();
+    if (!map[key]) map[key] = [];
+    map[key].push(header.value);
+  }
+
+  return { list, map };
+}
+
+function headersToText(headerEvidence) {
+  const list = headerEvidence && Array.isArray(headerEvidence.list) ? headerEvidence.list : [];
+  if (list.length === 0) return 'None';
+  return list.map((header) => `${header.name}: ${header.value}`).join('\n');
+}
+
+function extractTraceEvidence(requestHeaders, responseHeaders) {
+  const evidence = [];
+  const scan = (source, headerEvidence) => {
+    const list = headerEvidence && Array.isArray(headerEvidence.list) ? headerEvidence.list : [];
+    for (const header of list) {
+      const lower = header.name.toLowerCase();
+      if (TRACE_HEADER_NAMES.has(lower) || NPU_HEADER_NAMES.has(lower)) {
+        evidence.push({ source, name: header.name, value: header.value, type: NPU_HEADER_NAMES.has(lower) ? 'npu' : 'trace' });
+      }
+    }
+  };
+  scan('request', requestHeaders);
+  scan('response', responseHeaders);
+  const firstTrace = evidence.find((item) => item.type === 'trace');
+  const firstNpu = evidence.find((item) => item.type === 'npu');
+  return {
+    items: evidence,
+    trace_id: firstTrace ? firstTrace.value : null,
+    npu_id: firstNpu ? firstNpu.value : null
+  };
+}
+
+function stripHeaderEvidenceFields(data) {
+  const copy = { ...data };
+  for (const field of HEADER_EVIDENCE_FIELDS) delete copy[field];
+  return copy;
+}
+
+function isMissingColumnError(error) {
+  const message = error && error.message ? error.message : '';
+  return /column .* does not exist/i.test(message) || HEADER_EVIDENCE_FIELDS.some((field) => message.includes(field));
+}
+
 /**
  * Scan a Postman collection and return the Set of {{signedjwt-*}} variant names found
  * (request URLs, headers, body, pre-request/test scripts, etc.).
@@ -797,6 +929,10 @@ function runNewmanTests(collection, options = {}) {
               responseBody = response.text;
             }
           }
+
+          const requestHeaders = normalizeHeaderEvidence(request.headers || request.header || []);
+          const responseHeaders = normalizeHeaderEvidence(response ? (response.headers || response.header || []) : []);
+          const traceEvidence = extractTraceEvidence(requestHeaders, responseHeaders);
           
           // Check for failed assertions from test scripts
           let hasFailedAssertions = false;
@@ -856,14 +992,24 @@ function runNewmanTests(collection, options = {}) {
               request: {
                 method: request.method || '',
                 url: url,
-                headers: request.headers || [],
+                headers: requestHeaders,
                 body: request.body ? (typeof request.body === 'string' ? request.body : JSON.stringify(request.body, null, 2)) : ''
               },
               response: response ? {
                 code: response.code || 0,
                 status: response.status || '',
+                headers: responseHeaders,
                 body: responseBody
               } : null,
+              request_meta: {
+                method: request.method || '',
+                url
+              },
+              response_meta: response ? {
+                code: response.code || 0,
+                status: response.status || ''
+              } : null,
+              trace_evidence: traceEvidence,
               assertions: execution.assertions || [],
               error: execution.error ? {
                 message: getFullErrorMessage(execution.error) || execution.error.message || execution.error.toString(),
@@ -1595,8 +1741,17 @@ async function executeTests(projectId, testRunName, options = {}) {
               return 'No HTTP response';
             })();
           const formattedResponseSeq = executionResult.item.response
-            ? `Status: ${executionResult.item.response.code || ''} ${executionResult.item.response.status || ''}\n\nBody:\n${rawResponseBodySeq}`
+            ? `Status: ${executionResult.item.response.code || ''} ${executionResult.item.response.status || ''}\n\nHeaders:\n${headersToText(executionResult.item.response.headers)}\n\nBody:\n${rawResponseBodySeq}`
             : rawResponseBodySeq;
+          const formattedRequestSeq = [
+            `${executionResult.item.request?.method || ''} ${executionResult.item.request?.url || ''}`,
+            '',
+            'Headers:',
+            headersToText(executionResult.item.request?.headers),
+            '',
+            'Body:',
+            executionResult.item.request?.body || ''
+          ].join('\n');
           
           // Create test result record immediately
           const testResultData = {
@@ -1606,9 +1761,16 @@ async function executeTests(projectId, testRunName, options = {}) {
             method: executionResult.item.request?.method || '',
             status: status,
             duration_ms: 0,
-            request_body: executionResult.item.request?.body != null ? (typeof executionResult.item.request.body === 'string' ? executionResult.item.request.body : JSON.stringify(executionResult.item.request.body, null, 2)) : '',
+            request_body: formattedRequestSeq,
             response_body: formattedResponseSeq,
             response_code: responseCode || null,
+            request_headers_sent: executionResult.item.request?.headers || null,
+            response_headers_received: executionResult.item.response?.headers || null,
+            request_meta: executionResult.item.request_meta || null,
+            response_meta: executionResult.item.response_meta || null,
+            trace_evidence: executionResult.item.trace_evidence || null,
+            trace_id: executionResult.item.trace_evidence?.trace_id || null,
+            npu_id: executionResult.item.trace_evidence?.npu_id || null,
             assertions: executionResult.assertions || [],
             error_message: errorMessage,
             api_spec_id: apiSpecId
@@ -1625,7 +1787,9 @@ async function executeTests(projectId, testRunName, options = {}) {
           } catch (createError) {
             if (createError.message && createError.message.includes('execution_order')) {
               const { execution_order, test_id, ...dataWithoutNewFields } = testResultData;
-              testResult = await TestResult.create(dataWithoutNewFields);
+              testResult = await TestResult.create(stripHeaderEvidenceFields(dataWithoutNewFields));
+            } else if (isMissingColumnError(createError)) {
+              testResult = await TestResult.create(stripHeaderEvidenceFields(testResultData));
             } else {
               throw createError;
             }
@@ -1836,8 +2000,7 @@ async function executeTests(projectId, testRunName, options = {}) {
       })();
 
       // Build readable request details (method, url, headers, body)
-      const rawReqHeaders = execution.item.request?.headers || [];
-      const reqHeadersStr = Array.isArray(rawReqHeaders) ? rawReqHeaders.map(h => `${h.key || h.name || ''}: ${h.value || h.value || ''}`).join('\n') : '';
+      const reqHeadersStr = headersToText(execution.item.request?.headers);
       const requestTextParts = [];
       requestTextParts.push(`${execution.item.request?.method || ''} ${execution.item.request?.url || ''}`);
       requestTextParts.push('');
@@ -1849,8 +2012,7 @@ async function executeTests(projectId, testRunName, options = {}) {
       const formattedRequest = requestTextParts.join('\n');
 
       // Build readable response details (status, headers, body)
-      const rawRespHeaders = execution.item.response?.headers || [];
-      const respHeadersStr = Array.isArray(rawRespHeaders) ? rawRespHeaders.map(h => `${h.key || h.name || ''}: ${h.value || ''}`).join('\n') : '';
+      const respHeadersStr = headersToText(execution.item.response?.headers);
       const responseTextParts = [];
       if (execution.item.response) {
         responseTextParts.push(`Status: ${execution.item.response.code || ''} ${execution.item.response.status || ''}`);
@@ -1880,6 +2042,13 @@ async function executeTests(projectId, testRunName, options = {}) {
         request_body: formattedRequest,
         response_body: formattedResponse,
         response_code: responseCode || null,
+        request_headers_sent: execution.item.request?.headers || null,
+        response_headers_received: execution.item.response?.headers || null,
+        request_meta: execution.item.request_meta || null,
+        response_meta: execution.item.response_meta || null,
+        trace_evidence: execution.item.trace_evidence || null,
+        trace_id: execution.item.trace_evidence?.trace_id || null,
+        npu_id: execution.item.trace_evidence?.npu_id || null,
         assertions: execution.assertions || [],
         error_message: errorMessage,
         api_spec_id: apiSpecId,
@@ -1896,7 +2065,9 @@ async function executeTests(projectId, testRunName, options = {}) {
         if (createError.message && createError.message.includes('execution_order')) {
           console.log('[testRunner] execution_order/test_id columns not found. Running without them. Please run: node scripts/migrate.js');
           const { execution_order, test_id, ...dataWithoutNewFields } = testResultData;
-          testResult = await TestResult.create(dataWithoutNewFields);
+          testResult = await TestResult.create(stripHeaderEvidenceFields(dataWithoutNewFields));
+        } else if (isMissingColumnError(createError)) {
+          testResult = await TestResult.create(stripHeaderEvidenceFields(testResultData));
         } else {
           throw createError;
         }

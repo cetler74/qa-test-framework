@@ -1032,6 +1032,7 @@ function showRunTestsModal(initialState = null) {
         const testRunId = result.testRun.id;
         console.log('[frontend] Starting progress polling for test run:', testRunId);
         hideModal();
+        window.highlightTestRunId = testRunId;
         showView('test-runs');
         loadTestRuns();
         

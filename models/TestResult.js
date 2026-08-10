@@ -47,6 +47,34 @@ const TestResult = sequelize.define('TestResult', {
     type: DataTypes.INTEGER,
     allowNull: true
   },
+  request_headers_sent: {
+    type: DataTypes.JSONB,
+    allowNull: true
+  },
+  response_headers_received: {
+    type: DataTypes.JSONB,
+    allowNull: true
+  },
+  request_meta: {
+    type: DataTypes.JSONB,
+    allowNull: true
+  },
+  response_meta: {
+    type: DataTypes.JSONB,
+    allowNull: true
+  },
+  trace_evidence: {
+    type: DataTypes.JSONB,
+    allowNull: true
+  },
+  trace_id: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  npu_id: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
   assertions: {
     type: DataTypes.JSONB,
     allowNull: true

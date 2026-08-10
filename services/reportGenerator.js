@@ -484,6 +484,14 @@ const reportTemplate = `
                             <div style="margin-top:8px; font-size:12px; color:#666;">Headers:</div>
                             <div class="detail-value" style="margin-top:6px;">{{this.request_headers}}</div>
                             {{/if}}
+                            {{#if this.request_headers_sent_text}}
+                            <div style="margin-top:8px; font-size:12px; color:#666;">Requested Headers Sent:</div>
+                            <div class="detail-value" style="margin-top:6px;">{{this.request_headers_sent_text}}</div>
+                            {{/if}}
+                            {{#if this.trace_evidence_text}}
+                            <div style="margin-top:8px; font-size:12px; color:#666;">Trace Evidence:</div>
+                            <div class="detail-value" style="margin-top:6px;">{{this.trace_evidence_text}}</div>
+                            {{/if}}
                         </div>
 
                         <div class="detail-section">
@@ -492,6 +500,10 @@ const reportTemplate = `
                                 <small style="color:#6b7280; font-size:12px;">Response evidence</small>
                                 <a href="{{this.response_download}}" download="{{this.test_name}}-response.txt" class="btn">Download</a>
                             </div>
+                            {{#if this.response_headers_received_text}}
+                            <div style="margin-bottom:8px; font-size:12px; color:#666;">Headers Received:</div>
+                            <div class="detail-value" style="margin-bottom:8px;">{{this.response_headers_received_text}}</div>
+                            {{/if}}
                             <div class="detail-value">{{#if this.response_is_json}}<pre>{{this.response_body_pretty}}</pre>{{else}}{{this.response_body_pretty}}{{/if}}</div>
                         </div>
                         {{#if this.error_message}}
@@ -561,6 +573,18 @@ handlebars.registerHelper('formatDuration', (ms) => {
 handlebars.registerHelper('now', () => {
   return new Date();
 });
+
+function headerEvidenceToText(headerEvidence) {
+    const list = headerEvidence && Array.isArray(headerEvidence.list) ? headerEvidence.list : [];
+    if (list.length === 0) return null;
+    return list.map((header) => `${header.name}: ${header.value}`).join('\n');
+}
+
+function traceEvidenceToText(traceEvidence) {
+    const items = traceEvidence && Array.isArray(traceEvidence.items) ? traceEvidence.items : [];
+    if (items.length === 0) return null;
+    return items.map((item) => `${item.source || 'header'} ${item.name}: ${item.value}`).join('\n');
+}
 
 const REPORT_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const reportCache = new Map(); // testRunId -> { html, filePath, fileName, cachedAt }
@@ -667,6 +691,9 @@ async function generateReport(testRunId, options = {}) {
       testResultsBySpec[specName].forEach((result, resultIndex) => {
         result.groupIndex = specIndex;
         result.itemIndex = resultIndex;
+        result.request_headers_sent_text = headerEvidenceToText(result.request_headers_sent);
+        result.response_headers_received_text = headerEvidenceToText(result.response_headers_received);
+        result.trace_evidence_text = traceEvidenceToText(result.trace_evidence);
 
         // Prepare download Data URIs and pretty-printing for request/response
         const reqRaw = result.request_body || '';
