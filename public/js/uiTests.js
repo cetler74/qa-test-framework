@@ -32,6 +32,18 @@
   return `${dd}/${mm}/${yyyy}, ${d.toLocaleTimeString()}`;
   }
 
+  function scrollAppToTop() {
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    const appContainer = document.getElementById('app-container');
+    if (appContainer) appContainer.scrollTop = 0;
+    const activeView = document.querySelector('.view.active');
+    if (activeView) activeView.scrollTop = 0;
+  });
+  }
+
   function showView(viewId) {
   const activeEl = document.querySelector('.view.active');
   const currentId = activeEl && activeEl.id ? activeEl.id.replace(/-view$/, '') : null;
@@ -41,6 +53,7 @@
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   const el = document.getElementById(`${viewId}-view`);
   if (el) el.classList.add('active');
+  if (currentId !== viewId) scrollAppToTop();
   document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
   const navBtn = document.querySelector(`[data-view="${viewId}"]`);
   if (navBtn) navBtn.classList.add('active');
@@ -1766,6 +1779,7 @@ async function viewPlaywrightRun(id) {
       }
     }
     showView('ui-test-detail');
+    scrollAppToTop();
   } catch (err) {
     console.error('Error loading Playwright run:', err);
     alert('Error loading UI test run: ' + err.message);

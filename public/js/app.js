@@ -117,6 +117,18 @@ function clearDetailPolling() {
   }
 }
 
+function scrollAppToTop() {
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    const appContainer = document.getElementById('app-container');
+    if (appContainer) appContainer.scrollTop = 0;
+    const activeView = document.querySelector('.view.active');
+    if (activeView) activeView.scrollTop = 0;
+  });
+}
+
 // View management (store previous view so "Back" from Run UI Tests / UI Test Detail returns to it)
 function showView(viewId) {
   if (viewId !== 'test-run-detail') {
@@ -145,6 +157,9 @@ function showView(viewId) {
     view.classList.remove('active');
   });
   document.getElementById(`${viewId}-view`).classList.add('active');
+  if (currentId !== viewId) {
+    scrollAppToTop();
+  }
   
   // Update nav buttons (Settings gets active when on api-specs or ui-tests)
   document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -818,6 +833,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!Array.isArray(window.testRunsData) || !window.testRunsData.length) return;
       window.testRunsCurrentPage = Math.max((window.testRunsCurrentPage || 1) - 1, 1);
       renderTestRunsList(window.testRunsData);
+      scrollAppToTop();
     });
   }
   if (testRunsNext) {
@@ -829,6 +845,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const totalPages = Math.max(1, Math.ceil(total / pageSize));
       window.testRunsCurrentPage = Math.min((window.testRunsCurrentPage || 1) + 1, totalPages);
       renderTestRunsList(window.testRunsData);
+      scrollAppToTop();
     });
   }
 
