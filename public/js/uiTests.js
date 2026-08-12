@@ -50,6 +50,10 @@
   if (currentId && currentId !== viewId) {
     window._uiTestsReturnView = currentId;
   }
+  // Remove the full-height layout class when leaving the recorded-test view.
+  if (currentId === 'add-recorded-test' && viewId !== 'add-recorded-test') {
+    document.querySelector('main')?.classList.remove('main-split-layout');
+  }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   const el = document.getElementById(`${viewId}-view`);
   if (el) el.classList.add('active');
@@ -257,13 +261,91 @@
     `).join('');
   }
 
+  function updateRecordedSpecStats() {
+    const stats = document.getElementById('recorded-spec-stats');
+    if (!stats) return;
+    const spec = getSpecValue();
+    if (!spec.trim()) { stats.textContent = ''; return; }
+    const lines = spec.split('\n').length;
+    const kb = (new TextEncoder().encode(spec).length / 1024).toFixed(1);
+    stats.textContent = `${lines} lines · ${kb} KB`;
+  }
+
+  // Live syntax highlighting via CodeMirror.
+  let specEditor = null;
+
+  // Auto-fix toggle — persisted across page loads.
+  let autoFixEnabled = localStorage.getItem('specAutoFix') !== 'false';
+
+  function updateAutoFixToggle() {
+    const btn = document.getElementById('auto-fix-spec-btn');
+    if (!btn) return;
+    btn.textContent = autoFixEnabled ? 'Auto-fix: ON' : 'Auto-fix: OFF';
+    btn.classList.toggle('auto-fix-on', autoFixEnabled);
+  }
+
+  function initSpecEditor() {
+    if (specEditor) return;
+    const ta = document.getElementById('recorded-test-spec');
+    if (!ta || typeof CodeMirror === 'undefined') return;
+    specEditor = CodeMirror.fromTextArea(ta, {
+      mode: 'javascript',
+      theme: 'tomorrow-night-eighties',
+      lineNumbers: true,
+      lineWrapping: false,
+      matchBrackets: true,
+      indentUnit: 2,
+      tabSize: 2,
+      extraKeys: { Tab: 'indentMore', 'Shift-Tab': 'indentLess' },
+    });
+    specEditor.setSize('100%', '100%');
+    specEditor.on('change', () => {
+      specEditor.save();
+      updateRecordedTestDetectedVariablesPreview();
+      clearRecordedTestValidationResults();
+      updateRecordedSpecStats();
+    });
+    // Normalize pasted Codegen output via backend (best-effort, silent on failure).
+    specEditor.on('paste', () => {
+      if (!autoFixEnabled) return;
+      setTimeout(async () => {
+        const snapshot = specEditor.getValue();
+        if (!snapshot.trim()) return;
+        try {
+          const res = await apiRequest('/playwright-recorded-tests/normalize-draft', {
+            method: 'POST',
+            body: { spec_content: snapshot }
+          });
+          if (res.specContent && specEditor.getValue() === snapshot && res.specContent !== snapshot) {
+            setSpecValue(res.specContent);
+            updateRecordedTestDetectedVariablesPreview();
+            clearRecordedTestValidationResults();
+            updateRecordedSpecStats();
+          }
+        } catch (_) { /* silent */ }
+      }, 0);
+    });
+  }
+
+  function getSpecValue() {
+    if (specEditor) return specEditor.getValue();
+    return document.getElementById('recorded-test-spec')?.value || '';
+  }
+
+  function setSpecValue(value) {
+    const v = value || '';
+    if (specEditor) { specEditor.setValue(v); return; }
+    const ta = document.getElementById('recorded-test-spec');
+    if (ta) ta.value = v;
+  }
+
   function updateRecordedTestDetectedVariablesPreview() {
     const wrap = document.getElementById('recorded-test-detected-vars-wrap');
     const list = document.getElementById('recorded-test-detected-vars');
     const specInput = document.getElementById('recorded-test-spec');
     const groupSelect = document.getElementById('recorded-test-variable-group');
-    if (!wrap || !list || !specInput || !groupSelect) return;
-    const variableNames = extractUiVariableNamesFromSpecText(specInput.value || '');
+    if (!wrap || !list || !groupSelect) return;
+    const variableNames = extractUiVariableNamesFromSpecText(getSpecValue());
     if (variableNames.length === 0) {
       wrap.style.display = 'none';
       list.innerHTML = '';
@@ -1008,7 +1090,7 @@
 
   async function validateRecordedTestDraft() {
     const name = document.getElementById('recorded-test-name')?.value?.trim();
-    const spec = document.getElementById('recorded-test-spec')?.value?.trim();
+    const spec = getSpecValue().trim();
     const baseUrl = document.getElementById('recorded-test-codegen-url')?.value?.trim();
     const detectedVarsList = document.getElementById('recorded-test-detected-vars');
     const variableNames = extractUiVariableNamesFromSpecText(spec || '');
@@ -1094,9 +1176,10 @@
       const res = await apiRequest(`/playwright-recorded-tests/codegen-output/${slug}`);
       const specInput = document.getElementById('recorded-test-spec');
       if (specInput && res.content) {
-        specInput.value = res.content;
+        setSpecValue(res.content);
         updateRecordedTestDetectedVariablesPreview();
         clearRecordedTestValidationResults();
+        updateRecordedSpecStats();
         if (showAlert) {
           alert('Generated code loaded successfully!');
         }
@@ -1183,9 +1266,10 @@
       // Populate the spec textarea with the generated code
       const specInput = document.getElementById('recorded-test-spec');
       if (specInput && res.specContent) {
-        specInput.value = res.specContent;
+        setSpecValue(res.specContent);
         updateRecordedTestDetectedVariablesPreview();
         clearRecordedTestValidationResults();
+        updateRecordedSpecStats();
         alert('Recording stopped. Generated code has been loaded into the spec field. Review and save your test.');
       } else {
         alert('Recording stopped. No generated code was captured — the Codegen window may have been closed before saving. You can paste code manually.');
@@ -1239,6 +1323,8 @@
   })();
 
   function showAddRecordedTestView(editId) {
+    // Toggle a class on main so the two-panel layout fills the full viewport height.
+    document.querySelector('main')?.classList.add('main-split-layout');
     const form = document.getElementById('recorded-test-form');
     const idInput = document.getElementById('recorded-test-id');
     const titleEl = document.getElementById('recorded-test-form-title');
@@ -1273,13 +1359,12 @@
     idInput.value = editId || '';
     titleEl.textContent = editId ? 'Edit recorded test' : 'Add recorded test';
     nameInput.value = '';
-    specInput.value = '';
+    setSpecValue('');
     clearRecordedTestValidationResults();
     populateUiVariableGroupSelect(variableGroupSelect, variableGroupSelect?.value || '');
-    specInput.oninput = () => {
-      updateRecordedTestDetectedVariablesPreview();
-      clearRecordedTestValidationResults();
-    };
+    // Initialise CodeMirror editor (no-op if already done or not yet loaded).
+    initSpecEditor();
+    updateAutoFixToggle();
     nameInput.oninput = () => clearRecordedTestValidationResults();
     codegenUrlInput.oninput = () => clearRecordedTestValidationResults();
     if (variableGroupSelect) {
@@ -1300,9 +1385,10 @@
       apiRequest(`/playwright-recorded-tests/${editId}`)
         .then(t => {
           nameInput.value = t.name || '';
-          specInput.value = t.spec_content || '';
+          setSpecValue(t.spec_content || '');
           updateRecordedTestDetectedVariablesPreview();
           clearRecordedTestValidationResults();
+          updateRecordedSpecStats();
           codegenUrlInput.value = (t.base_url || '').trim() || codegenUrlInput.placeholder;
           if (addToProjectSelect && Array.isArray(t.project_ids) && t.project_ids.length > 0) {
             selectedProjectId = String(t.project_ids[0]);
@@ -1420,12 +1506,61 @@
     navigator.clipboard.writeText(cmd).then(() => alert('Command copied to clipboard')).catch(() => alert('Could not copy'));
   });
 
+  // Copy the current spec content to the clipboard
+  document.getElementById('copy-spec-btn')?.addEventListener('click', () => {
+    const spec = getSpecValue();
+    if (!spec.trim()) { alert('Nothing to copy — the spec is empty.'); return; }
+    navigator.clipboard.writeText(spec)
+      .then(() => alert('Spec copied to clipboard.'))
+      .catch(() => alert('Could not copy to clipboard.'));
+  });
+
+  // Apply robust helper template to the current spec on demand.
+  document.getElementById('apply-spec-fixes-btn')?.addEventListener('click', async () => {
+    const spec = getSpecValue();
+    if (!spec.trim()) { alert('Nothing to fix — the spec is empty.'); return; }
+    try {
+      const res = await apiRequest('/playwright-recorded-tests/normalize-draft', {
+        method: 'POST',
+        body: { spec_content: spec }
+      });
+      if (res.specContent && res.specContent !== spec) {
+        setSpecValue(res.specContent);
+        updateRecordedTestDetectedVariablesPreview();
+        clearRecordedTestValidationResults();
+        updateRecordedSpecStats();
+      } else {
+        alert('No changes — the spec already has the correct format.');
+      }
+    } catch (err) {
+      alert('Could not apply fixes: ' + err.message);
+    }
+  });
+
+  // Toggle automatic template transformation on paste / Codegen load.
+  document.getElementById('auto-fix-spec-btn')?.addEventListener('click', () => {
+    autoFixEnabled = !autoFixEnabled;
+    localStorage.setItem('specAutoFix', autoFixEnabled);
+    updateAutoFixToggle();
+  });
+
+  // Clear the spec textarea and reset related UI state
+  document.getElementById('clear-spec-btn')?.addEventListener('click', () => {
+    if (!getSpecValue().trim()) return;
+    if (!confirm('Clear the generated spec? This cannot be undone.')) return;
+    setSpecValue('');
+    updateRecordedTestDetectedVariablesPreview();
+    clearRecordedTestValidationResults();
+    updateRecordedSpecStats();
+    if (specEditor) specEditor.focus(); else document.getElementById('recorded-test-spec')?.focus();
+  });
+
   document.getElementById('recorded-test-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     stopAutoRefresh();
     const idInput = document.getElementById('recorded-test-id');
     const name = document.getElementById('recorded-test-name')?.value?.trim();
-    const spec = document.getElementById('recorded-test-spec')?.value?.trim();
+    const spec = getSpecValue().trim();
     const addToProjectEl = document.getElementById('recorded-test-add-to-project');
     const addToProjectId = addToProjectEl?.value?.trim() || null;
     if (!name) { alert('Test name is required'); return; }
@@ -1557,10 +1692,16 @@
               <p>${t.base_url ? escapeHtml(t.base_url) : ''} • ${formatDateTime(t.created_at)}</p>
             </div>
             <div class="list-item-actions">
+              <button type="button" class="btn btn-secondary btn-sm edit-project-recorded" data-recorded-id="${t.id}">Edit</button>
               <button type="button" class="btn btn-danger btn-sm remove-from-project-recorded" data-recorded-id="${t.id}">Remove from project</button>
             </div>
           </div>
         `).join('');
+        listEl.querySelectorAll('.edit-project-recorded').forEach(btn => {
+          btn.addEventListener('click', () => {
+            showAddRecordedTestView(btn.getAttribute('data-recorded-id'));
+          });
+        });
         listEl.querySelectorAll('.remove-from-project-recorded').forEach(btn => {
           btn.addEventListener('click', async () => {
             if (!confirm('Remove this recorded test from the project? (The test stays in the global pool.)')) return;
@@ -1598,9 +1739,10 @@
     const projectId = window._projectRecordedTestsProjectId;
     if (!projectId) return;
     try {
-      const [allRecorded, inProject] = await Promise.all([
+      const [allRecorded, inProject, projects] = await Promise.all([
         apiRequest('/playwright-recorded-tests'),
-        apiRequest(`/projects/${projectId}/recorded-tests`)
+        apiRequest(`/projects/${projectId}/recorded-tests`),
+        apiRequest('/projects')
       ]);
       const inIds = new Set((inProject || []).map(t => t.id));
       const available = (allRecorded || []).filter(t => !inIds.has(t.id));
@@ -1608,57 +1750,136 @@
         alert('All recorded tests are already in this project. Add new tests from "UI Tests" → "Add recorded test".');
         return;
       }
+      const projectNameById = new Map((Array.isArray(projects) ? projects : []).map((project) => [Number(project.id), project.name || `Project ${project.id}`]));
+      const projectFilterIds = [...new Set(available.flatMap((test) => Array.isArray(test.project_ids) ? test.project_ids.map(Number) : []))]
+        .filter((id) => Number.isInteger(id))
+        .sort((a, b) => String(projectNameById.get(a) || a).localeCompare(String(projectNameById.get(b) || b)));
+      const projectFilterOptions = projectFilterIds.map((id) => `<option value="${escapeHtml(String(id))}">${escapeHtml(projectNameById.get(id) || `Project ${id}`)}</option>`).join('');
       const checklist = available.map((test) => {
         const usedCount = Array.isArray(test.project_ids) ? test.project_ids.length : 0;
-        const baseUrl = test.base_url ? `<div class="recorded-bulk-test-url">${escapeHtml(test.base_url)}</div>` : '';
+        const projectIds = Array.isArray(test.project_ids) ? test.project_ids.map(Number).filter((id) => Number.isInteger(id)) : [];
+        const projectNames = projectIds.map((id) => projectNameById.get(id) || `Project ${id}`);
+        const baseUrl = test.base_url ? `<div class="recorded-bulk-test-url" title="${escapeHtml(test.base_url)}">${escapeHtml(test.base_url)}</div>` : '<div class="recorded-bulk-test-url recorded-bulk-test-url-empty">No base URL</div>';
         const usedText = usedCount === 1 ? 'Used in 1 project' : `Used in ${usedCount} projects`;
+        const projectsHtml = projectNames.length > 0
+          ? `<div class="recorded-bulk-project-chips">${projectNames.slice(0, 4).map((name) => `<span class="recorded-bulk-project-chip">${escapeHtml(name)}</span>`).join('')}${projectNames.length > 4 ? `<span class="recorded-bulk-project-chip">+${projectNames.length - 4}</span>` : ''}</div>`
+          : '<div class="recorded-bulk-project-chips"><span class="recorded-bulk-project-chip recorded-bulk-project-chip-empty">No project links</span></div>';
+        const searchText = [test.name || '', test.base_url || '', projectNames.join(' '), formatDateTime(test.created_at) || ''].join(' ').toLowerCase();
         return `
-          <label class="recorded-bulk-test-item">
-            <input type="checkbox" class="recorded-bulk-test-cb" value="${escapeHtml(String(test.id))}">
+          <label class="recorded-bulk-test-item" data-search="${escapeHtml(searchText)}" data-project-ids="${escapeHtml(projectIds.join(','))}">
+            <span class="recorded-bulk-test-check-wrap">
+              <input type="checkbox" class="recorded-bulk-test-cb" value="${escapeHtml(String(test.id))}">
+            </span>
             <span class="recorded-bulk-test-body">
-              <span class="recorded-bulk-test-name">${escapeHtml(test.name || '')}</span>
+              <span class="recorded-bulk-test-title-row">
+                <span class="recorded-bulk-test-name">${escapeHtml(test.name || '')}</span>
+                <span class="recorded-bulk-test-meta">${escapeHtml(formatDateTime(test.created_at) || '')}</span>
+              </span>
               ${baseUrl}
-              <span class="recorded-bulk-test-meta">${escapeHtml(formatDateTime(test.created_at) || '')}${usedCount > 0 ? ` • ${escapeHtml(usedText)}` : ' • Not linked to any project yet'}</span>
+              ${projectsHtml}
+              <span class="recorded-bulk-test-meta">${usedCount > 0 ? escapeHtml(usedText) : 'Not linked to any project yet'}${Array.isArray(test.variable_names) && test.variable_names.length ? ` • ${escapeHtml(test.variable_names.length === 1 ? '1 variable' : `${test.variable_names.length} variables`)}` : ''}</span>
             </span>
           </label>
         `;
       }).join('');
       showModal('Add recorded test to project', `
-        <p style="margin-bottom: 12px;">Select recorded tests from the reusable global pool to add to this project.</p>
-        <div class="recorded-bulk-toolbar">
-          <div>
-            <button type="button" class="btn btn-link" id="recorded-bulk-select-all">Select all</button>
-            <span class="test-list-select-sep">|</span>
-            <button type="button" class="btn btn-link" id="recorded-bulk-deselect-all">Deselect all</button>
+        <div class="recorded-bulk-modal">
+          <div class="recorded-bulk-intro">
+            <div>
+              <p class="recorded-bulk-intro-title">Select reusable recorded tests from the global pool.</p>
+              <p class="recorded-bulk-intro-copy">Search by name, URL, linked project, or date. Filter by an existing project association when you need to find related tests quickly.</p>
+            </div>
+            <div class="recorded-bulk-summary-card">
+              <strong>${escapeHtml(String(available.length))}</strong>
+              <span>available</span>
+            </div>
           </div>
-          <span class="recorded-bulk-selected-count" id="recorded-bulk-selected-count">0 selected</span>
-        </div>
-        <div class="recorded-bulk-list" role="group" aria-label="Recorded tests available to add">
-          ${checklist}
-        </div>
-        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px;">
-          <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-overlay').classList.remove('active')">Cancel</button>
-          <button type="button" class="btn btn-primary" id="add-to-project-recorded-confirm" disabled>Add selected</button>
+          <div class="recorded-bulk-controls">
+            <label class="recorded-bulk-control recorded-bulk-search-control">
+              <span>Search recorded tests</span>
+              <input type="search" id="recorded-bulk-search" placeholder="Search by name, URL, project, date..." autocomplete="off">
+            </label>
+            <label class="recorded-bulk-control recorded-bulk-project-filter-control">
+              <span>Filter by linked project</span>
+              <select id="recorded-bulk-project-filter">
+                <option value="">All projects</option>
+                <option value="__unlinked">Not linked to any project</option>
+                ${projectFilterOptions}
+              </select>
+            </label>
+          </div>
+          <div class="recorded-bulk-toolbar">
+            <div class="recorded-bulk-toolbar-actions">
+              <button type="button" class="btn btn-link" id="recorded-bulk-select-all">Select visible</button>
+              <span class="test-list-select-sep">|</span>
+              <button type="button" class="btn btn-link" id="recorded-bulk-deselect-all">Clear visible</button>
+            </div>
+            <div class="recorded-bulk-counts">
+              <span id="recorded-bulk-visible-count">${escapeHtml(String(available.length))} shown</span>
+              <span class="recorded-bulk-selected-count" id="recorded-bulk-selected-count">0 selected</span>
+            </div>
+          </div>
+          <div class="recorded-bulk-list" role="group" aria-label="Recorded tests available to add">
+            ${checklist}
+            <div class="recorded-bulk-empty" id="recorded-bulk-empty" style="display:none;">No recorded tests match the current search and project filter.</div>
+          </div>
+          <div class="recorded-bulk-footer">
+            <button type="button" class="btn btn-secondary" id="recorded-bulk-cancel">Cancel</button>
+            <button type="button" class="btn btn-primary" id="add-to-project-recorded-confirm" disabled>Add selected</button>
+          </div>
         </div>
       `);
       const checkboxes = Array.from(document.querySelectorAll('.recorded-bulk-test-cb'));
+      const items = Array.from(document.querySelectorAll('.recorded-bulk-test-item'));
       const addButton = document.getElementById('add-to-project-recorded-confirm');
       const countEl = document.getElementById('recorded-bulk-selected-count');
+      const visibleCountEl = document.getElementById('recorded-bulk-visible-count');
+      const emptyEl = document.getElementById('recorded-bulk-empty');
+      const searchInput = document.getElementById('recorded-bulk-search');
+      const projectFilter = document.getElementById('recorded-bulk-project-filter');
+      const visibleItems = () => items.filter((item) => item.style.display !== 'none');
       const updateSelectedCount = () => {
         const selectedCount = checkboxes.filter((cb) => cb.checked).length;
         if (countEl) countEl.textContent = `${selectedCount} selected`;
         if (addButton) addButton.disabled = selectedCount === 0;
       };
+      const applyFilters = () => {
+        const query = String(searchInput?.value || '').trim().toLowerCase();
+        const selectedProjectId = String(projectFilter?.value || '');
+        let visibleCount = 0;
+        items.forEach((item) => {
+          const matchesSearch = !query || String(item.dataset.search || '').includes(query);
+          const ids = String(item.dataset.projectIds || '').split(',').filter(Boolean);
+          const matchesProject = !selectedProjectId
+            || (selectedProjectId === '__unlinked' ? ids.length === 0 : ids.includes(selectedProjectId));
+          const visible = matchesSearch && matchesProject;
+          item.style.display = visible ? '' : 'none';
+          if (visible) visibleCount += 1;
+        });
+        if (visibleCountEl) visibleCountEl.textContent = `${visibleCount} shown`;
+        if (emptyEl) emptyEl.style.display = visibleCount === 0 ? 'block' : 'none';
+        updateSelectedCount();
+      };
       checkboxes.forEach((cb) => cb.addEventListener('change', updateSelectedCount));
+      searchInput?.addEventListener('input', applyFilters);
+      projectFilter?.addEventListener('change', applyFilters);
       document.getElementById('recorded-bulk-select-all')?.addEventListener('click', () => {
-        checkboxes.forEach((cb) => { cb.checked = true; });
+        visibleItems().forEach((item) => {
+          const cb = item.querySelector('.recorded-bulk-test-cb');
+          if (cb) cb.checked = true;
+        });
         updateSelectedCount();
       });
       document.getElementById('recorded-bulk-deselect-all')?.addEventListener('click', () => {
-        checkboxes.forEach((cb) => { cb.checked = false; });
+        visibleItems().forEach((item) => {
+          const cb = item.querySelector('.recorded-bulk-test-cb');
+          if (cb) cb.checked = false;
+        });
         updateSelectedCount();
       });
+      document.getElementById('recorded-bulk-cancel')?.addEventListener('click', hideModal);
       updateSelectedCount();
+      applyFilters();
       document.getElementById('add-to-project-recorded-confirm')?.addEventListener('click', async () => {
         const recordedTestIds = checkboxes.filter((cb) => cb.checked).map((cb) => Number(cb.value)).filter(Boolean);
         if (recordedTestIds.length === 0) return;
@@ -1787,6 +2008,9 @@ async function viewPlaywrightRun(id) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // CodeMirror scripts loaded synchronously before this file, so init now.
+  initSpecEditor();
+  updateAutoFixToggle();
   document.getElementById('run-ui-tests-btn')?.addEventListener('click', () => showRunUiTestsPage());
   const runForm = document.getElementById('run-ui-tests-page-form');
   if (runForm) {

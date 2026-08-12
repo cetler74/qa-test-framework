@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DEO/ECP/EPS - QA Test Hub</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <!-- CodeMirror 5 for the Playwright spec editor -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/tomorrow-night-eighties.min.css" crossorigin="anonymous">
 </head>
 <body>
     <!-- Login view (shown when not authenticated) -->
@@ -688,117 +691,60 @@
 
             <!-- Add / Edit Recorded Test view -->
             <div id="add-recorded-test-view" class="view">
-                <div class="view-header">
-                    <button class="btn btn-secondary" id="back-from-recorded-test">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                        </svg>
-                        Back to UI Tests
-                    </button>
-                    <h2 id="recorded-test-form-title">Add recorded test</h2>
+                <!-- Header: back, title, and action buttons always visible -->
+                <div class="view-header recorded-test-view-header">
+                    <div class="view-header-left">
+                        <button class="btn btn-secondary" id="back-from-recorded-test">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                            </svg>
+                            Back to UI Tests
+                        </button>
+                        <h2 id="recorded-test-form-title">Add recorded test</h2>
+                    </div>
+                    <div class="view-header-actions">
+                        <button type="button" class="btn btn-amber" id="recorded-test-validate">Test recorded test</button>
+                        <button type="button" class="btn btn-secondary" id="recorded-test-cancel">Cancel</button>
+                        <button type="submit" form="recorded-test-form" class="btn btn-primary" id="recorded-test-save">Save</button>
+                    </div>
                 </div>
-                <div class="recorded-test-page">
-                    <p class="recorded-test-intro">Use Playwright Codegen to record browser interactions. Click "Launch Codegen" to open the browser and Inspector automatically, or copy the command to run it manually in a terminal.</p>
-                    <p class="recorded-test-docs">For more information, view the documentation at <a href="https://playwright.dev/docs/intro" target="_blank" rel="noopener noreferrer">https://playwright.dev/docs/intro</a>.</p>
-                    <div class="recorded-test-example">
-                        <strong class="recorded-test-example-title">Example — what you can record</strong>
-                        <p class="recorded-test-example-desc">Access page https://www.meo.pt/empresas/ and search for text "connect" and click it. Codegen will generate code like:</p>
-                        <pre class="recorded-test-example-code"><code>import { test, expect } from '@playwright/test';
+
+                <!-- Form wraps the two-panel layout so all inputs are associated -->
+                <form id="recorded-test-form" class="recorded-test-layout">
+                    <input type="hidden" id="recorded-test-id" value="" />
+
+                    <!-- ── LEFT PANEL: info + metadata ── -->
+                    <div class="recorded-test-left-panel">
+
+                        <div class="recorded-test-info-box">
+                            <p>Use Playwright Codegen to record browser interactions. Click <strong>"Launch Codegen"</strong> to open the browser and Inspector automatically, or copy the command to run it manually in a terminal.</p>
+                            <p style="margin-top:8px">For more information, view the documentation at <a href="https://playwright.dev/docs/intro" target="_blank" rel="noopener noreferrer">https://playwright.dev/docs/intro</a>.</p>
+                        </div>
+
+                        <details class="recorded-test-example">
+                            <summary class="recorded-test-example-title">Example — what you can record</summary>
+                            <p class="recorded-test-example-desc">Access page https://www.meo.pt/empresas/ and search for text "connect" and click it. Codegen will generate code like:</p>
+                            <pre class="recorded-test-example-code"><code>import { test, expect } from '@playwright/test';
 
 test('test', async ({ page }) => {
   await page.goto('https://www.meo.pt/empresas');
   await page.getByRole('button', { name: 'CONCORDO' }).click();
   await page.getByLabel('Navegação principal').getByRole('menuitem', { name: 'Connect' }).click();
 });</code></pre>
-                    </div>
-                    <div class="form-group">
-                        <label for="recorded-test-codegen-url">Base URL for recording</label>
-                        <div class="input-with-button">
-                            <input type="url" id="recorded-test-codegen-url" placeholder="https://example.com" />
-                            <button type="button" class="btn btn-primary" id="launch-codegen-btn">Launch Codegen</button>
-                            <button type="button" class="btn btn-secondary" id="copy-codegen-cmd-btn">Copy command</button>
-                        </div>
-                    </div>
+                        </details>
 
-                    <!-- Remote Codegen noVNC panel (hidden by default; shown when a remote session is active) -->
-                    <div id="codegen-vnc-panel" class="codegen-vnc-panel" style="display: none;">
-                        <div class="codegen-vnc-header">
-                            <div class="codegen-vnc-status">
-                                <span class="codegen-vnc-indicator"></span>
-                                <span id="codegen-vnc-status-text">Recording session active</span>
-                            </div>
-                            <div class="codegen-vnc-timer">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                <span id="codegen-vnc-timer-text">00:00</span>
-                                <span id="codegen-vnc-remaining" class="codegen-vnc-remaining"></span>
-                            </div>
-                            <button type="button" class="btn btn-secondary" id="codegen-vnc-fullscreen-btn" title="Expand viewer to full screen">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                                </svg>
-                                Full screen
-                            </button>
-                            <button type="button" class="btn btn-error" id="stop-codegen-btn">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-                                </svg>
-                                Stop Recording
-                            </button>
-                        </div>
-                        <div class="codegen-vnc-info-box" id="codegen-vnc-connecting-msg">
-                            <p><strong>Status:</strong> Connecting to remote desktop…</p>
-                            <p class="codegen-vnc-info-detail">The viewer below shows the remote browser. A black screen is normal at first — the browser often takes <strong>20–30 seconds</strong> to start. Check the status bar inside the viewer (above the black area) for connection state and hints.</p>
-                        </div>
-                        <div class="codegen-vnc-frame-wrap" id="codegen-vnc-frame-wrap">
-                            <iframe id="codegen-vnc-iframe" class="codegen-vnc-iframe" src="" allow="clipboard-read; clipboard-write" title="Remote Codegen browser"></iframe>
-                            <button type="button" class="codegen-vnc-exit-fullscreen-btn" id="codegen-vnc-exit-fullscreen-btn" title="Exit full screen (Esc)">Exit full screen</button>
-                            <!-- Floating overlay controls — visible in fullscreen so Stop Recording is always reachable -->
-                            <div class="codegen-vnc-frame-overlay-controls" id="codegen-vnc-frame-overlay-controls">
-                                <button type="button" class="codegen-vnc-frame-stop-btn" id="codegen-vnc-frame-stop-btn" title="Stop Recording">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="14" height="14">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-                                    </svg>
-                                    Stop Recording
-                                </button>
-                                <button type="button" class="codegen-vnc-frame-fullscreen-exit-btn" id="codegen-vnc-frame-fullscreen-exit-btn" title="Exit full screen (Esc)">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="14" height="14">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                    Exit full screen
-                                </button>
-                            </div>
-                        </div>
-                        <p class="codegen-vnc-hint">Interact with the browser above to record your test. When done, click <strong>Stop Recording</strong> to save the generated code. If it never appears, see the status bar in the viewer or the browser console (F12) for errors.</p>
-                    </div>
-
-                    <form id="recorded-test-form">
-                        <input type="hidden" id="recorded-test-id" value="" />
                         <div class="form-group">
                             <label for="recorded-test-name">Test name <span class="required">*</span></label>
                             <input type="text" id="recorded-test-name" required placeholder="e.g. Login flow" />
                         </div>
+
                         <div class="form-group" id="recorded-test-add-to-project-wrap">
                             <label for="recorded-test-add-to-project">Project <span class="required">*</span></label>
                             <select id="recorded-test-add-to-project">
                                 <option value="">Select project...</option>
                             </select>
                         </div>
-                        <div class="form-group">
-                            <label for="recorded-test-spec">Generated spec (paste from Codegen) <span class="required">*</span></label>
-                            <div class="input-with-button" style="margin-bottom: 8px;">
-                                <button type="button" class="btn btn-secondary" id="load-codegen-output-btn" style="display: none;">Load generated code</button>
-                                <button type="button" class="btn btn-secondary" id="auto-refresh-codegen-btn" style="display: none;">Auto-refresh: OFF</button>
-                            </div>
-                            <textarea id="recorded-test-spec" rows="14" placeholder="Paste the test code from Playwright Inspector here, or click 'Launch Codegen' and then 'Load generated code' to automatically load it (test(..., async ({ page }) => { ... }))" spellcheck="false"></textarea>
-                            <span class="form-hint" id="recorded-test-validation-hint">Run a draft validation to check this generated spec before saving. Draft validations do not create test runs or reports.</span>
-                        </div>
-                        <div class="form-group">
-                            <button type="button" class="btn btn-secondary" id="recorded-test-validate">Test recorded test</button>
-                        </div>
+
                         <div class="form-group" id="recorded-test-detected-vars-wrap" style="display:none;">
                             <label>Detected UI variables</label>
                             <div class="input-with-button" style="margin-bottom: 8px;">
@@ -810,15 +756,109 @@ test('test', async ({ page }) => {
                             <div id="recorded-test-detected-vars" class="single-test-vars-list"></div>
                             <span class="form-hint">Placeholders such as ${suffix} can be edited here and are resolved at run time from the selected UI Test Variable group.</span>
                         </div>
-                        <div class="form-actions">
-                            <button type="button" class="btn btn-secondary" id="recorded-test-cancel">Cancel</button>
-                            <button type="submit" class="btn btn-primary" id="recorded-test-save">Save</button>
-                        </div>
-                        <div id="recorded-test-validation-results" style="display:none; margin-top: 16px;"></div>
-                    </form>
-                </div>
-            </div>
 
+                    </div><!-- /left panel -->
+
+                    <!-- ── RIGHT PANEL: URL + VNC + spec editor ── -->
+                    <div class="recorded-test-right-panel">
+
+                        <!-- Base URL strip — full width above the code editor -->
+                        <div class="recorded-test-url-strip">
+                            <label>Base URL for recording</label>
+                            <div class="input-with-button">
+                                <input type="url" id="recorded-test-codegen-url" placeholder="https://example.com" />
+                                <button type="button" class="btn btn-primary" id="launch-codegen-btn">Launch Codegen</button>
+                                <button type="button" class="btn btn-secondary" id="copy-codegen-cmd-btn">Copy command</button>
+                            </div>
+                        </div>
+
+                        <!-- Remote Codegen noVNC panel (hidden by default) -->
+                        <div id="codegen-vnc-panel" class="codegen-vnc-panel" style="display: none;">
+                            <div class="codegen-vnc-header">
+                                <div class="codegen-vnc-status">
+                                    <span class="codegen-vnc-indicator"></span>
+                                    <span id="codegen-vnc-status-text">Recording session active</span>
+                                </div>
+                                <div class="codegen-vnc-timer">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span id="codegen-vnc-timer-text">00:00</span>
+                                    <span id="codegen-vnc-remaining" class="codegen-vnc-remaining"></span>
+                                </div>
+                                <button type="button" class="btn btn-secondary" id="codegen-vnc-fullscreen-btn" title="Expand viewer to full screen">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                                    </svg>
+                                    Full screen
+                                </button>
+                                <button type="button" class="btn btn-error" id="stop-codegen-btn">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                                    </svg>
+                                    Stop Recording
+                                </button>
+                            </div>
+                            <div class="codegen-vnc-info-box" id="codegen-vnc-connecting-msg">
+                                <p><strong>Status:</strong> Connecting to remote desktop…</p>
+                                <p class="codegen-vnc-info-detail">The viewer below shows the remote browser. A black screen is normal at first — the browser often takes <strong>20–30 seconds</strong> to start. Check the status bar inside the viewer (above the black area) for connection state and hints.</p>
+                            </div>
+                            <div class="codegen-vnc-frame-wrap" id="codegen-vnc-frame-wrap">
+                                <iframe id="codegen-vnc-iframe" class="codegen-vnc-iframe" src="" allow="clipboard-read; clipboard-write" title="Remote Codegen browser"></iframe>
+                                <button type="button" class="codegen-vnc-exit-fullscreen-btn" id="codegen-vnc-exit-fullscreen-btn" title="Exit full screen (Esc)">Exit full screen</button>
+                                <div class="codegen-vnc-frame-overlay-controls" id="codegen-vnc-frame-overlay-controls">
+                                    <button type="button" class="codegen-vnc-frame-stop-btn" id="codegen-vnc-frame-stop-btn" title="Stop Recording">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="14" height="14">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                                        </svg>
+                                        Stop Recording
+                                    </button>
+                                    <button type="button" class="codegen-vnc-frame-fullscreen-exit-btn" id="codegen-vnc-frame-fullscreen-exit-btn" title="Exit full screen (Esc)">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="14" height="14">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                        Exit full screen
+                                    </button>
+                                </div>
+                            </div>
+                            <p class="codegen-vnc-hint">Interact with the browser above to record your test. When done, click <strong>Stop Recording</strong> to save the generated code.</p>
+                        </div>
+
+                        <!-- Spec toolbar -->
+                        <div class="recorded-spec-toolbar">
+                            <div class="recorded-spec-toolbar-left">
+                                <span class="recorded-spec-label">Generated spec <span class="required">*</span></span>
+                                <span class="recorded-spec-lang-badge">Playwright · JS</span>
+                                <span class="recorded-spec-stats" id="recorded-spec-stats"></span>
+                            </div>
+                            <div class="recorded-spec-toolbar-right">
+                                <button type="button" class="btn btn-secondary" id="load-codegen-output-btn" style="display: none;">Load generated code</button>
+                                <button type="button" class="btn btn-secondary" id="auto-refresh-codegen-btn" style="display: none;">Auto-refresh: OFF</button>
+                                <button type="button" class="btn btn-secondary" id="auto-fix-spec-btn" title="Toggle automatic template transformation on paste / load">Auto-fix: ON</button>
+                                <button type="button" class="btn btn-secondary" id="apply-spec-fixes-btn" title="Apply robust helper template to the current spec now">Apply fixes</button>
+                                <button type="button" class="btn btn-secondary" id="copy-spec-btn">Copy</button>
+                                <button type="button" class="btn btn-secondary" id="clear-spec-btn">Clear</button>
+                            </div>
+                        </div>
+
+                        <!-- CodeMirror attaches to the textarea on init -->
+                        <div class="recorded-spec-editor-wrap">
+                            <textarea id="recorded-test-spec"
+                                placeholder="Paste the test code from Playwright Inspector here, or click 'Launch Codegen' and then 'Load generated code' to automatically load it (test(..., async ({ page }) => { ... }))"
+                                spellcheck="false"></textarea>
+                        </div>
+
+                        <!-- Hint + validation results -->
+                        <div class="recorded-spec-footer">
+                            <span class="form-hint" id="recorded-test-validation-hint">Run a draft validation to check this generated spec before saving. Draft validations do not create test runs or reports.</span>
+                            <div id="recorded-test-validation-results" style="display:none; margin-top: 12px;"></div>
+                        </div>
+
+                    </div><!-- /right panel -->
+                </form>
+            </div>
             <!-- Project recorded tests (manage which recorded tests are in this project) -->
             <div id="project-recorded-tests-view" class="view">
                 <div class="view-header">
@@ -1070,6 +1110,8 @@ test('test', async ({ page }) => {
 
     <script src="/js/app.js"></script>
     <script src="/js/testRunner.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/js/projectManager.js"></script>
     <script src="/js/reportViewer.js"></script>
