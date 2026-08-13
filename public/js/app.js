@@ -193,6 +193,9 @@ function closeUserDropdown() {
 
 // Modal management
 function showModal(title, content) {
+  const modal = document.querySelector('#modal-overlay .modal');
+  if (modal) modal.className = 'modal';
+  document.querySelector('.modal-header-actions')?.remove();
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-body').innerHTML = content;
   document.getElementById('modal-overlay').classList.add('active');
@@ -1213,15 +1216,57 @@ async function loadUserManagement() {
   }
 }
 
-// ===== My Environments modal (accessible from the user dropdown) =====
+// ===== My Environments modal — master-detail layout =====
 function showUserEnvironmentsModal() {
-  const expandedEnvIds = new Set();
-  const revealedEnvIds = new Set();
-  let searchText = '';
-  let sortMode = 'name';
+  let searchText = '', sortMode = 'name', typeFilter = 'all';
+  let selectedEnvId = null, revealSecrets = false, varFilterText = '';
+
+  const UI_TEST_VARIABLES_STORAGE_KEY = 'qa_ui_test_variable_groups';
+
+  function loadUiEnvironmentGroups() {
+    if (typeof window.getSavedUiTestVariableGroups === 'function') {
+      return window.getSavedUiTestVariableGroups();
+    }
+    try {
+      const raw = localStorage.getItem(UI_TEST_VARIABLES_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((group) => group && group.id && group.name) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveUiEnvironmentGroups(groups) {
+    localStorage.setItem(UI_TEST_VARIABLES_STORAGE_KEY, JSON.stringify(Array.isArray(groups) ? groups : []));
+  }
+
+  function getEnvironmentItems() {
+    const apiItems = (window._userEnvsCache || []).map((env) => ({
+      id: `api:${env.id}`,
+      rawId: String(env.id),
+      kind: 'api',
+      typeLabel: 'API',
+      usedBy: 'API collection tests',
+      name: env.name || 'Unnamed environment',
+      variables: Object.fromEntries(Object.entries(env || {}).filter(([key]) => key !== 'id' && key !== 'name')),
+      original: env
+    }));
+    const uiItems = loadUiEnvironmentGroups().map((group) => ({
+      id: `ui:${group.id}`,
+      rawId: String(group.id),
+      kind: 'ui',
+      typeLabel: 'UI',
+      usedBy: 'UI recorded tests',
+      name: group.name || 'Unnamed UI environment',
+      variables: group.variables && typeof group.variables === 'object' ? group.variables : {},
+      original: group
+    }));
+    return [...apiItems, ...uiItems];
+  }
 
   function envEntries(env) {
-    return Object.entries(env || {}).filter(([key]) => key !== 'id' && key !== 'name');
+    const source = env && env.variables && typeof env.variables === 'object' ? env.variables : env;
+    return Object.entries(source || {}).filter(([key]) => key !== 'id' && key !== 'name');
   }
 
   function isSensitiveKey(key) {
@@ -1238,334 +1283,294 @@ function showUserEnvironmentsModal() {
     return `${count} variable${count === 1 ? '' : 's'}`;
   }
 
-  function getPreviewEntries(entries) {
-    const priority = ['baseurl', 'base_url', 'baseurlauth', 'endpoint', 'url', 'phonenumber', 'phone_number', 'clientid', 'client_id'];
-    const used = new Set();
-    const picked = [];
-    priority.forEach(priorityKey => {
-      const match = entries.find(([key]) => String(key).toLowerCase() === priorityKey);
-      if (match && !used.has(match[0])) {
-        picked.push(match);
-        used.add(match[0]);
-      }
-    });
-    entries.forEach(entry => {
-      if (picked.length >= 4) return;
-      if (!used.has(entry[0])) {
-        picked.push(entry);
-        used.add(entry[0]);
-      }
-    });
-    return picked;
-  }
-
   function getFilteredEnvs() {
     const query = searchText.trim().toLowerCase();
-    let envs = [...(window._userEnvsCache || [])];
-    if (query) {
-      envs = envs.filter(env => {
-        const name = String(env.name || '').toLowerCase();
-        const keys = envEntries(env).map(([key]) => String(key).toLowerCase());
-        return name.includes(query) || keys.some(key => key.includes(query));
-      });
-    }
-    envs.sort((a, b) => {
-      if (sortMode === 'variables') return envEntries(b).length - envEntries(a).length || String(a.name || '').localeCompare(String(b.name || ''));
-      return String(a.name || '').localeCompare(String(b.name || ''));
+    let envs = getEnvironmentItems();
+    if (typeFilter !== 'all') envs = envs.filter(e => e.kind === typeFilter);
+    if (query) envs = envs.filter(e => {
+      const keys = envEntries(e).map(([k]) => k.toLowerCase());
+      return String(e.name).toLowerCase().includes(query)
+        || String(e.typeLabel).toLowerCase().includes(query)
+        || keys.some(k => k.includes(query));
     });
+    envs.sort((a, b) => sortMode === 'variables'
+      ? envEntries(b).length - envEntries(a).length || a.name.localeCompare(b.name)
+      : a.name.localeCompare(b.name));
     return envs;
   }
 
   function buildUniqueCopyName(baseName) {
-    const names = new Set((window._userEnvsCache || []).map(env => String(env.name || '').toLowerCase()));
+    const names = new Set(getEnvironmentItems().map(e => e.name.toLowerCase()));
     let candidate = `Copy of ${baseName || 'Environment'}`;
     let suffix = 2;
-    while (names.has(candidate.toLowerCase())) {
-      candidate = `Copy of ${baseName || 'Environment'} ${suffix}`;
-      suffix += 1;
-    }
+    while (names.has(candidate.toLowerCase())) { candidate = `Copy of ${baseName || 'Environment'} ${suffix}`; suffix++; }
     return candidate;
   }
 
-  async function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    document.execCommand('copy');
-    textarea.remove();
+  function findEnvironmentItem(id) { return getEnvironmentItems().find(e => String(e.id) === String(id)); }
+
+  function duplicateUiEnvironment(group) {
+    const groups = loadUiEnvironmentGroups();
+    saveUiEnvironmentGroups([...groups, { id: `ui-var-group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: buildUniqueCopyName(group.name || ''), variables: { ...(group.variables || {}) } }]);
   }
 
-  function renderList() {
-    const allEnvs = window._userEnvsCache || [];
+  function deleteUiEnvironment(groupId) {
+    saveUiEnvironmentGroups(loadUiEnvironmentGroups().filter(g => String(g.id) !== String(groupId)));
+  }
+
+  function openUiEnvironmentManager(groupId = '') {
+    hideModal();
+    setTimeout(() => {
+      if (typeof window.showUiTestVariableGroupsManager === 'function') {
+        window.showUiTestVariableGroupsManager(() => { open(); }, groupId || '', { proposedVariables: [] });
+      } else {
+        alert('UI environment manager is not available. Refresh and try again.'); open();
+      }
+    }, 50);
+  }
+
+  function exportCombinedEnvironments() {
+    const items = getEnvironmentItems();
+    if (!items.length) { alert('No environments to export.'); return; }
+    const payload = items.map(e => ({ name: e.name, type: e.kind, variables: Object.fromEntries(envEntries(e)) }));
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'my-environments-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return; }
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.cssText = 'position:fixed;opacity:0;'; document.body.appendChild(ta);
+    ta.focus(); ta.select(); document.execCommand('copy'); ta.remove();
+  }
+
+  // ── Sidebar ───────────────────────────────────────────────────────────────
+
+  function renderSidebarItems() {
     const envs = getFilteredEnvs();
-    if (allEnvs.length === 0) {
-      return '<p class="user-env-empty">No environments saved yet. Click <strong>New</strong> to create one.</p>';
-    }
-    if (envs.length === 0) {
-      return '<p class="user-env-empty">No environments match your search.</p>';
+    if (!envs.length) {
+      const msg = typeFilter !== 'all' || searchText.trim()
+        ? 'No environments match.'
+        : 'No environments saved. Click <strong>New API</strong> or <strong>New UI</strong>.';
+      return `<p class="user-env-empty">${msg}</p>`;
     }
     return envs.map(e => {
-      const envId = String(e.id);
-      const entries = envEntries(e);
-      const expanded = expandedEnvIds.has(envId);
-      const revealSecrets = revealedEnvIds.has(envId);
-      const safeName = escapeHtmlLite(e.name || 'Unnamed environment');
-      const preview = getPreviewEntries(entries).map(([key, value]) => `
-        <span class="user-env-chip${isSensitiveKey(key) ? ' user-env-chip-secret' : ''}">
-          <strong>${escapeHtmlLite(key)}</strong>
-          <span>${escapeHtmlLite(displayValue(key, value, false))}</span>
-        </span>
-      `).join('');
-      const details = expanded ? `
-        <div class="user-env-details">
-          <div class="user-env-details-toolbar">
-            <span>${variableLabel(entries.length)}</span>
-            ${entries.some(([key]) => isSensitiveKey(key)) ? `<button type="button" class="btn btn-sm btn-secondary user-env-reveal" data-env-id="${envId}">${revealSecrets ? 'Hide values' : 'Show values'}</button>` : ''}
-          </div>
-          <div class="user-env-var-grid">
-            ${entries.length ? entries.map(([key, value]) => `
-              <div class="user-env-var-key">${escapeHtmlLite(key)}</div>
-              <div class="user-env-var-value${isSensitiveKey(key) && !revealSecrets ? ' user-env-secret' : ''}">${escapeHtmlLite(displayValue(key, value, revealSecrets))}</div>
-            `).join('') : '<div class="user-env-var-empty">No variables saved in this environment.</div>'}
-          </div>
-        </div>
-      ` : '';
+      const envId = e.id;
+      const count = envEntries(e).length;
       return `
-        <div class="user-env-card" data-env-id="${envId}">
-          <div class="user-env-card-header">
-            <div class="user-env-title-wrap">
-              <strong>${safeName}</strong>
-              <span>${variableLabel(entries.length)}</span>
-            </div>
-            <div class="user-env-card-actions">
-              <button type="button" class="btn btn-sm btn-secondary user-env-toggle" data-env-id="${envId}">${expanded ? 'Hide variables' : 'View variables'}</button>
-              <button type="button" class="btn btn-sm btn-secondary user-env-copy-json" data-env-id="${envId}">Copy JSON</button>
-              <button type="button" class="btn btn-sm btn-secondary user-env-duplicate" data-env-id="${envId}">Duplicate</button>
-              <button type="button" class="btn btn-sm btn-secondary user-env-edit" data-env-id="${envId}">Edit</button>
-              <button type="button" class="btn btn-sm btn-danger user-env-delete" data-env-id="${envId}">Delete</button>
-            </div>
-          </div>
-          <div class="user-env-summary">
-            <div class="user-env-preview">${preview || '<em>No variables</em>'}</div>
-          </div>
-          ${details}
-        </div>
+        <button type="button" class="user-env-sidebar-item${selectedEnvId === envId ? ' active' : ''}" data-env-id="${escapeHtmlLite(envId)}">
+          <span class="user-env-sidebar-item-body">
+            <span class="user-env-sidebar-item-name">${escapeHtmlLite(e.name)}</span>
+            <span class="user-env-kind-badge user-env-kind-${escapeHtmlLite(e.kind)}">${escapeHtmlLite(e.typeLabel)}</span>
+          </span>
+          <span class="user-env-sidebar-item-meta">${count} var${count === 1 ? '' : 's'}</span>
+        </button>
       `;
     }).join('');
   }
 
-  function updateList() {
-    const list = document.getElementById('user-envs-list');
-    if (list) list.innerHTML = renderList();
-    wireListButtons();
+  function updateSidebar() {
+    const el = document.getElementById('user-env-sidebar-list');
+    if (!el) return;
+    el.innerHTML = renderSidebarItems();
+    el.querySelectorAll('.user-env-sidebar-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-env-id');
+        if (selectedEnvId === id) { selectedEnvId = null; } else { selectedEnvId = id; varFilterText = ''; revealSecrets = false; }
+        updateSidebar();
+        updateDetail();
+      });
+    });
   }
+
+  // ── Detail panel ──────────────────────────────────────────────────────────
+
+  function renderDetailPanel() {
+    if (!selectedEnvId) return `
+      <div class="user-env-detail-empty">
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7a2 2 0 012-2h12a2 2 0 012 2M4 7h16M10 12h4" />
+        </svg>
+        <p>Select an environment from the list to view and manage its variables.</p>
+      </div>`;
+
+    const env = findEnvironmentItem(selectedEnvId);
+    if (!env) return `<div class="user-env-detail-empty"><p>Environment not found.</p></div>`;
+
+    const entries = envEntries(env);
+    const q = varFilterText.trim().toLowerCase();
+    const filtered = q ? entries.filter(([k, v]) => k.toLowerCase().includes(q) || String(v || '').toLowerCase().includes(q)) : entries;
+    const hasSensitive = entries.some(([k]) => isSensitiveKey(k));
+
+    const rowsHtml = filtered.length
+      ? filtered.map(([k, v]) => `
+          <div class="user-env-var-key">${escapeHtmlLite(k)}</div>
+          <div class="user-env-var-value${isSensitiveKey(k) && !revealSecrets ? ' user-env-secret' : ''}">${escapeHtmlLite(displayValue(k, v, revealSecrets))}</div>
+        `).join('')
+      : `<div class="user-env-var-empty" style="grid-column:1/-1;">${q ? 'No variables match this filter.' : 'No variables saved in this environment.'}</div>`;
+
+    return `
+      <div class="user-env-detail-header">
+        <div class="user-env-detail-title">
+          <div class="user-env-title-line">
+            <h3>${escapeHtmlLite(env.name)}</h3>
+            <span class="user-env-kind-badge user-env-kind-${escapeHtmlLite(env.kind)}">${escapeHtmlLite(env.typeLabel)}</span>
+          </div>
+          <p class="muted">${variableLabel(entries.length)} · ${escapeHtmlLite(env.usedBy)}</p>
+        </div>
+        <div class="user-env-detail-actions">
+          <button type="button" class="btn btn-sm btn-secondary user-env-edit">Edit</button>
+          <button type="button" class="btn btn-sm btn-secondary user-env-copy-json">Copy JSON</button>
+          <button type="button" class="btn btn-sm btn-secondary user-env-duplicate">Duplicate</button>
+          <button type="button" class="btn btn-sm btn-danger user-env-delete">Delete</button>
+        </div>
+      </div>
+      <div class="user-env-detail-toolbar">
+        <input type="search" id="user-env-var-search" class="form-control" placeholder="Filter variables…" value="${escapeHtmlLite(varFilterText)}" autocomplete="off">
+        ${hasSensitive ? `<button type="button" class="btn btn-sm btn-secondary" id="user-env-reveal-toggle">${revealSecrets ? 'Hide values' : 'Show values'}</button>` : ''}
+      </div>
+      <div class="user-env-var-grid user-env-detail-grid">
+        ${rowsHtml}
+      </div>
+    `;
+  }
+
+  function updateDetail() {
+    const el = document.getElementById('user-env-detail-panel');
+    if (!el) return;
+    el.innerHTML = renderDetailPanel();
+    document.getElementById('user-env-var-search')?.addEventListener('input', ev => { varFilterText = ev.target.value || ''; updateDetail(); });
+    document.getElementById('user-env-reveal-toggle')?.addEventListener('click', () => { revealSecrets = !revealSecrets; updateDetail(); });
+    document.querySelector('.user-env-copy-json')?.addEventListener('click', async () => {
+      const env = findEnvironmentItem(selectedEnvId);
+      if (!env) return;
+      try {
+        await copyText(JSON.stringify({ name: env.name, type: env.kind, variables: Object.fromEntries(envEntries(env)) }, null, 2));
+        const btn = document.querySelector('.user-env-copy-json');
+        if (btn) { const t = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = t; }, 1200); }
+      } catch (err) { alert('Could not copy: ' + (err.message || err)); }
+    });
+    document.querySelector('.user-env-duplicate')?.addEventListener('click', async () => {
+      const env = findEnvironmentItem(selectedEnvId);
+      if (!env) return;
+      if (env.kind === 'ui') { duplicateUiEnvironment(env.original); updateSidebar(); return; }
+      try {
+        const payload = { name: buildUniqueCopyName(env.name), ...Object.fromEntries(envEntries(env)) };
+        if (typeof createSavedEnv === 'function') await createSavedEnv(payload);
+        else { const cr = await apiRequest('/user/environments', { method: 'POST', body: payload }); window._userEnvsCache = [...(window._userEnvsCache || []), cr]; }
+        if (typeof populateEnvSelect === 'function') populateEnvSelect();
+        updateSidebar();
+      } catch (err) { alert('Error duplicating: ' + (err.message || err)); }
+    });
+    document.querySelector('.user-env-delete')?.addEventListener('click', async () => {
+      const env = findEnvironmentItem(selectedEnvId);
+      if (!env) return;
+      if (!confirm(`Delete "${env.name}" with ${variableLabel(envEntries(env).length)}?`)) return;
+      if (env.kind === 'ui') { deleteUiEnvironment(env.rawId); selectedEnvId = null; updateSidebar(); updateDetail(); return; }
+      try {
+        if (typeof deleteSavedEnv === 'function') await deleteSavedEnv(env.rawId);
+        else { await apiRequest(`/user/environments/${env.rawId}`, { method: 'DELETE' }); window._userEnvsCache = (window._userEnvsCache || []).filter(e => String(e.id) !== String(env.rawId)); }
+        if (typeof populateEnvSelect === 'function') populateEnvSelect();
+        selectedEnvId = null; updateSidebar(); updateDetail();
+      } catch (err) { alert('Error deleting: ' + (err.message || err)); }
+    });
+    document.querySelector('.user-env-edit')?.addEventListener('click', () => {
+      const env = findEnvironmentItem(selectedEnvId);
+      if (!env) return;
+      if (env.kind === 'ui') { openUiEnvironmentManager(env.rawId); return; }
+      hideModal();
+      setTimeout(() => openEnvEditor(env.original, open), 50);
+    });
+  }
+
+  // ── Modal shell ───────────────────────────────────────────────────────────
 
   function open() {
     const content = `
-      <div class="user-env-toolbar">
-        <div class="user-env-search-wrap">
-          <input type="search" id="user-env-search" class="form-control" placeholder="Search environments or variable names" value="${escapeHtmlLite(searchText)}">
-        </div>
-        <select id="user-env-sort" class="form-control" aria-label="Sort environments">
-          <option value="name" ${sortMode === 'name' ? 'selected' : ''}>Name A-Z</option>
-          <option value="variables" ${sortMode === 'variables' ? 'selected' : ''}>Most variables</option>
-        </select>
+      <div class="user-env-manager-layout">
+        <aside class="user-env-sidebar">
+          <div class="user-env-sidebar-toolbar">
+            <input type="search" id="user-env-search" class="form-control" placeholder="Search…" value="${escapeHtmlLite(searchText)}" autocomplete="off">
+            <select id="user-env-sort" class="form-control" aria-label="Sort">
+              <option value="name" ${sortMode === 'name' ? 'selected' : ''}>Name A-Z</option>
+              <option value="variables" ${sortMode === 'variables' ? 'selected' : ''}>Most variables</option>
+            </select>
+          </div>
+          <div class="user-env-type-tabs">
+            <button type="button" class="user-env-type-tab ${typeFilter === 'all' ? 'active' : ''}" data-env-type="all">All</button>
+            <button type="button" class="user-env-type-tab ${typeFilter === 'api' ? 'active' : ''}" data-env-type="api">API</button>
+            <button type="button" class="user-env-type-tab ${typeFilter === 'ui' ? 'active' : ''}" data-env-type="ui">UI</button>
+          </div>
+          <div id="user-env-sidebar-list" class="user-env-sidebar-list"></div>
+        </aside>
+        <div class="user-env-detail" id="user-env-detail-panel"></div>
       </div>
-      <div id="user-envs-list">${renderList()}</div>
       <div class="user-env-footer">
         <div class="user-env-footer-actions">
-          <button class="btn btn-primary btn-sm" id="user-env-new-btn">New</button>
-          <button class="btn btn-secondary btn-sm" id="user-env-export-btn" title="Export all environments to a JSON file">Export</button>
+          <button class="btn btn-primary btn-sm" id="user-env-new-btn">New API</button>
+          <button class="btn btn-secondary btn-sm" id="user-env-new-ui-btn">New UI</button>
+          <button class="btn btn-secondary btn-sm" id="user-env-export-btn">Export</button>
           <label class="btn btn-secondary btn-sm user-env-import-label">Import<input type="file" id="user-env-import-input" accept=".json,application/json" style="display:none;"></label>
         </div>
         <button class="btn btn-secondary" id="user-envs-close-btn">Close</button>
       </div>
     `;
     showModal('My Environments', content);
-    wireButtons();
-  }
-
-  function wireButtons() {
+    updateSidebar();
+    updateDetail();
     document.getElementById('user-envs-close-btn')?.addEventListener('click', hideModal);
-
-    document.getElementById('user-env-search')?.addEventListener('input', (ev) => {
-      searchText = ev.target.value || '';
-      updateList();
+    document.getElementById('user-env-search')?.addEventListener('input', ev => { searchText = ev.target.value || ''; updateSidebar(); });
+    document.getElementById('user-env-sort')?.addEventListener('change', ev => { sortMode = ev.target.value || 'name'; updateSidebar(); });
+    document.querySelectorAll('.user-env-type-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        typeFilter = tab.getAttribute('data-env-type') || 'all';
+        document.querySelectorAll('.user-env-type-tab').forEach(t => t.classList.toggle('active', t === tab));
+        updateSidebar();
+      });
     });
-
-    document.getElementById('user-env-sort')?.addEventListener('change', (ev) => {
-      sortMode = ev.target.value || 'name';
-      updateList();
-    });
-
-    document.getElementById('user-env-new-btn')?.addEventListener('click', () => {
-      hideModal();
-      setTimeout(() => openEnvEditor(null, open), 50);
-    });
-
-    // Export — opens selection modal
-    document.getElementById('user-env-export-btn')?.addEventListener('click', () => {
-      hideModal();
-      setTimeout(() => showEnvExportModal(open), 50);
-    });
-
-    // Import
-    document.getElementById('user-env-import-input')?.addEventListener('change', async (ev) => {
+    document.getElementById('user-env-new-btn')?.addEventListener('click', () => { hideModal(); setTimeout(() => openEnvEditor(null, open), 50); });
+    document.getElementById('user-env-new-ui-btn')?.addEventListener('click', () => { openUiEnvironmentManager(''); });
+    document.getElementById('user-env-export-btn')?.addEventListener('click', () => { exportCombinedEnvironments(); });
+    document.getElementById('user-env-import-input')?.addEventListener('change', async ev => {
       const file = ev.target.files && ev.target.files[0];
       if (!file) return;
       ev.target.value = '';
       let parsed;
-      try {
-        const text = await file.text();
-        parsed = JSON.parse(text);
-      } catch {
-        alert('Invalid JSON file. Please select a valid exported environments file.');
-        return;
-      }
+      try { const text = await file.text(); parsed = JSON.parse(text); }
+      catch { alert('Invalid JSON file.'); return; }
       const items = Array.isArray(parsed) ? parsed : [parsed];
       const valid = items.filter(item => item && typeof item === 'object' && typeof item.name === 'string' && item.name.trim());
-      if (valid.length === 0) {
-        alert('No valid environments found.\nExpected: [{ "name": "...", "variables": { "key": "value" } }]');
-        return;
-      }
-      // Always skip environments that already exist — only new ones are imported
-      const mode = 'skip';
-      let created = 0, updated = 0, skipped = 0, errors = 0;
+      if (!valid.length) { alert('No valid environments found.'); return; }
+      let created = 0, skipped = 0, errors = 0;
       for (const item of valid) {
         const name = item.name.trim();
+        const itemType = String(item.type || 'api').toLowerCase() === 'ui' ? 'ui' : 'api';
         const vars = (item.variables && typeof item.variables === 'object') ? item.variables : {};
-        const payload = { name, ...vars };
+        if (itemType === 'ui') {
+          const groups = loadUiEnvironmentGroups();
+          if (groups.find(g => g.name === name)) { skipped++; continue; }
+          saveUiEnvironmentGroups([...groups, { id: `ui-var-group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name, variables: vars }]);
+          created++; continue;
+        }
         const existing = (window._userEnvsCache || []).find(e => e.name === name);
         try {
-          if (existing) {
-            if (mode === 'overwrite') {
-              await (typeof updateSavedEnv === 'function'
-                ? updateSavedEnv(existing.id, payload)
-                : apiRequest(`/user/environments/${existing.id}`, { method: 'PUT', body: payload }).then(up => {
-                    window._userEnvsCache = (window._userEnvsCache || []).map(e => e.name === name ? up : e);
-                  }));
-              updated++;
-            } else skipped++;
-          } else {
-            await (typeof createSavedEnv === 'function'
-              ? createSavedEnv(payload)
-              : apiRequest('/user/environments', { method: 'POST', body: payload }).then(cr => {
-                  window._userEnvsCache = [...(window._userEnvsCache || []), cr];
-                }));
+          if (existing) { skipped++; }
+          else {
+            if (typeof createSavedEnv === 'function') await createSavedEnv({ name, ...vars });
+            else { const cr = await apiRequest('/user/environments', { method: 'POST', body: { name, ...vars } }); window._userEnvsCache = [...(window._userEnvsCache || []), cr]; }
             created++;
           }
         } catch { errors++; }
       }
       const parts = ['Import complete:'];
-      if (created) parts.push('  \u2022 ' + created + ' created');
-      if (updated) parts.push('  \u2022 ' + updated + ' updated');
-      if (skipped) parts.push('  \u2022 ' + skipped + ' skipped');
-      if (errors) parts.push('  \u2022 ' + errors + ' failed');
+      if (created) parts.push(`  \u2022 ${created} created`);
+      if (skipped) parts.push(`  \u2022 ${skipped} skipped`);
+      if (errors) parts.push(`  \u2022 ${errors} failed`);
       alert(parts.join('\n'));
-      updateList();
-    });
-
-    wireListButtons();
-  }
-
-  function wireListButtons() {
-    document.querySelectorAll('.user-env-toggle').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = btn.getAttribute('data-env-id');
-        if (expandedEnvIds.has(id)) {
-          expandedEnvIds.delete(id);
-          revealedEnvIds.delete(id);
-        } else {
-          expandedEnvIds.add(id);
-        }
-        updateList();
-      });
-    });
-
-    document.querySelectorAll('.user-env-reveal').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = btn.getAttribute('data-env-id');
-        if (revealedEnvIds.has(id)) revealedEnvIds.delete(id);
-        else revealedEnvIds.add(id);
-        updateList();
-      });
-    });
-
-    document.querySelectorAll('.user-env-copy-json').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const id = btn.getAttribute('data-env-id');
-        const env = (window._userEnvsCache || []).find(e => String(e.id) === id);
-        if (!env) return;
-        const { id: _id, name, ...variables } = env;
-        try {
-          await copyText(JSON.stringify({ name, variables }, null, 2));
-          btn.textContent = 'Copied';
-          setTimeout(() => { btn.textContent = 'Copy JSON'; }, 1200);
-        } catch (err) {
-          alert('Could not copy environment JSON: ' + (err.message || err));
-        }
-      });
-    });
-
-    document.querySelectorAll('.user-env-duplicate').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const id = btn.getAttribute('data-env-id');
-        const env = (window._userEnvsCache || []).find(e => String(e.id) === id);
-        if (!env) return;
-        const { id: _id, name, ...variables } = env;
-        const payload = { name: buildUniqueCopyName(name), ...variables };
-        try {
-          if (typeof createSavedEnv === 'function') {
-            await createSavedEnv(payload);
-          } else {
-            const created = await apiRequest('/user/environments', { method: 'POST', body: payload });
-            window._userEnvsCache = [...(window._userEnvsCache || []), created];
-          }
-          updateList();
-          if (typeof populateEnvSelect === 'function') populateEnvSelect();
-        } catch (err) {
-          alert('Error duplicating environment: ' + (err.message || err));
-        }
-      });
-    });
-
-    document.querySelectorAll('.user-env-delete').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const id = btn.getAttribute('data-env-id');
-        const env = (window._userEnvsCache || []).find(e => String(e.id) === id);
-        const varCount = env ? envEntries(env).length : 0;
-        if (!confirm(`Delete environment "${env ? env.name : id}" with ${variableLabel(varCount)}?`)) return;
-        try {
-          await (typeof deleteSavedEnv === 'function'
-            ? deleteSavedEnv(id)
-            : apiRequest(`/user/environments/${id}`, { method: 'DELETE' }).then(() => {
-                window._userEnvsCache = (window._userEnvsCache || []).filter(e => String(e.id) !== id);
-              }));
-          expandedEnvIds.delete(id);
-          revealedEnvIds.delete(id);
-          updateList();
-        } catch (err) {
-          alert('Error deleting: ' + (err.message || err));
-        }
-      });
-    });
-
-    document.querySelectorAll('.user-env-edit').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = btn.getAttribute('data-env-id');
-        const env = (window._userEnvsCache || []).find(e => String(e.id) === id);
-        if (!env) return;
-        hideModal();
-        setTimeout(() => openEnvEditor(env, open), 50);
-      });
+      selectedEnvId = null; updateSidebar(); updateDetail();
     });
   }
 
@@ -1908,56 +1913,206 @@ async function loadDashboard() {
 }
 
 // Projects
+const projectsPageState = {
+  projects: [],
+  uiCountsByProjectId: new Map(),
+  filterHandlersReady: false
+};
+
+function projectApiTestCount(project) {
+  const count = Number(project.api_test_count || 0);
+  return Number.isFinite(count) ? count : 0;
+}
+
+window.openProjectApiTests = async (projectId) => {
+  await window.viewProject(projectId);
+  document.getElementById('run-tests-btn')?.click();
+};
+
+window.openProjectUiTests = async (projectId) => {
+  await window.viewProject(projectId);
+  document.getElementById('run-ui-test-btn')?.click();
+};
+
+function projectOwnerInfo(project) {
+  const owner = project.owner || null;
+  return {
+    name: owner ? (owner.display_name || owner.username || 'Unknown owner') : 'No owner',
+    email: owner && owner.email ? owner.email : ''
+  };
+}
+
+function projectVisibilityInfo(project) {
+  const rawVisibility = String(project.visibility || 'private').toLowerCase();
+  const visibility = ['private', 'shared', 'public'].includes(rawVisibility) ? rawVisibility : 'private';
+  const label = visibility === 'private' ? 'Private' : visibility === 'shared' ? 'Shared' : 'Public';
+  return { visibility, label };
+}
+
+function setProjectsMetric(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = String(value);
+}
+
+function updateProjectsMetrics(projects) {
+  const total = projects.length;
+  const ongoing = projects.filter((project) => (window.normalizeProjectStatus ? window.normalizeProjectStatus(project.status) : 'ongoing') !== 'closed').length;
+  const apiTests = projects.reduce((sum, project) => sum + projectApiTestCount(project), 0);
+  const uiTests = projects.reduce((sum, project) => sum + (projectsPageState.uiCountsByProjectId.get(Number(project.id)) || 0), 0);
+  setProjectsMetric('projects-metric-total', total);
+  setProjectsMetric('projects-metric-ongoing', ongoing);
+  setProjectsMetric('projects-metric-api-specs', apiTests);
+  setProjectsMetric('projects-metric-ui-tests', uiTests);
+}
+
+function setupProjectsFilterHandlers() {
+  if (projectsPageState.filterHandlersReady) return;
+  projectsPageState.filterHandlersReady = true;
+  ['projects-search-input', 'projects-status-filter', 'projects-access-filter'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const eventName = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(eventName, renderProjectsList);
+  });
+}
+
+function getFilteredProjects() {
+  const query = String(document.getElementById('projects-search-input')?.value || '').trim().toLowerCase();
+  const statusFilter = String(document.getElementById('projects-status-filter')?.value || '');
+  const accessFilter = String(document.getElementById('projects-access-filter')?.value || '');
+
+  return projectsPageState.projects.filter((project) => {
+    const owner = projectOwnerInfo(project);
+    const visibility = projectVisibilityInfo(project);
+    const statusClass = window.normalizeProjectStatus ? window.normalizeProjectStatus(project.status) : 'ongoing';
+    const statusLabel = window.getProjectStatusLabel ? window.getProjectStatusLabel(project.status) : 'On going';
+    const apiTestCount = projectApiTestCount(project);
+    const uiTestCount = projectsPageState.uiCountsByProjectId.get(Number(project.id)) || 0;
+    const haystack = [
+      project.name,
+      project.description,
+      owner.name,
+      owner.email,
+      visibility.label,
+      statusLabel,
+      `${apiTestCount} api tests`,
+      `${uiTestCount} ui tests`
+    ].filter(Boolean).join(' ').toLowerCase();
+    return (!query || haystack.includes(query))
+      && (!statusFilter || statusClass === statusFilter)
+      && (!accessFilter || visibility.visibility === accessFilter);
+  });
+}
+
+function renderProjectsList() {
+  const projectsList = document.getElementById('projects-list');
+  const summaryEl = document.getElementById('projects-list-summary');
+  if (!projectsList) return;
+
+  const allProjects = projectsPageState.projects;
+  const filtered = getFilteredProjects();
+  if (summaryEl) {
+    const total = allProjects.length;
+    summaryEl.textContent = `${filtered.length} of ${total} project${total === 1 ? '' : 's'} shown`;
+  }
+
+  if (allProjects.length === 0) {
+    projectsList.innerHTML = `
+      <div class="empty-state projects-empty-state">
+        <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+        </svg>
+        <h3>No projects yet</h3>
+        <p>Create your first project to get started.</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (filtered.length === 0) {
+    projectsList.innerHTML = `
+      <div class="empty-state projects-empty-state">
+        <h3>No projects match these filters</h3>
+        <p>Try a different search, status, or access filter.</p>
+        <button type="button" class="btn btn-secondary" id="projects-clear-filters">Clear filters</button>
+      </div>
+    `;
+    document.getElementById('projects-clear-filters')?.addEventListener('click', () => {
+      const searchInput = document.getElementById('projects-search-input');
+      const statusFilter = document.getElementById('projects-status-filter');
+      const accessFilter = document.getElementById('projects-access-filter');
+      if (searchInput) searchInput.value = '';
+      if (statusFilter) statusFilter.value = '';
+      if (accessFilter) accessFilter.value = '';
+      renderProjectsList();
+    });
+    return;
+  }
+
+  projectsList.innerHTML = filtered.map(project => {
+    const owner = projectOwnerInfo(project);
+    const visibility = projectVisibilityInfo(project);
+    const statusClass = window.normalizeProjectStatus ? window.normalizeProjectStatus(project.status) : 'ongoing';
+    const statusLabel = window.getProjectStatusLabel ? window.getProjectStatusLabel(project.status) : 'On going';
+    const apiTestCount = projectApiTestCount(project);
+    const uiTestCount = projectsPageState.uiCountsByProjectId.get(Number(project.id)) || 0;
+    const projectId = Number(project.id);
+    return `
+      <div class="list-item projects-list-row" data-project-id="${projectId}" role="button" tabindex="0" aria-label="Open project ${String(project.name || '').replace(/"/g, '&quot;')}">
+        <div class="projects-row-main">
+          <div class="projects-row-title-line">
+            <h3>${escapeHtmlLite(project.name || 'Untitled project')}</h3>
+            <span class="status-badge ${statusClass}">${escapeHtmlLite(statusLabel)}</span>
+          </div>
+          <p>${escapeHtmlLite(project.description || 'No description')}</p>
+        </div>
+        <div class="projects-row-cell projects-row-owner">
+          <span class="projects-row-label">Owner</span>
+          <span class="projects-row-value">${escapeHtmlLite(owner.name)}${owner.email ? `<span class="project-owner-email">${escapeHtmlLite(owner.email)}</span>` : ''}</span>
+        </div>
+        <div class="projects-row-cell">
+          <span class="projects-row-label">Access</span>
+          <span class="visibility-badge visibility-${visibility.visibility}">${visibility.label}</span>
+        </div>
+        <div class="projects-row-cell projects-row-assets">
+          <span class="projects-row-label">Assets</span>
+          <span class="projects-asset-chips">
+            <span class="projects-asset-chip">${apiTestCount} API test${apiTestCount === 1 ? '' : 's'}</span>
+            <span class="projects-asset-chip">${uiTestCount} UI test${uiTestCount === 1 ? '' : 's'}</span>
+          </span>
+        </div>
+        <div class="list-item-actions projects-row-actions">
+          <button type="button" class="btn btn-primary" onclick="window.viewProject(${projectId})">Open</button>
+          <button type="button" class="btn btn-secondary" onclick="window.openProjectApiTests(${projectId})">API tests</button>
+          <button type="button" class="btn btn-secondary" onclick="window.openProjectUiTests(${projectId})">UI tests</button>
+          <button type="button" class="btn btn-secondary" onclick="window.editProject(${projectId})">Edit</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 async function loadProjects() {
   try {
-    const projects = await apiRequest('/projects');
-    const projectsList = document.getElementById('projects-list');
-    
-    if (projects.length === 0) {
-      projectsList.innerHTML = `
-        <div class="empty-state">
-          <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-          </svg>
-          <h3>No projects yet</h3>
-          <p>Create your first project to get started</p>
-        </div>
-      `;
-    } else {
-      projectsList.innerHTML = projects.map(project => {
-        const ownerName = project.owner
-          ? (project.owner.display_name || project.owner.username || 'Unknown owner')
-          : 'No owner';
-        const ownerEmail = project.owner?.email || '';
-        const rawVisibility = String(project.visibility || 'private').toLowerCase();
-        const visibility = ['private', 'shared', 'public'].includes(rawVisibility) ? rawVisibility : 'private';
-        const visibilityLabel = visibility === 'private' ? 'Private' : visibility === 'shared' ? 'Shared' : 'Public';
-        const statusClass = window.normalizeProjectStatus ? window.normalizeProjectStatus(project.status) : 'ongoing';
-        const statusLabel = window.getProjectStatusLabel ? window.getProjectStatusLabel(project.status) : 'On going';
+    const [projects, recordedTests] = await Promise.all([
+      apiRequest('/projects'),
+      apiRequest('/playwright-recorded-tests').catch(() => [])
+    ]);
 
-        return `
-          <div class="list-item" data-project-id="${project.id}" role="button" tabindex="0" aria-label="Open project ${String(project.name || '').replace(/"/g, '&quot;')}">
-            <div class="list-item-info" style="cursor: pointer;">
-              <h3 style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">${escapeHtmlLite(project.name)} <span class="status-badge ${statusClass}">${statusLabel}</span></h3>
-              <p>${escapeHtmlLite(project.description || 'No description')}</p>
-              <div class="project-card-meta">
-                <span class="project-card-meta-item"><strong>Owner</strong> ${escapeHtmlLite(ownerName)}${ownerEmail ? ` <span class="project-owner-email">${escapeHtmlLite(ownerEmail)}</span>` : ''}</span>
-                <span class="project-card-meta-item"><strong>Access</strong> <span class="visibility-badge visibility-${visibility}">${visibilityLabel}</span></span>
-                <span class="project-card-meta-item">${project.apiSpecs?.length || 0} API spec(s)</span>
-              </div>
-            </div>
-            <div class="list-item-actions">
-              <button type="button" class="btn btn-secondary" onclick="window.editProject(${project.id})">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 18px; height: 18px;">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                Edit
-              </button>
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
+    const uiCountsByProjectId = new Map();
+    (Array.isArray(recordedTests) ? recordedTests : []).forEach((test) => {
+      (Array.isArray(test.project_ids) ? test.project_ids : []).forEach((projectId) => {
+        const key = Number(projectId);
+        if (!Number.isInteger(key)) return;
+        uiCountsByProjectId.set(key, (uiCountsByProjectId.get(key) || 0) + 1);
+      });
+    });
+
+    projectsPageState.projects = Array.isArray(projects) ? projects : [];
+    projectsPageState.uiCountsByProjectId = uiCountsByProjectId;
+    setupProjectsFilterHandlers();
+    updateProjectsMetrics(projectsPageState.projects);
+    renderProjectsList();
   } catch (error) {
     console.error('Error loading projects:', error);
   }

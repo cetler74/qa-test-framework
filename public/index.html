@@ -247,8 +247,11 @@
 
             <!-- Projects View -->
             <div id="projects-view" class="view">
-                <div class="view-header">
-                    <h2>Projects</h2>
+                <div class="view-header projects-view-header">
+                    <div>
+                        <h2>Projects</h2>
+                        <p class="projects-view-subtitle">Browse, filter, and manage project workspaces.</p>
+                    </div>
                     <button class="btn btn-primary" id="create-project-btn">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -256,7 +259,53 @@
                         Create Project
                     </button>
                 </div>
-                <div id="projects-list"></div>
+                <div class="projects-overview-grid" aria-label="Projects overview">
+                    <div class="projects-overview-card">
+                        <span class="projects-overview-label">Total projects</span>
+                        <strong id="projects-metric-total">0</strong>
+                        <span class="projects-overview-note">Visible to you</span>
+                    </div>
+                    <div class="projects-overview-card">
+                        <span class="projects-overview-label">On going</span>
+                        <strong id="projects-metric-ongoing">0</strong>
+                        <span class="projects-overview-note">Ready for execution</span>
+                    </div>
+                    <div class="projects-overview-card">
+                        <span class="projects-overview-label">API tests</span>
+                        <strong id="projects-metric-api-specs">0</strong>
+                        <span class="projects-overview-note">From project collections</span>
+                    </div>
+                    <div class="projects-overview-card">
+                        <span class="projects-overview-label">Recorded UI tests</span>
+                        <strong id="projects-metric-ui-tests">0</strong>
+                        <span class="projects-overview-note">Linked test assets</span>
+                    </div>
+                </div>
+                <div class="projects-toolbar" aria-label="Project filters">
+                    <label class="projects-search-wrap" for="projects-search-input">
+                        <span class="sr-only">Search projects</span>
+                        <input type="search" id="projects-search-input" placeholder="Search projects by name, owner, description, or URL..." autocomplete="off">
+                    </label>
+                    <label class="projects-filter-wrap" for="projects-status-filter">
+                        <span>Status</span>
+                        <select id="projects-status-filter">
+                            <option value="">All statuses</option>
+                            <option value="ongoing">On going</option>
+                            <option value="closed">Closed</option>
+                        </select>
+                    </label>
+                    <label class="projects-filter-wrap" for="projects-access-filter">
+                        <span>Access</span>
+                        <select id="projects-access-filter">
+                            <option value="">All access</option>
+                            <option value="private">Private</option>
+                            <option value="shared">Shared</option>
+                            <option value="public">Public</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="projects-list-summary" id="projects-list-summary"></div>
+                <div id="projects-list" class="projects-list-modern"></div>
             </div>
 
             <!-- Project Detail View -->
@@ -891,48 +940,38 @@ test('test', async ({ page }) => {
 
             <!-- Run UI Tests page: list of tests + Complete / Select test list -->
             <div id="run-ui-tests-view" class="view">
-                <div class="view-header">
-                    <button class="btn btn-secondary" id="back-from-run-ui-tests">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                        </svg>
-                        Back
-                    </button>
-                    <h2>Run UI Tests</h2>
-                </div>
-                <div class="run-ui-tests-page">
-                    <p class="run-ui-tests-intro">Select which recorded tests to run, then start the run.</p>
-                    <div class="run-ui-tests-options">
-                        <div class="form-group run-ui-tests-list-type">
-                            <label class="radio-label"><input type="radio" name="test-list-type" value="full" /> Run entire suite</label>
-                            <label class="radio-label"><input type="radio" name="test-list-type" value="selected" checked /> Select which tests to run</label>
+                <div class="view-header run-ui-tests-view-header">
+                    <div class="view-header-left">
+                        <button class="btn btn-secondary" id="back-from-run-ui-tests">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                            </svg>
+                            Back
+                        </button>
+                        <div>
+                            <h2>Run UI Tests</h2>
+                            <p>Select recorded tests, review execution order, then start the run.</p>
                         </div>
                     </div>
-                    <div id="playwright-test-list-container" class="test-list-container"></div>
-                    <form id="run-ui-tests-page-form" class="run-ui-tests-form">
-                        <div class="form-group" id="run-ui-tests-project-wrap" style="display: none;">
-                            <label for="run-ui-tests-project-select">Project *</label>
-                            <select id="run-ui-tests-project-select">
-                                <option value="">Select project...</option>
-                            </select>
+                    <div class="view-header-actions run-ui-tests-header-actions">
+                        <button type="button" class="btn btn-secondary" id="run-ui-tests-cancel">Cancel</button>
+                        <button type="submit" class="btn btn-primary" form="run-ui-tests-page-form">Run</button>
+                    </div>
+                </div>
+                <form id="run-ui-tests-page-form" class="run-ui-tests-page run-ui-tests-layout">
+                    <div class="run-ui-tests-setup-bar">
+                        <div class="form-group">
+                            <label for="run-ui-tests-name">Test run name *</label>
+                            <input type="text" id="run-ui-tests-name" required placeholder="e.g. Release 1.0" />
                         </div>
                         <div class="form-group">
-                            <label for="run-ui-tests-variable-group">UI Test Variable group</label>
+                            <label for="run-ui-tests-variable-group">Environment / variable group</label>
                             <div class="input-with-button">
                                 <select id="run-ui-tests-variable-group">
                                     <option value="">None</option>
                                 </select>
-                                <button type="button" class="btn btn-secondary" id="manage-ui-test-variable-groups-btn">Manage groups</button>
+                                <button type="button" class="btn btn-secondary" id="manage-ui-test-variable-groups-btn">Manage</button>
                             </div>
-                            <span class="form-hint">Saved in this browser and reused across all projects.</span>
-                        </div>
-                        <div class="form-group" id="run-ui-tests-variables-section" style="display:none;">
-                            <label>Variables used by selected tests</label>
-                            <div id="run-ui-tests-variables-list" class="single-test-vars-list"></div>
-                        </div>
-                        <div class="form-group">
-                            <label for="run-ui-tests-name">Run name</label>
-                            <input type="text" id="run-ui-tests-name" required placeholder="e.g. 5G API Sprint check" />
                         </div>
                         <div class="form-group">
                             <label for="run-ui-tests-browser">Browser</label>
@@ -941,6 +980,27 @@ test('test', async ({ page }) => {
                                 <option value="firefox">Firefox</option>
                                 <option value="webkit">WebKit</option>
                             </select>
+                        </div>
+                    </div>
+                    <aside class="run-ui-tests-left-panel">
+                        <section class="run-ui-tests-panel-section">
+                            <div class="run-ui-tests-panel-heading">
+                                <h3>Run scope</h3>
+                                <p>Choose whether to run all tests or only selected tests.</p>
+                            </div>
+                            <div class="run-ui-tests-list-type">
+                                <label class="radio-label"><input type="radio" name="test-list-type" value="full" /> Run entire suite</label>
+                                <label class="radio-label"><input type="radio" name="test-list-type" value="selected" checked /> Select which tests to run</label>
+                            </div>
+                        </section>
+                        <section class="run-ui-tests-panel-section">
+                            <div class="run-ui-tests-panel-heading">
+                                <h3>Variables and execution options</h3>
+                                <p>Provide required values and choose recording/debug settings.</p>
+                            </div>
+                        <div class="form-group" id="run-ui-tests-variables-section" style="display:none;">
+                            <label>Variables used by selected tests</label>
+                            <div id="run-ui-tests-variables-list" class="single-test-vars-list"></div>
                         </div>
                         <div class="form-group">
                             <label for="run-ui-tests-video">Record video of the test run</label>
@@ -980,12 +1040,32 @@ test('test', async ({ page }) => {
                             <input type="number" id="run-ui-tests-timeout" min="10" max="300" step="10" placeholder="e.g. 60 (default from server)" />
                             <span class="form-hint">Optional. Max time per test (default 60s). Increase if recorded tests time out (e.g. 90 or 120).</span>
                         </div>
-                        <div class="form-actions">
-                            <button type="button" class="btn btn-secondary" id="run-ui-tests-cancel">Cancel</button>
-                            <button type="submit" class="btn btn-primary">Run</button>
+                        </section>
+                    </aside>
+                    <main class="run-ui-tests-center-panel">
+                        <div class="run-ui-tests-center-header">
+                            <div>
+                                <h3>Tests that will run</h3>
+                                <p>Use selection mode to choose tests and control execution order.</p>
+                            </div>
+                            <div class="run-ui-tests-search-wrap">
+                                <label for="run-ui-tests-search" class="sr-only">Search tests that will run</label>
+                                <input type="search" id="run-ui-tests-search" placeholder="Search tests..." autocomplete="off" />
+                            </div>
                         </div>
-                    </form>
-                </div>
+                        <div id="playwright-test-list-container" class="test-list-container"></div>
+                        <div id="run-ui-tests-selected-order-wrap" class="run-ui-tests-selected-order">
+                            <div class="run-ui-tests-selected-order-header">
+                                <div>
+                                    <h3>Selected Tests Order</h3>
+                                    <p>Drag selected tests or use Up/Down to set execution order.</p>
+                                </div>
+                                <span id="run-ui-tests-selected-count">0 selected</span>
+                            </div>
+                            <div id="run-ui-tests-selected-order-list" class="run-ui-tests-selected-order-list"></div>
+                        </div>
+                    </main>
+                </form>
             </div>
 
             <!-- UI Test Run Detail View -->

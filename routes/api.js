@@ -636,6 +636,26 @@ router.get('/projects', async(req, res) => {
                 ['created_at', 'DESC']
             ]
         });
+        const projectIds = projects.map(project => project.id);
+        if (projectIds.length > 0) {
+            const apiTestCounts = await ProjectTest.findAll({
+                attributes: [
+                    'project_id',
+                    [SequelizeLib.fn('COUNT', SequelizeLib.col('id')), 'api_test_count']
+                ],
+                where: {
+                    project_id: { [Op.in]: projectIds },
+                    test_type: 'api',
+                    is_active: true
+                },
+                group: ['project_id'],
+                raw: true
+            });
+            const apiTestCountByProjectId = new Map(apiTestCounts.map(row => [Number(row.project_id), Number(row.api_test_count) || 0]));
+            projects.forEach(project => {
+                project.setDataValue('api_test_count', apiTestCountByProjectId.get(Number(project.id)) || 0);
+            });
+        }
         res.json(projects);
     } catch (error) {
         res.status(500).json({ error: error.message });

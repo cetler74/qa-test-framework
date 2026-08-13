@@ -365,92 +365,128 @@ function showRunTestsModal(initialState = null) {
     ).join('');
     
     const content = `
-      <form id="run-tests-form" style="display: flex; flex-direction: column; height: 100%;">
-        <div class="form-group" style="margin-bottom: 20px;">
-          <label for="test-run-name">Test Run Name *</label>
-          <input type="text" id="test-run-name" class="form-control" placeholder="e.g., Release 1.0" required>
-        </div>
-        <div class="form-group" style="margin-bottom: 20px;">
-          <label for="collection-select">Select API Collection *</label>
-          <select id="collection-select" class="form-control" required>
-            <option value="">Choose a collection...</option>
-            ${collectionOptions}
-          </select>
-          <p style="font-size: 12px; color: var(--color-text-secondary, #6b7280); margin-top: 6px;">Collections come from <strong>OpenAPI specs</strong> in this project (one collection per spec) or from <strong>uploaded Postman collections</strong>. For <strong>WSDL/SOAP</strong> specs, use the SOAP run option instead.</p>
-        </div>
-        <div class="form-group" id="test-selection-section" style="display: none; flex: 1; flex-direction: column; min-height: 0;">
-          <label style="margin-bottom: 12px; display: block;">Select Tests to Run</label>
-          <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-            <button type="button" class="btn btn-sm btn-secondary" id="select-all-tests">Select All</button>
-            <button type="button" class="btn btn-sm btn-secondary" id="deselect-all-tests">Deselect All</button>
-            <button type="button" class="btn btn-sm btn-secondary" id="expand-all-groups">Expand All</button>
-            <button type="button" class="btn btn-sm btn-secondary" id="collapse-all-groups">Collapse All</button>
+      <form id="run-tests-form" class="run-tests-form-layout">
+        <div class="run-tests-setup-bar">
+          <div class="run-tests-field">
+            <label for="test-run-name">Test run name *</label>
+            <input type="text" id="test-run-name" class="form-control" placeholder="e.g., Release 1.0" required>
           </div>
-          <div id="test-selection-container" style="max-height: 600px; overflow-y: auto; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; padding: 15px; background: var(--color-gray-50, #fafafa);">
-            <!-- Tests will be loaded here -->
+          <div class="run-tests-field run-tests-collection-field">
+            <label for="collection-select">Collection *</label>
+            <select id="collection-select" class="form-control" required>
+              <option value="">Choose a collection...</option>
+              ${collectionOptions}
+            </select>
           </div>
-          <div id="selected-tests-order" style="margin-top: 15px; flex-shrink: 0;">
-            <label style="margin-bottom: 8px; display: block;">Selected Tests Order (drag to reorder):</label>
-            <div id="selected-tests-list" style="min-height: 80px; max-height: 200px; overflow-y: auto; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; padding: 12px; background: var(--color-white, white); margin-top: 5px;">
-              <p style="color: var(--color-text-secondary, #6b7280); font-style: italic; margin: 0;">No tests selected</p>
-            </div>
-          </div>
-        </div>
-        <div class="form-group" style="margin-bottom: 20px; flex-shrink: 0;">
-          <label for="env-select">Select Environment (optional)</label>
-          <div style="display:flex; gap:10px; align-items: center;">
-            <select id="env-select" class="form-control" style="flex: 1;">
+          <div class="run-tests-field">
+            <label for="env-select">Environment</label>
+            <select id="env-select" class="form-control">
               <option value="">Choose environment...</option>
             </select>
-            <button type="button" class="btn btn-sm btn-secondary" id="manage-envs-btn">Manage</button>
-            <button type="button" class="btn btn-sm btn-secondary" id="create-env-btn">Create</button>
-            <button type="button" class="btn btn-sm btn-secondary" id="export-envs-btn" title="Export all environments to a JSON file">Export</button>
-            <label class="btn btn-sm btn-secondary" style="cursor:pointer;margin:0;display:inline-flex;align-items:center;">Import<input type="file" id="import-envs-input" accept=".json,application/json" style="display:none;"></label>
           </div>
-          <p style="font-size:12px; color: var(--color-text-secondary, #6b7280); margin-top:6px;">Environments store values for <code>{{endpoint}}</code>, <code>{{version}}</code> and <code>{{ixs}}</code>. Selecting one will pre-fill these variables.</p>
+          <div class="run-tests-field run-tests-delay-field">
+            <label for="delay-between-tests">Global delay</label>
+            <input type="number" id="delay-between-tests" class="form-control" min="0" placeholder="Delay s">
+          </div>
         </div>
 
-        <div class="form-group" id="collection-vars-section" style="display: none;">
-          <label>Collection Variables *</label>
-          <p style="font-size: 12px; color: var(--color-text-secondary, #6b7280); margin-bottom: 10px;">
-            These variables are required by the selected collection. Please provide values for all variables.
-          </p>
-          <div id="collection-vars-list" style="padding: 15px; background: var(--color-gray-50, #f8f9fa); border-radius: 4px; border: 1px solid var(--color-gray-300, #ddd);">
-            <!-- Collection variables will be populated here -->
-          </div>
-        </div>
-        <div class="form-group">
-          <label>
-            <input type="checkbox" id="show-env-vars" onchange="toggleEnvVars()">
-            Configure Additional Environment Variables (Optional)
-          </label>
-          <div id="env-vars-section" style="display: none; margin-top: 10px; padding: 15px; background: var(--color-gray-50, #f8f9fa); border-radius: 4px;">
-            <p style="font-size: 12px; color: var(--color-text-secondary, #6b7280); margin-bottom: 10px;">
-              Set additional environment variables that will override collection variables during test execution.
-            </p>
-            <div id="env-vars-list">
-              <div class="env-var-item" style="display: flex; gap: 10px; margin-bottom: 10px;">
-                <input type="text" placeholder="Variable name" class="env-var-key" style="flex: 1; padding: 8px; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);">
-                <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);">
-                <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
+        <div class="run-tests-workspace">
+          <aside class="run-tests-left-panel">
+            <section class="run-tests-panel-section run-tests-environment-tools">
+              <div class="run-tests-panel-heading">
+                <h4>Environment tools</h4>
+                <p>Manage saved values for the selected collection.</p>
+              </div>
+              <div class="run-tests-env-actions">
+                <button type="button" class="btn btn-sm btn-secondary" id="manage-envs-btn">Manage</button>
+                <button type="button" class="btn btn-sm btn-secondary" id="create-env-btn">Create</button>
+                <button type="button" class="btn btn-sm btn-secondary" id="export-envs-btn" title="Export all environments to a JSON file">Export</button>
+                <label class="btn btn-sm btn-secondary run-tests-import-btn">Import<input type="file" id="import-envs-input" accept=".json,application/json"></label>
+              </div>
+            </section>
+
+            <section class="run-tests-panel-section" id="collection-vars-section" style="display: none;">
+              <div class="run-tests-panel-heading run-tests-panel-heading-row">
+                <div>
+                  <h4>Collection Variables *</h4>
+                  <p>These variables are required by the selected collection. Please provide values for all variables.</p>
+                </div>
+              </div>
+              <div id="collection-vars-list" class="run-tests-vars-list">
+                <!-- Collection variables will be populated here -->
+              </div>
+            </section>
+
+            <section class="run-tests-panel-section run-tests-optional-vars">
+              <label class="run-tests-checkbox-label">
+                <input type="checkbox" id="show-env-vars" onchange="toggleEnvVars()">
+                <span>Additional environment variables</span>
+              </label>
+              <div id="env-vars-section" class="run-tests-env-vars-section" style="display: none;">
+                <p>Set extra variables that override collection variables during execution.</p>
+                <div id="env-vars-list">
+                  <div class="env-var-item run-tests-env-var-item">
+                    <input type="text" placeholder="Variable name" class="env-var-key">
+                    <input type="text" placeholder="Value" class="env-var-value">
+                    <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)">Remove</button>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="addEnvVar()">Add Variable</button>
+              </div>
+            </section>
+          </aside>
+
+          <main class="run-tests-center-panel">
+            <div id="run-tests-empty-state" class="run-tests-empty-state">
+              <h4>Select a collection to load tests</h4>
+              <p>Tests, folders, delay inputs, and selected order will appear here.</p>
+            </div>
+            <div id="test-selection-section" class="run-tests-test-section" style="display: none;">
+              <div class="run-tests-test-toolbar">
+                <div>
+                  <h4>Select Tests to Run</h4>
+                  <p>Choose tests and adjust per-test delays.</p>
+                </div>
+                <div class="run-tests-test-actions">
+                  <button type="button" class="btn btn-sm btn-secondary" id="select-all-tests">Select All</button>
+                  <button type="button" class="btn btn-sm btn-secondary" id="deselect-all-tests">Deselect All</button>
+                  <button type="button" class="btn btn-sm btn-secondary" id="expand-all-groups">Expand All</button>
+                  <button type="button" class="btn btn-sm btn-secondary" id="collapse-all-groups">Collapse All</button>
+                </div>
+              </div>
+              <div id="test-selection-container" class="run-tests-selection-container">
+                <!-- Tests will be loaded here -->
+              </div>
+              <div id="selected-tests-order" class="run-tests-selected-order" style="display: none;">
+                <div class="run-tests-selected-order-header">
+                  <div>
+                    <h4>Selected Tests Order</h4>
+                    <p>Use arrows to reorder execution.</p>
+                  </div>
+                  <span id="selected-tests-count">0 selected</span>
+                </div>
+                <div id="selected-tests-list" class="run-tests-selected-list"></div>
               </div>
             </div>
-            <button type="button" class="btn btn-secondary" onclick="addEnvVar()" style="margin-top: 10px;">Add Variable</button>
-          </div>
-        </div>
-        <div class="form-group">
-          <label for="delay-between-tests">Delay between tests (seconds)</label>
-          <input type="number" id="delay-between-tests" class="form-control" min="0" placeholder="e.g., 2" style="width: 160px;">
-          <p style="font-size:12px; color: var(--color-text-secondary, #6b7280); margin-top:6px;">If set, waits this many seconds before running the next test. Per-test delays override this value.</p>
-        </div>
-        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--color-gray-200, #e5e7eb); flex-shrink: 0;">
-          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Run Tests</button>
+          </main>
         </div>
       </form>
     `;
     
     showModal('Run Tests', content);
+    const modal = document.querySelector('#modal-overlay .modal');
+    const modalHeader = document.querySelector('#modal-overlay .modal-header');
+    if (modal) modal.classList.add('run-tests-modal');
+    if (modalHeader && !modalHeader.querySelector('.modal-header-actions')) {
+      const actions = document.createElement('div');
+      actions.className = 'modal-header-actions run-tests-header-actions';
+      actions.innerHTML = `
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+        <button type="submit" form="run-tests-form" class="btn btn-primary">Run Tests</button>
+      `;
+      const closeButton = modalHeader.querySelector('.modal-close');
+      modalHeader.insertBefore(actions, closeButton || null);
+    }
     populateEnvSelect();
 
     if (initialState?.testRunName) {
@@ -476,24 +512,22 @@ function showRunTestsModal(initialState = null) {
       envList.innerHTML = '';
       rows.forEach((row) => {
         const newItem = document.createElement('div');
-        newItem.className = 'env-var-item';
-        newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+        newItem.className = 'env-var-item run-tests-env-var-item';
         newItem.innerHTML = `
-          <input type="text" placeholder="Variable name" class="env-var-key" style="flex: 1; padding: 8px; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);" value="${String(row.key || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}">
-          <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);" value="${String(row.value || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}">
-          <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
+          <input type="text" placeholder="Variable name" class="env-var-key" value="${String(row.key || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}">
+          <input type="text" placeholder="Value" class="env-var-value" value="${String(row.value || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}">
+          <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)">Remove</button>
         `;
         envList.appendChild(newItem);
       });
 
       if (rows.length === 0) {
         const newItem = document.createElement('div');
-        newItem.className = 'env-var-item';
-        newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
+        newItem.className = 'env-var-item run-tests-env-var-item';
         newItem.innerHTML = `
-          <input type="text" placeholder="Variable name" class="env-var-key" style="flex: 1; padding: 8px; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);">
-          <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px; border: 1px solid var(--color-gray-300, #ddd); border-radius: 4px; background: var(--color-white, white); color: var(--color-text-primary, #1f2937);">
-          <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
+          <input type="text" placeholder="Variable name" class="env-var-key">
+          <input type="text" placeholder="Value" class="env-var-value">
+          <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)">Remove</button>
         `;
         envList.appendChild(newItem);
       }
@@ -562,6 +596,8 @@ function showRunTestsModal(initialState = null) {
       if (!collectionId) {
         document.getElementById('test-selection-section').style.display = 'none';
         document.getElementById('collection-vars-section').style.display = 'none';
+        document.getElementById('run-tests-empty-state').style.display = 'flex';
+        document.getElementById('selected-tests-order').style.display = 'none';
         return;
       }
       
@@ -578,13 +614,12 @@ function showRunTestsModal(initialState = null) {
           const defaultValue = existingVar?.value || '';
           
           return `
-            <div class="collection-var-item" style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
-              <label style="min-width: 150px; font-weight: 500;">${varName}:</label>
+            <div class="collection-var-item run-tests-collection-var-item">
+              <label>${varName}</label>
               <input type="text" class="collection-var-value" data-var-name="${varName}" 
                      placeholder="Enter value for ${varName}" 
-                     value="${defaultValue}"
-                     style="flex: 1; padding: 8px; border: 2px solid var(--color-primary, #14b8a6); border-radius: 4px;">
-              <span class="collection-var-source" style="font-size:12px;color:#1976d2;margin-left:8px;display:none;"></span>
+                     value="${defaultValue}">
+              <span class="collection-var-source" style="display:none;"></span>
             </div>
           `;
         }).join('');
@@ -593,9 +628,9 @@ function showRunTestsModal(initialState = null) {
         let scriptVarsInfo = '';
         if (collectionVars.scriptSet && collectionVars.scriptSet.length > 0) {
           scriptVarsInfo = `
-            <div style="margin-top: 15px; padding: 10px; background: var(--color-info, #3b82f6); background-opacity: 0.1; border-radius: 4px; font-size: 12px; color: var(--color-info, #3b82f6);">
+            <div class="run-tests-auto-vars-note">
               <strong>Note:</strong> The following variables are automatically set by test scripts and don't require input:
-              <code style="background: rgba(255,255,255,0.7); padding: 2px 6px; border-radius: 3px; margin-left: 5px;">
+              <code>
                 ${collectionVars.scriptSet.join(', ')}
               </code>
             </div>
@@ -634,12 +669,11 @@ function showRunTestsModal(initialState = null) {
             const defaultValue = existingVar?.value || '';
 
             const newItem = document.createElement('div');
-            newItem.className = 'env-var-item';
-            newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+            newItem.className = 'env-var-item run-tests-env-var-item';
             newItem.innerHTML = `
-              <input type="text" placeholder="Variable name (optional)" class="env-var-key" style="flex: 1; padding: 8px;" value="${nameTrim}">
-              <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px;" value="${defaultValue}">
-              <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
+              <input type="text" placeholder="Variable name (optional)" class="env-var-key" value="${nameTrim}">
+              <input type="text" placeholder="Value" class="env-var-value" value="${defaultValue}">
+              <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)">Remove</button>
             `;
             envList.appendChild(newItem);
             addedAny = true;
@@ -669,6 +703,7 @@ function showRunTestsModal(initialState = null) {
       
       document.getElementById('test-selection-container').innerHTML = testHTML;
       document.getElementById('test-selection-section').style.display = 'flex';
+      document.getElementById('run-tests-empty-state').style.display = 'none';
       selectedTestsOrder = [];
       testIdCounter = 1; // Reset test ID counter when selecting a new collection
       updateSelectedTestsList();
@@ -754,20 +789,30 @@ function showRunTestsModal(initialState = null) {
     // Update selected tests list display
     function updateSelectedTestsList() {
       const listContainer = document.getElementById('selected-tests-list');
+      const orderPanel = document.getElementById('selected-tests-order');
+      const countEl = document.getElementById('selected-tests-count');
+      if (!listContainer || !orderPanel) return;
       
       if (selectedTestsOrder.length === 0) {
-        listContainer.innerHTML = '<p style="color: var(--color-text-secondary, #6b7280); font-style: italic;">No tests selected</p>';
+        orderPanel.style.display = 'none';
+        listContainer.innerHTML = '';
+        if (countEl) countEl.textContent = '0 selected';
         return;
       }
+
+      orderPanel.style.display = 'block';
+      if (countEl) countEl.textContent = `${selectedTestsOrder.length} selected`;
       
       listContainer.innerHTML = selectedTestsOrder.map((test, index) => `
-        <div class="selected-test-item" data-index="${index}" data-collection-id="${test.collectionId}" data-path="${test.path}" data-name="${String(test.name || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}" data-method="${String(test.method || 'GET').replace(/"/g, '&quot;')}" data-test-id="${String(test.testId || `TEST-${index + 1}`).replace(/"/g, '&quot;')}" style="display: flex; align-items: center; padding: 8px; margin: 5px 0; background: var(--color-gray-100, #f0f0f0); border-radius: 4px; cursor: move; border: 1px solid var(--color-gray-200, #e5e7eb);">
-          <span style="margin-right: 10px; font-weight: bold; color: #14b8a6;">${test.testId || `TEST-${index + 1}`}</span>
+        <div class="selected-test-item" data-index="${index}" data-collection-id="${test.collectionId}" data-path="${test.path}" data-name="${String(test.name || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}" data-method="${String(test.method || 'GET').replace(/"/g, '&quot;')}" data-test-id="${String(test.testId || `TEST-${index + 1}`).replace(/"/g, '&quot;')}">
+          <span class="selected-test-id">${test.testId || `TEST-${index + 1}`}</span>
           <span class="method-badge ${test.method}">${test.method}</span>
-          <span style="flex: 1; margin-left: 10px; color: var(--color-text-primary, #1f2937);">${test.name}</span>
-          <button type="button" class="btn btn-sm btn-secondary move-up" data-index="${index}" style="padding: 4px 10px; margin: 0 2px; background: var(--color-gray-300, #d1d5db); color: var(--color-text-primary, #1f2937); border: 1px solid var(--color-gray-400, #9ca3af); border-radius: 4px; cursor: pointer; font-weight: bold; min-width: 32px;">↑</button>
-          <button type="button" class="btn btn-sm btn-secondary move-down" data-index="${index}" style="padding: 4px 10px; margin: 0 2px; background: var(--color-gray-300, #d1d5db); color: var(--color-text-primary, #1f2937); border: 1px solid var(--color-gray-400, #9ca3af); border-radius: 4px; cursor: pointer; font-weight: bold; min-width: 32px;">↓</button>
-          <button type="button" class="btn btn-sm btn-danger remove-test" data-index="${index}" style="padding: 4px 10px; margin-left: 5px; background: var(--color-error, #ef4444); color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; min-width: 32px;">×</button>
+          <span class="selected-test-name">${test.name}</span>
+          <span class="selected-test-actions">
+            <button type="button" class="btn btn-sm btn-secondary move-up" data-index="${index}">↑</button>
+            <button type="button" class="btn btn-sm btn-secondary move-down" data-index="${index}">↓</button>
+            <button type="button" class="btn btn-sm btn-danger remove-test" data-index="${index}">×</button>
+          </span>
         </div>
       `).join('');
       
@@ -1158,13 +1203,22 @@ function addEnvVar() {
   const envVarsList = document.getElementById('env-vars-list');
   if (envVarsList) {
     const newItem = document.createElement('div');
-    newItem.className = 'env-var-item';
-    newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
-    newItem.innerHTML = `
-      <input type="text" placeholder="Variable name (e.g., bearer_token)" class="env-var-key" style="flex: 1; padding: 8px; border: 2px solid var(--color-primary, #14b8a6);">
-      <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px; border: 2px solid var(--color-primary, #14b8a6);">
-      <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
-    `;
+    if (document.getElementById('run-tests-form')) {
+      newItem.className = 'env-var-item run-tests-env-var-item';
+      newItem.innerHTML = `
+        <input type="text" placeholder="Variable name (e.g., bearer_token)" class="env-var-key">
+        <input type="text" placeholder="Value" class="env-var-value">
+        <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)">Remove</button>
+      `;
+    } else {
+      newItem.className = 'env-var-item';
+      newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px;';
+      newItem.innerHTML = `
+        <input type="text" placeholder="Variable name (e.g., bearer_token)" class="env-var-key" style="flex: 1; padding: 8px; border: 2px solid var(--color-primary, #14b8a6);">
+        <input type="text" placeholder="Value" class="env-var-value" style="flex: 1; padding: 8px; border: 2px solid var(--color-primary, #14b8a6);">
+        <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)" style="padding: 8px 12px;">Remove</button>
+      `;
+    }
     envVarsList.appendChild(newItem);
   }
 }
@@ -1624,10 +1678,8 @@ function showCreateEnvModal(existingEnv = null) {
 }
 
 function showManageEnvsModal() {
-  const expandedEnvIds = new Set();
-  const revealedEnvIds = new Set();
-  let searchText = '';
-  let sortMode = 'name';
+  let searchText = '', sortMode = 'name';
+  let selectedEnvId = null, revealSecrets = false, varFilterText = '';
 
   function escapeEnvHtml(value) {
     const div = document.createElement('div');
@@ -1653,27 +1705,6 @@ function showManageEnvsModal() {
     return `${count} variable${count === 1 ? '' : 's'}`;
   }
 
-  function getPreviewEntries(entries) {
-    const priority = ['baseurl', 'base_url', 'baseurlauth', 'endpoint', 'url', 'phonenumber', 'phone_number', 'clientid', 'client_id'];
-    const picked = [];
-    const used = new Set();
-    priority.forEach(priorityKey => {
-      const match = entries.find(([key]) => String(key).toLowerCase() === priorityKey);
-      if (match && !used.has(match[0])) {
-        picked.push(match);
-        used.add(match[0]);
-      }
-    });
-    entries.forEach(entry => {
-      if (picked.length >= 4) return;
-      if (!used.has(entry[0])) {
-        picked.push(entry);
-        used.add(entry[0]);
-      }
-    });
-    return picked;
-  }
-
   function getFilteredEnvs() {
     const query = searchText.trim().toLowerCase();
     let envs = [...loadSavedEnvs()];
@@ -1689,6 +1720,10 @@ function showManageEnvsModal() {
       return String(a.name || '').localeCompare(String(b.name || ''));
     });
     return envs;
+  }
+
+  function findEnvironment(id) {
+    return (window._userEnvsCache || []).find(item => String(item.id) === String(id));
   }
 
   function buildUniqueCopyName(baseName) {
@@ -1718,7 +1753,7 @@ function showManageEnvsModal() {
     textarea.remove();
   }
 
-  function renderList() {
+  function renderSidebarItems() {
     const allEnvs = loadSavedEnvs();
     const envs = getFilteredEnvs();
     if (allEnvs.length === 0) return '<p class="user-env-empty">No environments defined.</p>';
@@ -1727,72 +1762,184 @@ function showManageEnvsModal() {
     return envs.map(env => {
       const envId = String(env.id);
       const entries = envEntries(env);
-      const expanded = expandedEnvIds.has(envId);
-      const revealSecrets = revealedEnvIds.has(envId);
-      const preview = getPreviewEntries(entries).map(([key, value]) => `
-        <span class="user-env-chip${isSensitiveKey(key) ? ' user-env-chip-secret' : ''}">
-          <strong>${escapeEnvHtml(key)}</strong>
-          <span>${escapeEnvHtml(displayValue(key, value, false))}</span>
-        </span>
-      `).join('');
-      const details = expanded ? `
-        <div class="user-env-details">
-          <div class="user-env-details-toolbar">
-            <span>${variableLabel(entries.length)}</span>
-            ${entries.some(([key]) => isSensitiveKey(key)) ? `<button type="button" class="btn btn-sm btn-secondary manage-env-reveal" data-id="${envId}">${revealSecrets ? 'Hide values' : 'Show values'}</button>` : ''}
-          </div>
-          <div class="user-env-var-grid">
-            ${entries.length ? entries.map(([key, value]) => `
-              <div class="user-env-var-key">${escapeEnvHtml(key)}</div>
-              <div class="user-env-var-value${isSensitiveKey(key) && !revealSecrets ? ' user-env-secret' : ''}">${escapeEnvHtml(displayValue(key, value, revealSecrets))}</div>
-            `).join('') : '<div class="user-env-var-empty">No variables saved in this environment.</div>'}
-          </div>
-        </div>
-      ` : '';
       return `
-        <div class="user-env-card" data-env-id="${envId}">
-          <div class="user-env-card-header">
-            <div class="user-env-title-wrap">
-              <strong>${escapeEnvHtml(env.name || 'Unnamed environment')}</strong>
-              <span>${variableLabel(entries.length)}</span>
-            </div>
-            <div class="user-env-card-actions">
-              <button type="button" class="btn btn-sm btn-secondary manage-env-toggle" data-id="${envId}">${expanded ? 'Hide variables' : 'View variables'}</button>
-              <button type="button" class="btn btn-sm btn-secondary manage-env-copy" data-id="${envId}">Copy JSON</button>
-              <button type="button" class="btn btn-sm btn-secondary manage-env-duplicate" data-id="${envId}">Duplicate</button>
-              <button type="button" class="btn btn-sm btn-secondary edit-env" data-id="${envId}">Edit</button>
-              <button type="button" class="btn btn-sm btn-danger delete-env" data-id="${envId}">Delete</button>
-            </div>
-          </div>
-          <div class="user-env-summary">
-            <div class="user-env-preview">${preview || '<em>No variables</em>'}</div>
-          </div>
-          ${details}
-        </div>
+        <button type="button" class="user-env-sidebar-item${selectedEnvId === envId ? ' active' : ''}" data-env-id="${escapeEnvHtml(envId)}">
+          <span class="user-env-sidebar-item-body">
+            <span class="user-env-sidebar-item-name">${escapeEnvHtml(env.name || 'Unnamed environment')}</span>
+            <span class="user-env-kind-badge user-env-kind-api">API</span>
+          </span>
+          <span class="user-env-sidebar-item-meta">${entries.length} var${entries.length === 1 ? '' : 's'}</span>
+        </button>
       `;
     }).join('');
   }
 
-  function updateList() {
-    const list = document.getElementById('manage-envs-list');
-    if (list) list.innerHTML = renderList();
-    wireListButtons();
+  function updateSidebar() {
+    const list = document.getElementById('manage-envs-sidebar-list');
+    if (!list) return;
+    list.innerHTML = renderSidebarItems();
+    list.querySelectorAll('.user-env-sidebar-item').forEach(button => {
+      button.addEventListener('click', () => {
+        const id = button.getAttribute('data-env-id');
+        if (selectedEnvId === id) {
+          selectedEnvId = null;
+        } else {
+          selectedEnvId = id;
+          varFilterText = '';
+          revealSecrets = false;
+        }
+        updateSidebar();
+        updateDetail();
+      });
+    });
+  }
+
+  function renderDetailPanel() {
+    if (!selectedEnvId) {
+      return `
+        <div class="user-env-detail-empty">
+          <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7a2 2 0 012-2h12a2 2 0 012 2M4 7h16M10 12h4" />
+          </svg>
+          <p>Select an API environment from the list to view and manage its variables.</p>
+        </div>`;
+    }
+
+    const env = findEnvironment(selectedEnvId);
+    if (!env) return '<div class="user-env-detail-empty"><p>Environment not found.</p></div>';
+
+    const entries = envEntries(env);
+    const query = varFilterText.trim().toLowerCase();
+    const filtered = query
+      ? entries.filter(([key, value]) => String(key).toLowerCase().includes(query) || String(value || '').toLowerCase().includes(query))
+      : entries;
+    const hasSensitive = entries.some(([key]) => isSensitiveKey(key));
+    const rowsHtml = filtered.length
+      ? filtered.map(([key, value]) => `
+          <div class="user-env-var-key">${escapeEnvHtml(key)}</div>
+          <div class="user-env-var-value${isSensitiveKey(key) && !revealSecrets ? ' user-env-secret' : ''}">${escapeEnvHtml(displayValue(key, value, revealSecrets))}</div>
+        `).join('')
+      : `<div class="user-env-var-empty">${query ? 'No variables match this filter.' : 'No variables saved in this environment.'}</div>`;
+
+    return `
+      <div class="user-env-detail-header">
+        <div class="user-env-detail-title">
+          <div class="user-env-title-line">
+            <h3>${escapeEnvHtml(env.name || 'Unnamed environment')}</h3>
+            <span class="user-env-kind-badge user-env-kind-api">API</span>
+          </div>
+          <p class="muted">${variableLabel(entries.length)} · API collection tests</p>
+        </div>
+        <div class="user-env-detail-actions">
+          <button type="button" class="btn btn-sm btn-secondary manage-env-edit">Edit</button>
+          <button type="button" class="btn btn-sm btn-secondary manage-env-copy">Copy JSON</button>
+          <button type="button" class="btn btn-sm btn-secondary manage-env-duplicate">Duplicate</button>
+          <button type="button" class="btn btn-sm btn-danger manage-env-delete">Delete</button>
+        </div>
+      </div>
+      <div class="user-env-detail-toolbar">
+        <input type="search" id="manage-env-var-search" class="form-control" placeholder="Filter variables..." value="${escapeEnvHtml(varFilterText)}" autocomplete="off">
+        ${hasSensitive ? `<button type="button" class="btn btn-sm btn-secondary" id="manage-env-reveal-toggle">${revealSecrets ? 'Hide values' : 'Show values'}</button>` : ''}
+      </div>
+      <div class="user-env-var-grid user-env-detail-grid">
+        ${rowsHtml}
+      </div>
+    `;
+  }
+
+  function updateDetail() {
+    const detail = document.getElementById('manage-env-detail-panel');
+    if (!detail) return;
+    detail.innerHTML = renderDetailPanel();
+
+    document.getElementById('manage-env-var-search')?.addEventListener('input', (ev) => {
+      varFilterText = ev.target.value || '';
+      updateDetail();
+    });
+
+    document.getElementById('manage-env-reveal-toggle')?.addEventListener('click', () => {
+      revealSecrets = !revealSecrets;
+      updateDetail();
+    });
+
+    document.querySelector('.manage-env-copy')?.addEventListener('click', async () => {
+      const env = findEnvironment(selectedEnvId);
+      if (!env) return;
+      const { id: _id, name, ...variables } = env;
+      const button = document.querySelector('.manage-env-copy');
+      try {
+        await copyText(JSON.stringify({ name, variables }, null, 2));
+        if (button) {
+          button.textContent = 'Copied';
+          setTimeout(() => { button.textContent = 'Copy JSON'; }, 1200);
+        }
+      } catch (err) {
+        alert('Could not copy environment JSON: ' + (err.message || err));
+      }
+    });
+
+    document.querySelector('.manage-env-duplicate')?.addEventListener('click', async () => {
+      const env = findEnvironment(selectedEnvId);
+      if (!env) return;
+      const { id: _id, name, ...variables } = env;
+      try {
+        const created = await createSavedEnv({ name: buildUniqueCopyName(name), ...variables });
+        selectedEnvId = String(created.id);
+        populateEnvSelect();
+        updateSidebar();
+        updateDetail();
+      } catch (err) {
+        alert('Error duplicating environment: ' + (err.message || err));
+      }
+    });
+
+    document.querySelector('.manage-env-delete')?.addEventListener('click', async () => {
+      const env = findEnvironment(selectedEnvId);
+      if (!env) return;
+      const varCount = envEntries(env).length;
+      if (!confirm(`Delete environment "${env.name || selectedEnvId}" with ${variableLabel(varCount)}?`)) return;
+      try {
+        await deleteSavedEnv(selectedEnvId);
+        selectedEnvId = null;
+        revealSecrets = false;
+        varFilterText = '';
+        populateEnvSelect();
+        updateSidebar();
+        updateDetail();
+      } catch (err) {
+        alert('Error deleting environment: ' + (err.message || err));
+      }
+    });
+
+    document.querySelector('.manage-env-edit')?.addEventListener('click', () => {
+      const env = findEnvironment(selectedEnvId);
+      if (env) {
+        hideModal();
+        setTimeout(() => showCreateEnvModal(env), 50);
+      }
+    });
   }
 
   const content = `
-    <div class="user-env-toolbar">
-      <div class="user-env-search-wrap">
-        <input type="search" id="manage-env-search" class="form-control" placeholder="Search environments or variable names" value="">
-      </div>
-      <select id="manage-env-sort" class="form-control" aria-label="Sort environments">
-        <option value="name">Name A-Z</option>
-        <option value="variables">Most variables</option>
-      </select>
+    <div class="user-env-manager-layout">
+      <aside class="user-env-sidebar">
+        <div class="user-env-sidebar-toolbar">
+          <input type="search" id="manage-env-search" class="form-control" placeholder="Search..." value="${escapeEnvHtml(searchText)}" autocomplete="off">
+          <select id="manage-env-sort" class="form-control" aria-label="Sort environments">
+            <option value="name" ${sortMode === 'name' ? 'selected' : ''}>Name A-Z</option>
+            <option value="variables" ${sortMode === 'variables' ? 'selected' : ''}>Most variables</option>
+          </select>
+        </div>
+        <div class="user-env-type-tabs">
+          <button type="button" class="user-env-type-tab active" disabled>API</button>
+        </div>
+        <div id="manage-envs-sidebar-list" class="user-env-sidebar-list"></div>
+      </aside>
+      <div class="user-env-detail" id="manage-env-detail-panel"></div>
     </div>
-    <div id="manage-envs-list">${renderList()}</div>
     <div class="user-env-footer">
       <div class="user-env-footer-actions">
-        <button type="button" class="btn btn-primary btn-sm" id="manage-envs-new-btn">New</button>
+        <button type="button" class="btn btn-primary btn-sm" id="manage-envs-new-btn">New API</button>
         <button type="button" class="btn btn-secondary btn-sm" id="manage-envs-export-btn">Export</button>
         <label class="btn btn-secondary btn-sm user-env-import-label">Import<input type="file" id="manage-envs-import-input" accept=".json,application/json" style="display:none;"></label>
       </div>
@@ -1801,6 +1948,8 @@ function showManageEnvsModal() {
   `;
 
   showModal('Manage Environments', content);
+  updateSidebar();
+  updateDetail();
 
   document.getElementById('manage-envs-close-btn').addEventListener('click', () => {
     if (runTestsModalRestoreState) {
@@ -1812,12 +1961,12 @@ function showManageEnvsModal() {
 
   document.getElementById('manage-env-search')?.addEventListener('input', (ev) => {
     searchText = ev.target.value || '';
-    updateList();
+    updateSidebar();
   });
 
   document.getElementById('manage-env-sort')?.addEventListener('change', (ev) => {
     sortMode = ev.target.value || 'name';
-    updateList();
+    updateSidebar();
   });
 
   document.getElementById('manage-envs-new-btn')?.addEventListener('click', () => {
@@ -1833,95 +1982,10 @@ function showManageEnvsModal() {
     await importUserEnvironments(ev.target);
     ev.target.value = '';
     populateEnvSelect();
-    updateList();
+    if (selectedEnvId && !findEnvironment(selectedEnvId)) selectedEnvId = null;
+    updateSidebar();
+    updateDetail();
   });
-
-  function wireListButtons() {
-    document.querySelectorAll('.manage-env-toggle').forEach(button => {
-      button.addEventListener('click', () => {
-        const id = button.getAttribute('data-id');
-        if (expandedEnvIds.has(id)) {
-          expandedEnvIds.delete(id);
-          revealedEnvIds.delete(id);
-        } else {
-          expandedEnvIds.add(id);
-        }
-        updateList();
-      });
-    });
-
-    document.querySelectorAll('.manage-env-reveal').forEach(button => {
-      button.addEventListener('click', () => {
-        const id = button.getAttribute('data-id');
-        if (revealedEnvIds.has(id)) revealedEnvIds.delete(id);
-        else revealedEnvIds.add(id);
-        updateList();
-      });
-    });
-
-    document.querySelectorAll('.manage-env-copy').forEach(button => {
-      button.addEventListener('click', async () => {
-        const id = button.getAttribute('data-id');
-        const env = (window._userEnvsCache || []).find(item => String(item.id) === String(id));
-        if (!env) return;
-        const { id: _id, name, ...variables } = env;
-        try {
-          await copyText(JSON.stringify({ name, variables }, null, 2));
-          button.textContent = 'Copied';
-          setTimeout(() => { button.textContent = 'Copy JSON'; }, 1200);
-        } catch (err) {
-          alert('Could not copy environment JSON: ' + (err.message || err));
-        }
-      });
-    });
-
-    document.querySelectorAll('.manage-env-duplicate').forEach(button => {
-      button.addEventListener('click', async () => {
-        const id = button.getAttribute('data-id');
-        const env = (window._userEnvsCache || []).find(item => String(item.id) === String(id));
-        if (!env) return;
-        const { id: _id, name, ...variables } = env;
-        try {
-          await createSavedEnv({ name: buildUniqueCopyName(name), ...variables });
-          populateEnvSelect();
-          updateList();
-        } catch (err) {
-          alert('Error duplicating environment: ' + (err.message || err));
-        }
-      });
-    });
-
-    document.querySelectorAll('.delete-env').forEach(b => {
-      b.addEventListener('click', async (ev) => {
-        const id = ev.target.getAttribute('data-id');
-        const env = (window._userEnvsCache || []).find(item => String(item.id) === String(id));
-        const varCount = env ? envEntries(env).length : 0;
-        if (!confirm(`Delete environment "${env ? env.name : id}" with ${variableLabel(varCount)}?`)) return;
-        try {
-          await deleteSavedEnv(id);
-          expandedEnvIds.delete(id);
-          revealedEnvIds.delete(id);
-          populateEnvSelect();
-          updateList();
-        } catch (err) {
-          alert('Error deleting environment: ' + (err.message || err));
-        }
-      });
-    });
-
-    document.querySelectorAll('.edit-env').forEach(b => {
-      b.addEventListener('click', (ev) => {
-        const id = ev.target.getAttribute('data-id');
-        const env = (window._userEnvsCache || []).find(x => String(x.id) === String(id));
-        if (env) {
-          hideModal();
-          setTimeout(() => showCreateEnvModal(env), 50);
-        }
-      });
-    });
-  }
-
-  wireListButtons();
 }
 
 // Wire up the manage/create/export/import buttons on the run modal
