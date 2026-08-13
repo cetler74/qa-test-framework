@@ -24,6 +24,7 @@ const { generatePlaywrightReport } = require('../services/playwrightReportGenera
 const { syncProjectTests, getProjectTestCatalogue, getGlobalTestCatalogue, enrichCatalogueRowsWithSingleRun, enrichGlobalCatalogueRowsWithSingleRun, resolvePostmanSourcePathIfNeeded } = require('../services/testCatalogue');
 const playwrightConfig = require('../config/playwright');
 const { validateSpecContent, analyzeSpecQuality } = require('../services/recordedTestValidation');
+const { applyRecordedSpecTemplate } = require('../services/recordedSpecTemplate');
 const codegenSessionManager = require('../services/codegenSessionManager');
 const { loadProxyConfig, getProxyByName, getProxyForUrl, getProxyForUrlAsync } = require('../lib/proxyConfig');
 const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
@@ -303,12 +304,12 @@ function ensureRecordedSpecGotoOptions(specContent) {
         if (!target) return match;
 
         if (args.length === 1) {
-            return `page.goto(${target}, { waitUntil: 'domcontentloaded', timeout: 30000 });`;
+            return `page.goto(${target}, { waitUntil: 'domcontentloaded', timeout: 60000 });`;
         }
 
         const optionsArg = args[1];
         if (!/^\{[\s\S]*\}$/.test(optionsArg)) {
-            return `page.goto(${target}, { waitUntil: 'domcontentloaded', timeout: 30000 });`;
+            return `page.goto(${target}, { waitUntil: 'domcontentloaded', timeout: 60000 });`;
         }
 
         let normalizedOptions = optionsArg;
@@ -319,9 +320,9 @@ function ensureRecordedSpecGotoOptions(specContent) {
         }
 
         if (/timeout\s*:/.test(normalizedOptions)) {
-            normalizedOptions = normalizedOptions.replace(/timeout\s*:\s*\d+/g, 'timeout: 30000');
+            normalizedOptions = normalizedOptions.replace(/timeout\s*:\s*\d+/g, 'timeout: 60000');
         } else {
-            normalizedOptions = normalizedOptions.replace(/\}\s*$/, ', timeout: 30000 }');
+            normalizedOptions = normalizedOptions.replace(/\}\s*$/, ', timeout: 60000 }');
         }
 
         return `page.goto(${target}, ${normalizedOptions});`;
@@ -329,11 +330,12 @@ function ensureRecordedSpecGotoOptions(specContent) {
 }
 
 function normalizeRecordedSpec(specContent, recordedName) {
-    return ensureRecordedSpecIgnoresHttpsErrors(
+    const base = ensureRecordedSpecIgnoresHttpsErrors(
         ensureRecordedSpecGotoOptions(
             normalizeRecordedSpecTitle(specContent, recordedName)
         )
     );
+    return applyRecordedSpecTemplate(base);
 }
 
 const DRAFT_VALIDATION_TTL_MS = 30 * 60 * 1000;
@@ -634,6 +636,26 @@ router.get('/projects', async(req, res) => {
                 ['created_at', 'DESC']
             ]
         });
+        const projectIds = projects.map(project => project.id);
+        if (projectIds.length > 0) {
+            const apiTestCounts = await ProjectTest.findAll({
+                attributes: [
+                    'project_id',
+                    [SequelizeLib.fn('COUNT', SequelizeLib.col('id')), 'api_test_count']
+                ],
+                where: {
+                    project_id: { [Op.in]: projectIds },
+                    test_type: 'api',
+                    is_active: true
+                },
+                group: ['project_id'],
+                raw: true
+            });
+            const apiTestCountByProjectId = new Map(apiTestCounts.map(row => [Number(row.project_id), Number(row.api_test_count) || 0]));
+            projects.forEach(project => {
+                project.setDataValue('api_test_count', apiTestCountByProjectId.get(Number(project.id)) || 0);
+            });
+        }
         res.json(projects);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -4490,6 +4512,24 @@ router.post('/playwright-recorded-tests/validate-draft', async(req, res) => {
         if (error && error.code === 'MISSING_UI_TEST_VARIABLES') {
             return res.status(400).json({ error: error.message });
         }
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Normalize a pasted or manually provided spec without executing it.
+// Useful for the optional paste/blur handler in the frontend.
+router.post('/playwright-recorded-tests/normalize-draft', (req, res) => {
+    try {
+        const { spec_content, name } = req.body || {};
+        if (typeof spec_content !== 'string') {
+            return res.status(400).json({ error: 'spec_content must be a string' });
+        }
+        if (spec_content.length > 500000) {
+            return res.status(400).json({ error: 'spec_content exceeds maximum length' });
+        }
+        const normalized = normalizeRecordedSpec(spec_content, typeof name === 'string' ? name : '');
+        res.json({ specContent: normalized });
+    } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
