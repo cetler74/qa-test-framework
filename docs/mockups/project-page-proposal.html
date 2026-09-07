@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SmartAPI R2.3 - Project page proposal</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0d1729;
+      --header: #1c283a;
+      --surface: #1b293d;
+      --surface-2: #131e30;
+      --line: #334259;
+      --text: #f6f8fb;
+      --muted: #9ba9bc;
+      --teal: #20b9ad;
+      --teal-soft: #123d40;
+      --green: #39c48a;
+      --red: #ff5964;
+      --amber: #ffb52e;
+      --blue: #65aaf7;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 1040px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+      letter-spacing: 0;
+    }
+    button { font: inherit; cursor: pointer; }
+    .header {
+      height: 82px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 32px;
+      background: var(--header);
+      border-bottom: 1px solid #29364a;
+    }
+    .brand, .global-nav, .account, .project-actions, .tab, .metric-label, .run-name, .legend { display: flex; align-items: center; }
+    .brand { gap: 12px; }
+    .brand img { width: 52px; height: 28px; object-fit: contain; }
+    .brand strong { font-size: 20px; }
+    .global-nav { gap: 7px; }
+    .global-nav button, .account {
+      min-height: 42px;
+      padding: 0 14px;
+      border: 1px solid #334156;
+      border-radius: 6px;
+      color: #e7ecf3;
+      background: transparent;
+      font-weight: 650;
+    }
+    .global-nav button.active { border-color: #4b5d75; background: #273448; }
+    .account { gap: 9px; margin-left: 7px; }
+    .avatar { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--teal); font-size: 12px; font-weight: 800; }
+
+    main { max-width: 1370px; margin: 0 auto; padding: 27px 34px 42px; }
+    .breadcrumb { margin-bottom: 16px; color: var(--muted); font-size: 12px; }
+    .breadcrumb span { color: #dce4ef; }
+    .project-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+    .title-line { display: flex; align-items: center; gap: 12px; }
+    h1 { margin: 0; font-size: 29px; line-height: 1.2; }
+    .status { padding: 5px 9px; border-radius: 12px; color: #75dfb1; background: #143b35; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .meta { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
+    .project-actions { gap: 9px; }
+    .btn { min-height: 40px; padding: 0 15px; border: 1px solid #44536b; border-radius: 6px; color: var(--text); background: #29364a; font-weight: 700; }
+    .btn.primary { border-color: var(--teal); background: var(--teal); color: #071b20; }
+
+    .tabs { display: flex; gap: 25px; margin-top: 23px; border-bottom: 1px solid var(--line); }
+    .tab { gap: 7px; min-height: 43px; padding: 0 1px; border: 0; border-bottom: 3px solid transparent; color: var(--muted); background: transparent; font-weight: 700; }
+    .tab.active { border-bottom-color: var(--teal); color: white; }
+    .badge { padding: 2px 7px; border-radius: 10px; background: #344158; color: #dce4ee; font-size: 10px; }
+
+    .readiness {
+      display: grid;
+      grid-template-columns: 1.2fr repeat(4, 1fr);
+      margin-top: 20px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .metric { min-height: 100px; padding: 17px 19px; border-right: 1px solid var(--line); }
+    .metric:last-child { border-right: 0; }
+    .metric-label { gap: 6px; color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); }
+    .metric strong { display: block; margin-top: 8px; font-size: 27px; line-height: 1; }
+    .metric small { display: block; margin-top: 7px; color: var(--muted); font-size: 11px; }
+    .metric.coverage { background: var(--surface-2); }
+    .metric.coverage strong { color: var(--amber); }
+    .metric.pass strong { color: var(--green); }
+    .metric.fail strong { color: var(--red); }
+    .metric.not-run strong { color: #c7d0de; }
+    .progress { height: 5px; margin-top: 10px; border-radius: 4px; background: #39465c; overflow: hidden; }
+    .progress div { width: 20%; height: 100%; background: var(--amber); }
+
+    .grid { display: grid; grid-template-columns: minmax(0, 1.42fr) minmax(360px, .8fr); gap: 17px; margin-top: 17px; }
+    .panel { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; min-height: 54px; padding: 0 17px; border-bottom: 1px solid var(--line); }
+    h2 { margin: 0; font-size: 15px; }
+    .link { border: 0; color: var(--blue); background: transparent; font-weight: 700; font-size: 12px; }
+
+    .attention-list { display: grid; grid-template-columns: repeat(3, 1fr); }
+    .attention-item { min-height: 117px; padding: 16px; border-right: 1px solid var(--line); }
+    .attention-item:last-child { border-right: 0; }
+    .attention-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .attention-title strong { font-size: 13px; }
+    .count { font-size: 22px; font-weight: 800; }
+    .count.red { color: var(--red); }
+    .count.amber { color: var(--amber); }
+    .attention-item p { min-height: 30px; margin: 8px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+    .attention-item button { padding: 0; border: 0; color: var(--blue); background: transparent; font-size: 11px; font-weight: 700; }
+
+    .runs { margin-top: 17px; }
+    .run-row { display: grid; grid-template-columns: minmax(220px, 1fr) 100px 130px 100px 90px 26px; align-items: center; min-height: 58px; padding: 0 17px; border-bottom: 1px solid var(--line); font-size: 12px; }
+    .run-row:last-child { border-bottom: 0; }
+    .run-name { gap: 9px; }
+    .type-icon { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 5px; color: #80dcd5; background: var(--teal-soft); font-size: 10px; font-weight: 800; }
+    .run-name strong { display: block; }
+    .run-name small, .run-row time { color: var(--muted); }
+    .chip { display: inline-block; width: max-content; padding: 5px 8px; border-radius: 12px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .chip.failed { color: #ff9ca4; background: #552936; }
+    .chip.partial { color: #ffd47c; background: #59451d; }
+    .chip.passed { color: #75dfb1; background: #143b35; }
+    .more { border: 0; color: var(--muted); background: transparent; font-weight: 800; }
+
+    .coverage-body { padding: 14px 17px 9px; }
+    .coverage-row { margin-bottom: 14px; }
+    .coverage-name { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px; }
+    .coverage-name span { color: var(--muted); }
+    .track { display: flex; height: 7px; border-radius: 4px; background: #354157; overflow: hidden; }
+    .track .passed { background: var(--green); }
+    .track .failed { background: var(--red); }
+    .track .partial { background: var(--amber); }
+    .legend { gap: 13px; padding: 11px 17px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+    .legend i { display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; }
+    .next-run { display: flex; justify-content: space-between; align-items: center; margin-top: 17px; padding: 15px 17px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+    .next-run strong { display: block; font-size: 13px; }
+    .next-run span { color: var(--muted); font-size: 11px; }
+
+    @media (max-width: 760px) {
+      body { min-width: 0; }
+      .header { height: auto; align-items: flex-start; padding: 14px; }
+      .brand strong { font-size: 15px; }
+      .global-nav button { display: none; }
+      .global-nav button.active, .account { display: flex; min-height: 36px; padding: 0 9px; font-size: 11px; }
+      main { padding: 19px 14px 30px; }
+      .project-head { display: block; }
+      .project-actions { margin-top: 15px; }
+      .project-actions .btn { flex: 1; }
+      .tabs { gap: 16px; overflow-x: auto; }
+      .tab { flex: 0 0 auto; font-size: 12px; }
+      .readiness { grid-template-columns: 1fr 1fr; }
+      .metric { border-bottom: 1px solid var(--line); }
+      .metric.coverage { grid-column: 1 / -1; }
+      .grid { grid-template-columns: 1fr; }
+      .attention-list { grid-template-columns: 1fr; }
+      .attention-item { min-height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .run-row { grid-template-columns: minmax(0, 1fr) 95px 25px; padding: 8px 13px; }
+      .run-row > :nth-child(3), .run-row > :nth-child(4), .run-row > :nth-child(5) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="brand"><img src="../../logo-meo.svg" alt="MEO"><strong>DEO/ECP/EPS - QA Test Hub</strong></div>
+    <nav class="global-nav" aria-label="Global navigation">
+      <button>⌂ &nbsp;Dashboard</button>
+      <button class="active">▣ &nbsp;Projects</button>
+      <button>▣ &nbsp;Test Runs</button>
+      <button>≡ &nbsp;Test Catalogue</button>
+      <button>⚙ &nbsp;Settings</button>
+      <div class="account"><span class="avatar">A</span>admin⌄</div>
+    </nav>
+  </header>
+
+  <main>
+    <div class="breadcrumb">Projects &nbsp;/&nbsp; <span>SmartAPI R2.3</span></div>
+    <section class="project-head">
+      <div>
+        <div class="title-line"><h1>SmartAPI R2.3</h1><span class="status">On going</span></div>
+        <p class="meta">Owned by admin · Private project · Last activity 13 Aug 2026, 09:10</p>
+      </div>
+      <div class="project-actions">
+        <button class="btn">Edit project</button>
+        <button class="btn primary">▶ &nbsp;Run tests</button>
+      </div>
+    </section>
+
+    <nav class="tabs" aria-label="Project navigation">
+      <button class="tab active">Overview</button>
+      <button class="tab">Tests <span class="badge">218</span></button>
+      <button class="tab">Runs</button>
+      <button class="tab">Coverage</button>
+      <button class="tab">Assets <span class="badge">5</span></button>
+      <button class="tab">Flows & schedules</button>
+    </nav>
+
+    <section class="readiness" aria-label="Coverage status">
+      <div class="metric coverage">
+        <div class="metric-label"><span class="dot"></span>Current coverage</div>
+        <strong>20%</strong>
+        <div class="progress"><div></div></div>
+        <small>43 of 218 active tests covered</small>
+      </div>
+      <div class="metric pass"><div class="metric-label">Passed</div><strong>17</strong><small>8% of active tests</small></div>
+      <div class="metric fail"><div class="metric-label">Failed</div><strong>26</strong><small>4 new failures</small></div>
+      <div class="metric"><div class="metric-label">Partial failed</div><strong>0</strong><small>No partial results</small></div>
+      <div class="metric not-run"><div class="metric-label">Not yet run</div><strong>175</strong><small>80% coverage gap</small></div>
+    </section>
+
+    <div class="grid">
+      <div>
+        <section class="panel">
+          <div class="panel-head"><h2>Needs attention</h2><button class="link">Open test catalogue →</button></div>
+          <div class="attention-list">
+            <article class="attention-item">
+              <div class="attention-title"><strong>New failures</strong><span class="count red">4</span></div>
+              <p>Failures introduced since the previous comparable run.</p>
+              <button>Review failures →</button>
+            </article>
+            <article class="attention-item">
+              <div class="attention-title"><strong>Never executed</strong><span class="count amber">175</span></div>
+              <p>Includes 12 tests marked as high priority.</p>
+              <button>Select priority tests →</button>
+            </article>
+            <article class="attention-item">
+              <div class="attention-title"><strong>Stale results</strong><span class="count">21</span></div>
+              <p>Last successful execution was over 30 days ago.</p>
+              <button>Review stale tests →</button>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel runs">
+          <div class="panel-head"><h2>Recent test runs</h2><button class="link">View all runs →</button></div>
+          <div class="run-row">
+            <div class="run-name"><span class="type-icon">API</span><div><strong>Test run 23</strong><small>32 tests · run by admin</small></div></div>
+            <span class="chip partial">Cancelled</span><time>13 Aug, 09:10</time><span>9 failed</span><span>1m 42s</span><button class="more">···</button>
+          </div>
+          <div class="run-row">
+            <div class="run-name"><span class="type-icon">API</span><div><strong>Release R2.3 regression</strong><small>48 tests · run by admin</small></div></div>
+            <span class="chip failed">Failed</span><time>12 Aug, 16:22</time><span>4 failed</span><span>3m 08s</span><button class="more">···</button>
+          </div>
+          <div class="run-row">
+            <div class="run-name"><span class="type-icon">UI</span><div><strong>Critical user journeys</strong><small>6 tests · scheduled run</small></div></div>
+            <span class="chip passed">Passed</span><time>12 Aug, 08:00</time><span>6 passed</span><span>2m 14s</span><button class="more">···</button>
+          </div>
+        </section>
+      </div>
+
+      <aside>
+        <section class="panel">
+          <div class="panel-head"><h2>Coverage by area</h2><button class="link">Detailed coverage →</button></div>
+          <div class="coverage-body">
+            <div class="coverage-row"><div class="coverage-name"><strong>No folder</strong><span>8 / 16 · 50%</span></div><div class="track"><i class="passed" style="width:6%"></i><i class="failed" style="width:44%"></i></div></div>
+            <div class="coverage-row"><div class="coverage-name"><strong>Device reachability</strong><span>9 / 48 · 19%</span></div><div class="track"><i class="passed" style="width:8%"></i><i class="failed" style="width:11%"></i></div></div>
+            <div class="coverage-row"><div class="coverage-name"><strong>Location verification</strong><span>12 / 36 · 33%</span></div><div class="track"><i class="passed" style="width:22%"></i><i class="failed" style="width:11%"></i></div></div>
+            <div class="coverage-row"><div class="coverage-name"><strong>Number verification</strong><span>7 / 42 · 17%</span></div><div class="track"><i class="passed" style="width:12%"></i><i class="failed" style="width:5%"></i></div></div>
+            <div class="coverage-row"><div class="coverage-name"><strong>Other areas</strong><span>7 / 76 · 9%</span></div><div class="track"><i class="passed" style="width:5%"></i><i class="failed" style="width:4%"></i></div></div>
+          </div>
+          <div class="legend"><span><i style="background:var(--green)"></i>Passed</span><span><i style="background:var(--red)"></i>Failed</span><span>Unfilled = not run</span></div>
+        </section>
+        <section class="next-run">
+          <div><strong>Next scheduled run</strong><span>Daily regression · Tomorrow at 08:00</span></div>
+          <button class="link">Manage</button>
+        </section>
+      </aside>
+    </div>
+  </main>
+</body>
+</html>

@@ -22,6 +22,7 @@ const ProjectTestStat = require('./ProjectTestStat');
 const ProjectTestNote = require('./ProjectTestNote');
 const ProjectTestNoteAttachment = require('./ProjectTestNoteAttachment');
 const UserEnvironment = require('./UserEnvironment');
+const RunCatalogueMembership = require('./RunCatalogueMembership');
 
 // Define associations
 Project.belongsTo(User, { foreignKey: 'owner_id', as: 'owner' });
@@ -326,6 +327,11 @@ ProjectTestNoteAttachment.belongsTo(ProjectTestNote, {
 User.hasMany(UserEnvironment, { foreignKey: 'user_id', as: 'environments' });
 UserEnvironment.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
+Project.hasMany(RunCatalogueMembership, { foreignKey: 'project_id', as: 'runCatalogueMemberships' });
+RunCatalogueMembership.belongsTo(Project, { foreignKey: 'project_id', as: 'project' });
+ProjectTest.hasMany(RunCatalogueMembership, { foreignKey: 'project_test_id', as: 'runMemberships' });
+RunCatalogueMembership.belongsTo(ProjectTest, { foreignKey: 'project_test_id', as: 'projectTest' });
+
 module.exports = {
   sequelize,
   Project,
@@ -350,6 +356,7 @@ module.exports = {
   ProjectTest,
   ProjectTestStat,
   ProjectTestNote,
-  ProjectTestNoteAttachment
+  ProjectTestNoteAttachment,
+  RunCatalogueMembership
 };
 

@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { parse: parseCsv } = require('csv-parse/sync');
 
-const { sequelize, Project, User, UserEnvironment, ProjectMember, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult, ProjectTest, ProjectTestStat, ProjectTestNote, ProjectTestNoteAttachment } = require('../models');
+const { sequelize, Project, User, UserEnvironment, ProjectMember, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult, ProjectTest, ProjectTestStat, ProjectTestNote, ProjectTestNoteAttachment, RunCatalogueMembership } = require('../models');
 const { getAccessibleProjectIds, loadProjectAndCheckAccess, userCanAccessProjectId, userCanManageProjectId } = require('../middleware/projectAccess');
 const SequelizeLib = require('sequelize');
 const { Op, literal } = require('sequelize');
@@ -31,6 +31,7 @@ const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
 const { deleteTestRunArtifacts, deleteFuzzRunArtifacts, deletePlaywrightRunArtifacts } = require('../services/artifactCleanup');
 const { postmanToOpenApiYaml } = require('../services/postmanToOpenApi');
 const { buildArchiveFilename, streamProjectAuditArchive } = require('../services/projectArchiveGenerator');
+const { allocateRerunMetadata, captureRunCatalogueMemberships, createInitialRunMetadata, getRerunAvailability } = require('../services/runExecutionSnapshot');
 const {
     PROJECT_STATUS,
     PROJECT_STATUS_VALUES,
@@ -3019,6 +3020,7 @@ function toUnifiedRun(row, runType) {
     const runBy = runByUser ?
         { id: runByUser.id, username: runByUser.username, display_name: runByUser.display_name } :
         null;
+    const rerunAvailability = getRerunAvailability(row);
     return {
         id: row.id,
         name: row.name,
@@ -3036,9 +3038,260 @@ function toUnifiedRun(row, runType) {
         base_url: row.base_url ?? null,
         progress_message: row.progress_message ?? null,
         run_by_user_id: row.run_by_user_id ?? null,
-        runByUser: runBy
+        runByUser: runBy,
+        can_rerun: rerunAvailability.canRerun,
+        rerun_unavailable_reason: rerunAvailability.reason,
+        rerun_number: row.rerun_number ?? 0
     };
 }
+
+function getRerunModel(runType) {
+    if (runType === 'api' || runType === 'soap') return TestRun;
+    if (runType === 'ui') return PlaywrightRun;
+    if (runType === 'fuzz') return FuzzRun;
+    return null;
+}
+
+async function launchSnapshotRerun(runType, run, snapshot, runByUserId) {
+    if (runType === 'api') {
+        const options = {
+            collectionIds: snapshot.collectionIds,
+            selectedTests: snapshot.selectedTests,
+            selectedTestsOrdered: snapshot.selectedTestsOrdered,
+            environment: snapshot.environment,
+            envVars: snapshot.envVars,
+            delayBetweenTests: snapshot.delayBetweenTests,
+            testDelays: snapshot.testDelays,
+            testRunId: run.id
+        };
+        options.proxy = await getProxyForUrlAsync(deriveUrlFromEnvVars(options.envVars));
+        await executeTests(run.project_id, run.name, options);
+        await captureRunCatalogueMemberships(runType, run.id, run.project_id);
+        setImmediate(() => {
+            generateReport(run.id, { skipCache: true, writeToStablePath: true })
+                .catch((error) => console.error('[api] Pre-generate rerun report failed:', error));
+        });
+        return;
+    }
+
+    if (runType === 'soap') {
+        const apiSpec = await ApiSpec.findByPk(snapshot.apiSpecId, { attributes: ['id', 'file_path', 'format'] });
+        if (!apiSpec || apiSpec.format !== 'wsdl') throw new Error('The SOAP source specification is no longer available.');
+        const serviceUrl = getSoapServiceUrlFromWsdl(path.resolve(apiSpec.file_path));
+        const proxy = await getProxyForUrlAsync(serviceUrl);
+        await executeSoapTests(run.project_id, snapshot.apiSpecId, snapshot.operationIds, run.name, run.id, { proxy });
+        await captureRunCatalogueMemberships(runType, run.id, run.project_id);
+        setImmediate(() => {
+            generateReport(run.id, { skipCache: true, writeToStablePath: true })
+                .catch((error) => console.error('[api] Pre-generate SOAP rerun report failed:', error));
+        });
+        return;
+    }
+
+    if (runType === 'ui') {
+        const proxy = await getProxyForUrlAsync(snapshot.baseUrl || playwrightConfig.baseUrl || '');
+        await runPlaywrightTests({
+            playwrightRunId: run.id,
+            baseUrl: snapshot.baseUrl || undefined,
+            headless: snapshot.headless,
+            timeoutMs: snapshot.timeoutMs,
+            runOnly: snapshot.selectedTestIds,
+            video: snapshot.video,
+            trace: snapshot.trace,
+            browserName: snapshot.browser,
+            slowMo: snapshot.slowMo,
+            proxy,
+            uiVariables: snapshot.uiVariables,
+            runByUserId
+        });
+        await captureRunCatalogueMemberships(runType, run.id, run.project_id);
+        return;
+    }
+
+    const proxy = await getProxyForUrlAsync(snapshot.serverUrl);
+    await executeFuzz(run.project_id, snapshot.apiSpecId, run.name, {
+        fuzzRunId: run.id,
+        serverUrl: snapshot.serverUrl,
+        flowId: snapshot.flowId,
+        paths: snapshot.paths,
+        skipPaths: snapshot.skipPaths,
+        delayBetweenRequests: snapshot.delayBetweenRequests,
+        proxy
+    });
+    await captureRunCatalogueMemberships(runType, run.id, run.project_id);
+}
+
+async function markSnapshotRerunFailed(runType, runId, error) {
+    const model = getRerunModel(runType);
+    const values = { status: 'failed' };
+    if (runType === 'api' || runType === 'soap') values.error_message = error.message || String(error);
+    if (runType === 'fuzz') values.progress_message = (error.message || String(error)).slice(0, 2000);
+    await model.update(values, { where: { id: runId } });
+}
+
+router.post('/runs/:runType/:id/rerun', async(req, res) => {
+    try {
+        const { runType } = req.params;
+        const model = getRerunModel(runType);
+        if (!model) return res.status(400).json({ error: 'Unsupported run type' });
+
+        const sourceRun = await model.findByPk(req.params.id);
+        if (!sourceRun) return res.status(404).json({ error: 'Run not found' });
+        const actualRunType = model === TestRun ? (sourceRun.run_type || 'api') : runType;
+        if (actualRunType !== runType) return res.status(404).json({ error: 'Run not found' });
+        const canAccess = await userCanAccessProjectId(req.user.id, req.user.is_admin, sourceRun.project_id);
+        if (!canAccess) return res.status(403).json({ error: 'Forbidden' });
+        await ensureProjectIsRunnable(sourceRun.project_id);
+
+        const availability = getRerunAvailability(sourceRun);
+        if (!availability.canRerun) return res.status(409).json({ error: availability.reason });
+        if (sourceRun.execution_snapshot.runType !== runType) {
+            return res.status(409).json({ error: 'Stored replay settings do not match this run type.' });
+        }
+
+        const rerun = await sequelize.transaction(async(transaction) => {
+            const metadata = await allocateRerunMetadata(model, sourceRun, transaction);
+            const commonValues = {
+                ...metadata,
+                status: 'running',
+                project_id: sourceRun.project_id,
+                total_tests: 0,
+                passed_tests: 0,
+                failed_tests: 0,
+                duration_ms: 0
+            };
+            if (runType === 'api' || runType === 'soap') {
+                return model.create({
+                    ...commonValues,
+                    run_type: runType,
+                    flow_id: sourceRun.flow_id || null,
+                    run_by_user_id: req.user ?.id ?? null
+                }, { transaction });
+            }
+            if (runType === 'ui') {
+                return model.create({
+                    ...commonValues,
+                    base_url: sourceRun.execution_snapshot.baseUrl || '',
+                    browser_name: sourceRun.execution_snapshot.browser || 'chromium',
+                    flow_id: sourceRun.flow_id || null,
+                    run_by_user_id: req.user ?.id ?? null
+                }, { transaction });
+            }
+            return model.create({
+                ...commonValues,
+                api_spec_id: sourceRun.execution_snapshot.apiSpecId,
+                flow_id: sourceRun.execution_snapshot.flowId || null,
+                server_url: sourceRun.execution_snapshot.serverUrl
+            }, { transaction });
+        });
+
+        launchSnapshotRerun(runType, rerun, sourceRun.execution_snapshot, req.user ?.id ?? null)
+            .catch((error) => {
+                console.error(`[api] ${runType} quick rerun ${rerun.id} failed:`, error);
+                markSnapshotRerunFailed(runType, rerun.id, error)
+                    .catch((updateError) => console.error('[api] Failed to persist rerun failure:', updateError));
+            });
+
+        res.status(201).json({
+            run: {
+                id: rerun.id,
+                name: rerun.name,
+                runType,
+                status: rerun.status,
+                rerun_number: rerun.rerun_number
+            },
+            message: 'Quick rerun started'
+        });
+    } catch (error) {
+        if (handleProjectRunBlocked(res, error)) return;
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.delete('/runs', async(req, res) => {
+    try {
+        const requestedRuns = Array.isArray(req.body.runs) ? req.body.runs : [];
+        if (requestedRuns.length === 0 || requestedRuns.length > 100) {
+            return res.status(400).json({ error: 'Select between 1 and 100 runs to delete.' });
+        }
+
+        const uniqueRuns = [...new Map(requestedRuns.map((item) => {
+            const runType = String(item.runType || '');
+            const id = Number(item.id);
+            return [`${runType}:${id}`, { runType, id }];
+        })).values()].filter((item) => getRerunModel(item.runType) && Number.isInteger(item.id) && item.id > 0);
+        if (uniqueRuns.length === 0) return res.status(400).json({ error: 'No valid runs were selected.' });
+
+        const loadedRuns = [];
+        for (const item of uniqueRuns) {
+            const model = getRerunModel(item.runType);
+            const include = item.runType === 'ui'
+                ? [{ model: PlaywrightResult, as: 'results', attributes: ['video_path', 'trace_path'] }]
+                : [];
+            const run = await model.findByPk(item.id, { include });
+            if (!run) return res.status(404).json({ error: `${item.runType} run ${item.id} was not found.` });
+            const actualRunType = model === TestRun ? (run.run_type || 'api') : item.runType;
+            if (actualRunType !== item.runType) return res.status(404).json({ error: `${item.runType} run ${item.id} was not found.` });
+            const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, run.project_id);
+            if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+            loadedRuns.push({ ...item, run });
+        }
+
+        const deletableRuns = loadedRuns.filter(({ run }) => String(run.status || '').toLowerCase() !== 'running');
+        const skipped = loadedRuns
+            .filter(({ run }) => String(run.status || '').toLowerCase() === 'running')
+            .map(({ runType, id }) => ({ runType, id, reason: 'Running runs cannot be deleted.' }));
+        const deleted = [];
+        const deletedProjectTestIds = [];
+
+        for (const item of deletableRuns) {
+            const memberships = await RunCatalogueMembership.findAll({
+                where: { run_type: item.runType, run_id: item.id },
+                attributes: ['project_test_id', 'association_status']
+            });
+            const exactTestIds = [...new Set(memberships
+                .filter((membership) => membership.association_status === 'exact' && membership.project_test_id)
+                .map((membership) => Number(membership.project_test_id)))];
+
+            if (item.runType === 'ui') {
+                const results = (item.run.results || []).map((result) => ({ video_path: result.video_path, trace_path: result.trace_path }));
+                deletePlaywrightRunArtifacts(item.run, results);
+            } else if (item.runType === 'fuzz') {
+                deleteFuzzRunArtifacts(item.run.id, item.run.report_path);
+            } else {
+                deleteTestRunArtifacts(item.run.id);
+            }
+
+            await sequelize.transaction(async(transaction) => {
+                await RunCatalogueMembership.destroy({
+                    where: { run_type: item.runType, run_id: item.id },
+                    transaction
+                });
+                await item.run.destroy({ transaction });
+                for (const projectTestId of exactTestIds) {
+                    const survivingReferences = await RunCatalogueMembership.count({
+                        where: { project_test_id: projectTestId, association_status: 'exact' },
+                        transaction
+                    });
+                    if (survivingReferences === 0) {
+                        const removed = await ProjectTest.destroy({ where: { id: projectTestId }, transaction });
+                        if (removed) deletedProjectTestIds.push(projectTestId);
+                    }
+                }
+            });
+            deleted.push({ runType: item.runType, id: item.id });
+        }
+
+        res.json({
+            deleted,
+            skipped,
+            deletedProjectTestIds,
+            message: `${deleted.length} run${deleted.length === 1 ? '' : 's'} deleted.`
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Get total count of test runs (for dashboard stat) - same filters as GET /test-runs, no pagination
 router.get('/test-runs/count', async(req, res) => {
@@ -3468,12 +3721,24 @@ router.post('/test-runs/execute', async(req, res) => {
             passed_tests: 0,
             failed_tests: 0,
             duration_ms: 0,
-            run_by_user_id: req.user ?.id ?? null
+            run_by_user_id: req.user ?.id ?? null,
+            ...createInitialRunMetadata(name, {
+                runType: 'api',
+                projectId,
+                collectionIds: testOptions.collectionIds || null,
+                selectedTests: testOptions.selectedTests || null,
+                selectedTestsOrdered: testOptions.selectedTestsOrdered || null,
+                environment: testOptions.environment || null,
+                envVars: testOptions.envVars || null,
+                delayBetweenTests: testOptions.delayBetweenTests ?? null,
+                testDelays: testOptions.testDelays || null
+            })
         });
 
         // Execute tests asynchronously (don't await - let it run in background)
         executeTests(projectId, name, {...testOptions, testRunId: testRun.id, proxy })
-            .then(results => {
+            .then(async(results) => {
+                await captureRunCatalogueMemberships('api', testRun.id, projectId);
                 console.log(`[api] Test run ${testRun.id} completed: ${results.summary.passed} passed, ${results.summary.failed} failed`);
                 // Pre-generate report in background so View Report serves from file and does not block the app
                 setImmediate(() => {
@@ -3526,10 +3791,17 @@ router.post('/soap-runs/execute', async(req, res) => {
             passed_tests: 0,
             failed_tests: 0,
             duration_ms: 0,
-            run_by_user_id: req.user ?.id ?? null
+            run_by_user_id: req.user ?.id ?? null,
+            ...createInitialRunMetadata(name, {
+                runType: 'soap',
+                projectId,
+                apiSpecId,
+                operationIds
+            })
         });
         executeSoapTests(projectId, apiSpecId, operationIds, name, testRun.id, { proxy })
-            .then(() => {
+            .then(async() => {
+                await captureRunCatalogueMemberships('soap', testRun.id, projectId);
                 console.log(`[api] SOAP run ${testRun.id} completed`);
                 setImmediate(() => {
                     generateReport(testRun.id, { skipCache: true, writeToStablePath: true })
@@ -3582,7 +3854,17 @@ router.post('/fuzz-runs/execute', async(req, res) => {
             total_tests: 0,
             passed_tests: 0,
             failed_tests: 0,
-            duration_ms: 0
+            duration_ms: 0,
+            ...createInitialRunMetadata(name, {
+                runType: 'fuzz',
+                projectId,
+                apiSpecId,
+                serverUrl: baseUrl,
+                flowId: flowId || null,
+                paths: paths || null,
+                skipPaths: skipPaths || null,
+                delayBetweenRequests: delayBetweenRequests ?? null
+            })
         });
         const proxy = await getProxyForUrlAsync(baseUrl);
         executeFuzz(projectId, apiSpecId, name, {
@@ -3593,7 +3875,7 @@ router.post('/fuzz-runs/execute', async(req, res) => {
             skipPaths: skipPaths || null,
             delayBetweenRequests,
             proxy
-        }).catch((err) => {
+        }).then(() => captureRunCatalogueMemberships('fuzz', fuzzRun.id, projectId)).catch((err) => {
             console.error(`[api] Fuzz run ${fuzzRun.id} failed:`, err);
             const msg = (err && err.message) ? String(err.message).slice(0, 2000) : 'Fuzz run failed';
             FuzzRun.update({ status: 'failed', progress_message: msg }, { where: { id: fuzzRun.id } }).catch(() => {});
@@ -3892,6 +4174,12 @@ router.post('/playwright-runs/execute', async(req, res) => {
         const videoOpt = ['off', 'on', 'retain-on-failure'].includes(bodyVideo) ? bodyVideo : 'off';
         const traceOpt = ['off', 'on', 'retain-on-failure'].includes(bodyTrace) ? bodyTrace : 'off';
         const slowMo = typeof bodySlowMo === 'number' && bodySlowMo >= 0 ? bodySlowMo : 0;
+        let headless = typeof bodyHeadless === 'boolean' ? bodyHeadless : playwrightConfig.headless;
+        const hasDisplay = process.platform === 'win32' || !!process.env.DISPLAY;
+        if (!hasDisplay && !headless) headless = true;
+        let timeoutMs = playwrightConfig.timeoutMs;
+        if (typeof bodyTimeoutMs === 'number' && bodyTimeoutMs > 0) timeoutMs = bodyTimeoutMs;
+        else if (typeof bodyTimeoutSeconds === 'number' && bodyTimeoutSeconds > 0) timeoutMs = bodyTimeoutSeconds * 1000;
 
         const run = await PlaywrightRun.create({
             name,
@@ -3903,15 +4191,23 @@ router.post('/playwright-runs/execute', async(req, res) => {
             failed_tests: 0,
             duration_ms: 0,
             browser_name: browserName,
-            run_by_user_id: req.user ?.id ?? null
+            run_by_user_id: req.user ?.id ?? null,
+            ...createInitialRunMetadata(name, {
+                runType: 'ui',
+                projectId,
+                baseUrl: url || null,
+                suite,
+                selectedTestIds: runOnly,
+                headless,
+                timeoutMs,
+                video: videoOpt,
+                trace: traceOpt,
+                browser: browserName,
+                slowMo,
+                uiVariables
+            })
         });
         const proxy = await getProxyForUrlAsync(url || playwrightConfig.baseUrl || '');
-        let headless = typeof bodyHeadless === 'boolean' ? bodyHeadless : playwrightConfig.headless;
-        const hasDisplay = process.platform === 'win32' || !!process.env.DISPLAY;
-        if (!hasDisplay && !headless) headless = true;
-        let timeoutMs = playwrightConfig.timeoutMs;
-        if (typeof bodyTimeoutMs === 'number' && bodyTimeoutMs > 0) timeoutMs = bodyTimeoutMs;
-        else if (typeof bodyTimeoutSeconds === 'number' && bodyTimeoutSeconds > 0) timeoutMs = bodyTimeoutSeconds * 1000;
         runPlaywrightTests({
                 playwrightRunId: run.id,
                 baseUrl: url,
@@ -3926,7 +4222,10 @@ router.post('/playwright-runs/execute', async(req, res) => {
                 uiVariables,
                 runByUserId: req.user ?.id ?? null
             })
-            .then(() => console.log(`[api] Playwright run ${run.id} completed`))
+            .then(async() => {
+                await captureRunCatalogueMemberships('ui', run.id, projectId);
+                console.log(`[api] Playwright run ${run.id} completed`);
+            })
             .catch(async(err) => {
                 console.error(`[api] Playwright run ${run.id} failed:`, err);
                 const current = await PlaywrightRun.findByPk(run.id, { attributes: ['status'] });
