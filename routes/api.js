@@ -16,6 +16,7 @@ const { executeTests, requestCancelTestRun } = require('../services/testRunner')
 const { generateReport, getStableReportPath: getTestRunStableReportPath } = require('../services/reportGenerator');
 const { runPlaywrightTests, getPlaywrightTestListWithRecorded, cancelPlaywrightRun, detectUiVariableNamesFromSpec, executeRecordedSpec } = require('../services/playwrightRunner');
 const { executeFlow } = require('../services/flowRunner');
+const { normalizeApiTaskRef, normalizeUiTaskRef } = require('../services/flowTaskConfig');
 const { computeNextRunAt, runScheduledJob } = require('../services/scheduler');
 const { executeSoapTests } = require('../services/soapRunner');
 const { executeFuzz, cancelFuzzRun } = require('../services/fuzzRunner');
@@ -180,6 +181,46 @@ async function collectionBelongsToProject(collectionId, projectId) {
         return !!link;
     }
     return false;
+}
+
+async function normalizeAndValidateFlowTasks(flowTasks, projectId) {
+    const normalizedTasks = [];
+    for (let index = 0; index < flowTasks.length; index++) {
+        const task = flowTasks[index];
+        try {
+            if (!task || !['api', 'ui'].includes(task.task_type)) {
+                throw new Error('task type must be api or ui');
+            }
+            if (task.task_type === 'api') {
+                const taskRef = normalizeApiTaskRef(task.task_ref || {});
+                const collectionIds = [...new Set(taskRef.selectedTestsOrdered.map((test) => test.collectionId))];
+                for (const collectionId of collectionIds) {
+                    if (!await collectionBelongsToProject(collectionId, projectId)) {
+                        throw new Error(`collection ${collectionId} does not belong to this project`);
+                    }
+                }
+                normalizedTasks.push({ task_type: 'api', task_ref: taskRef });
+            } else {
+                const taskRef = normalizeUiTaskRef(task.task_ref || {}, {
+                    baseUrl: playwrightConfig.baseUrl,
+                    headless: playwrightConfig.headless,
+                    timeoutMs: playwrightConfig.timeoutMs
+                });
+                const linkedCount = await ProjectRecordedTest.count({
+                    where: { project_id: projectId, recorded_test_id: { [Op.in]: taskRef.selectedTestIds } }
+                });
+                if (linkedCount !== new Set(taskRef.selectedTestIds).size) {
+                    throw new Error('one or more recorded tests do not belong to this project');
+                }
+                normalizedTasks.push({ task_type: 'ui', task_ref: taskRef });
+            }
+        } catch (error) {
+            const validationError = new Error(`Task ${index + 1}: ${error.message}`);
+            validationError.statusCode = 400;
+            throw validationError;
+        }
+    }
+    return normalizedTasks;
 }
 
 function normalizeFolderPath(value) {
@@ -2139,9 +2180,15 @@ router.get('/projects/:id/recorded-tests', (req, res, next) => {
     loadProjectAndCheckAccess(req, res, async() => {
         try {
             const project = await Project.findByPk(req.project.id, {
-                include: [{ model: PlaywrightRecordedTest, as: 'recordedTests', through: { attributes: [] }, attributes: ['id', 'name', 'base_url', 'created_at'] }]
+                include: [{ model: PlaywrightRecordedTest, as: 'recordedTests', through: { attributes: [] }, attributes: ['id', 'name', 'base_url', 'spec_content', 'created_at'] }]
             });
-            res.json(project.recordedTests || []);
+            res.json((project.recordedTests || []).map((test) => ({
+                id: test.id,
+                name: test.name,
+                base_url: test.base_url,
+                created_at: test.created_at,
+                variable_names: detectUiVariableNamesFromSpec(test.spec_content || '')
+            })));
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -2274,23 +2321,27 @@ router.put('/flows/:id', (req, res) => {
         if (!flow) return res.status(404).json({ error: 'Flow not found' });
         loadProjectAndCheckAccess(req, res, async() => {
             try {
-                const flowInst = await Flow.findByPk(req.params.id);
                 const { name, description, flowTasks } = req.body;
-                if (name !== undefined) flowInst.name = name;
-                if (description !== undefined) flowInst.description = description;
-                await flowInst.save();
-                if (Array.isArray(flowTasks)) {
-                    await FlowTask.destroy({ where: { flow_id: flowInst.id } });
-                    for (let i = 0; i < flowTasks.length; i++) {
-                        const t = flowTasks[i];
-                        await FlowTask.create({
-                            flow_id: flowInst.id,
-                            task_type: t.task_type,
-                            task_ref: t.task_ref,
-                            position: i
-                        });
+                if (name !== undefined && !String(name).trim()) return res.status(400).json({ error: 'Flow name is required' });
+                const normalizedTasks = Array.isArray(flowTasks)
+                    ? await normalizeAndValidateFlowTasks(flowTasks, flow.project_id)
+                    : null;
+                const flowInst = await sequelize.transaction(async(transaction) => {
+                    const instance = await Flow.findByPk(req.params.id, { transaction });
+                    if (name !== undefined) instance.name = String(name).trim();
+                    if (description !== undefined) instance.description = description;
+                    await instance.save({ transaction });
+                    if (normalizedTasks) {
+                        await FlowTask.destroy({ where: { flow_id: instance.id }, transaction });
+                        await FlowTask.bulkCreate(normalizedTasks.map((task, position) => ({
+                            flow_id: instance.id,
+                            task_type: task.task_type,
+                            task_ref: task.task_ref,
+                            position
+                        })), { transaction });
                     }
-                }
+                    return instance;
+                });
                 const updated = await Flow.findByPk(flowInst.id, {
                     include: [{ model: FlowTask, as: 'flowTasks' }]
                 });
@@ -2298,7 +2349,7 @@ router.put('/flows/:id', (req, res) => {
                 const tasks = (plain.flowTasks || []).sort((a, b) => (a.position || 0) - (b.position || 0));
                 res.json({...plain, flowTasks: tasks });
             } catch (error) {
-                res.status(500).json({ error: error.message });
+                res.status(error.statusCode || 500).json({ error: error.message });
             }
         }, flow.project_id, false);
     }).catch(err => res.status(500).json({ error: err.message }));
@@ -2335,10 +2386,12 @@ router.post('/flows/:id/execute', (req, res) => {
                     runByUserId: req.user ?.id ?? null
                 });
                 res.status(201).json({
-                    message: 'Flow execution started',
+                    message: 'Flow execution completed',
                     flow_id: flowId,
                     apiRunIds: result.apiRunIds,
-                    uiRunIds: result.uiRunIds
+                    uiRunIds: result.uiRunIds,
+                    fuzzRunIds: result.fuzzRunIds,
+                    outcomes: result.outcomes
                 });
             } catch (error) {
                 if (handleProjectRunBlocked(res, error)) return;

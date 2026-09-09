@@ -44,10 +44,6 @@ function createProjectOverviewActions() {
     <div class="project-overview-action-group">
       <h4>Run tests</h4>
       <div class="project-overview-action-buttons">
-        <button type="button" class="btn btn-primary" data-project-run-action="selected">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-          Run selected tests
-        </button>
         ${PROJECT_RUN_ACTIONS.map((action) => `<button type="button" class="btn ${document.getElementById(action.sourceId)?.classList.contains(`btn-run-type-${action.kind}`) ? `btn-run-type-${action.kind}` : 'btn-primary'}" data-project-run-action="${action.kind}">${getProjectActionIcon(action.sourceId)}${escapeHtml(action.label)}</button>`).join('')}
       </div>
     </div>
@@ -1261,12 +1257,6 @@ window.viewProject = async (projectId) => {
     
     document.getElementById('project-detail-name').textContent = project.name;
     renderProjectHeading(project);
-    document.getElementById('project-detail-description').textContent = project.description || 'No description';
-
-    const proxyEl = document.getElementById('project-detail-proxy');
-    if (proxyEl) {
-      proxyEl.textContent = 'Proxy: Inferred from URL per run';
-    }
     applyProjectRunAvailability(project);
 
     // Load project-level coverage summary and chart
@@ -4749,7 +4739,15 @@ function flattenCollectionItems(items, parentPath = [], collectionId, out = []) 
   items.forEach((item, index) => {
     const path = [...parentPath, index];
     if (item.request) {
-      out.push({ collectionId, path, name: item.name || 'Unnamed request' });
+      out.push({
+        collectionId,
+        path,
+        name: item.name || 'Unnamed request',
+        method: item.request.method || 'GET',
+        url: item.request.url
+          ? (typeof item.request.url === 'string' ? item.request.url : (item.request.url.raw || ''))
+          : ''
+      });
     } else if (item.item && Array.isArray(item.item)) {
       flattenCollectionItems(item.item, path, collectionId, out);
     }
@@ -4780,12 +4778,12 @@ function showCreateFlowModal(projectId) {
     const name = document.getElementById('flow-name').value.trim();
     const description = document.getElementById('flow-description').value.trim();
     try {
-      await apiRequest(`/projects/${projectId}/flows`, {
+      const flow = await apiRequest(`/projects/${projectId}/flows`, {
         method: 'POST',
         body: { name, description: description || null }
       });
       hideModal();
-      viewProject(projectId);
+      await editFlow(flow.id, projectId);
     } catch (err) {
       alert('Error creating flow: ' + (err.message || err));
     }
@@ -4797,62 +4795,338 @@ window.editFlow = async (flowId, projectId) => {
     const flow = await apiRequest(`/flows/${flowId}`);
     const collections = await apiRequest(`/projects/${projectId}/collections`);
     const recordedTests = await apiRequest(`/projects/${projectId}/recorded-tests`);
+    const savedEnvironments = typeof window.loadUserEnvironments === 'function'
+      ? await window.loadUserEnvironments()
+      : (window.getProjectSavedEnvironments?.(projectId) || []);
     const apiOptions = [];
+    const apiVariablesByCollection = new Map();
     collections.forEach(c => {
+      const variableInfo = typeof extractCollectionVariables === 'function'
+        ? extractCollectionVariables(c)
+        : { userProvided: [] };
+      apiVariablesByCollection.set(Number(c.id), variableInfo.userProvided || []);
       const items = flattenCollectionItems(c.collection_json?.item || [], [], c.id);
       items.forEach(it => apiOptions.push({ ...it, collectionName: c.name }));
     });
     const tasks = (flow.flowTasks || []).sort((a, b) => (a.position || 0) - (b.position || 0));
     const taskListId = 'flow-edit-task-list';
     const content = `
-      <form id="edit-flow-form">
-        <div class="form-group">
-          <label for="edit-flow-name">Flow name *</label>
-          <input type="text" id="edit-flow-name" value="${(flow.name || '').replace(/"/g, '&quot;')}" required>
-        </div>
-        <div class="form-group">
-          <label for="edit-flow-description">Description</label>
-          <textarea id="edit-flow-description">${(flow.description || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
-        </div>
-        <div class="form-group">
-          <label>Tasks (order preserved)</label>
-          <div id="${taskListId}" class="flow-task-list"></div>
-          <div class="flow-add-task" style="margin-top: 12px;">
-            <select id="flow-add-task-type">
-              <option value="api">API test</option>
-              <option value="ui">UI test</option>
-            </select>
-            <select id="flow-add-api-task" style="display:inline-block; max-width: 320px;">
-              <option value="">Select API test...</option>
-              ${apiOptions.map(o => `<option value="${o.collectionId}|${o.path.join('.')}">${(o.collectionName || '')} – ${(o.name || 'Unnamed').substring(0, 50)}</option>`).join('')}
-            </select>
-            <select id="flow-add-ui-task" style="display:none; max-width: 320px;">
-              <option value="">Select UI test...</option>
-              ${recordedTests.map(r => `<option value="${r.id}">${(r.name || 'Unnamed').substring(0, 50)}</option>`).join('')}
-            </select>
-            <button type="button" class="btn btn-secondary" id="flow-add-task-btn">Add task</button>
+      <form id="edit-flow-form" class="flow-editor-form-layout">
+        <div class="flow-editor-setup-bar">
+          <div class="flow-editor-field">
+            <label for="edit-flow-name">Flow name *</label>
+            <input type="text" id="edit-flow-name" value="${(flow.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}" required>
+          </div>
+          <div class="flow-editor-field flow-editor-description-field">
+            <label for="edit-flow-description">Description</label>
+            <input type="text" id="edit-flow-description" value="${(flow.description || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}" placeholder="Optional flow description">
           </div>
         </div>
-        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
-          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save</button>
+        <div class="flow-editor-workspace">
+          <aside class="flow-editor-left-panel">
+            <section class="flow-editor-panel-section">
+              <div class="flow-editor-panel-heading">
+                <div>
+                  <h4>Configured runs</h4>
+                  <p>Runs execute from top to bottom.</p>
+                </div>
+                <span id="flow-task-count">0 runs</span>
+              </div>
+              <div id="${taskListId}" class="flow-task-list flow-editor-task-list"></div>
+              <div class="flow-add-task flow-editor-add-actions">
+                <button type="button" class="btn btn-secondary" id="flow-add-api-run">Add API run</button>
+                <button type="button" class="btn btn-secondary" id="flow-add-ui-run">Add UI run</button>
+              </div>
+            </section>
+            <section id="flow-task-config" class="flow-editor-settings" style="display:none;">
+              <div id="flow-api-settings" style="display:none;">
+                <div class="flow-editor-panel-section">
+                  <div class="flow-editor-panel-heading"><div><h4>API run settings</h4><p>Choose the environment and default delay.</p></div></div>
+                  <div class="form-group">
+                    <label for="flow-api-environment">Environment</label>
+                    <select id="flow-api-environment">
+                      <option value="">No saved environment</option>
+                      ${savedEnvironments.map((environment) => `<option value="${environment.id}">${escapeHtml(environment.name || `Environment ${environment.id}`)}</option>`).join('')}
+                    </select>
+                    <p class="muted form-hint">Current values are copied into this flow and can be overridden below.</p>
+                  </div>
+                  <div class="form-group">
+                    <label for="flow-api-delay">Global delay (seconds)</label>
+                    <input id="flow-api-delay" type="number" min="0" step="0.1" value="0">
+                  </div>
+                </div>
+              </div>
+              <div id="flow-ui-settings" style="display:none;">
+                <div class="flow-editor-panel-section">
+                  <div class="flow-editor-panel-heading"><div><h4>UI run settings</h4><p>Configure the browser and run artifacts.</p></div></div>
+                  <div class="form-group"><label for="flow-ui-base-url">Base URL</label><input id="flow-ui-base-url" type="url" placeholder="https://example.test"></div>
+                  <div class="flow-editor-settings-grid">
+                    <div class="form-group"><label for="flow-ui-browser">Browser</label><select id="flow-ui-browser"><option value="chromium">Chromium</option><option value="firefox">Firefox</option><option value="webkit">WebKit</option></select></div>
+                    <div class="form-group"><label for="flow-ui-timeout">Timeout (seconds)</label><input id="flow-ui-timeout" type="number" min="10" max="300" value="30"></div>
+                    <div class="form-group"><label for="flow-ui-video">Video</label><select id="flow-ui-video"><option value="off">Off</option><option value="on">On</option><option value="retain-on-failure">Retain on failure</option><option value="on-first-retry">On first retry</option></select></div>
+                    <div class="form-group"><label for="flow-ui-trace">Trace</label><select id="flow-ui-trace"><option value="off">Off</option><option value="on">On</option><option value="retain-on-failure">Retain on failure</option><option value="on-first-retry">On first retry</option></select></div>
+                    <div class="form-group"><label for="flow-ui-slow-mo">Slow motion (ms)</label><input id="flow-ui-slow-mo" type="number" min="0" value="0"></div>
+                  </div>
+                  <label class="flow-editor-checkbox-label"><input id="flow-ui-headless" type="checkbox" checked> Run headless</label>
+                </div>
+              </div>
+              <div id="flow-task-variables-wrap" class="flow-editor-panel-section" style="display:none;">
+                <div class="flow-editor-panel-heading"><div><h4>Variables</h4><p>Values are saved with this flow.</p></div></div>
+                <div id="flow-task-variables" class="flow-editor-variables"></div>
+              </div>
+              <div class="flow-editor-task-actions">
+                <button type="button" class="btn btn-secondary" id="flow-task-config-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="flow-task-config-apply">Apply run</button>
+              </div>
+            </section>
+          </aside>
+          <div class="flow-editor-center-panel">
+            <div id="flow-editor-empty-state" class="flow-editor-empty-state">
+              <h4>Add or configure a run</h4>
+              <p>Select an API or UI run from the left to choose tests, order, variables, and execution settings.</p>
+            </div>
+            <div id="flow-editor-active" class="flow-editor-active" style="display:none;">
+              <div class="flow-editor-test-toolbar">
+                <div>
+                  <h4 id="flow-task-config-title"></h4>
+                  <p id="flow-task-config-help">Select tests and arrange their execution order.</p>
+                </div>
+                <div class="flow-editor-test-tools">
+                  <input type="search" id="flow-task-search" placeholder="Search tests..." aria-label="Search flow tests">
+                  <button type="button" class="btn btn-sm btn-secondary" id="flow-select-all-tests">Select All</button>
+                  <button type="button" class="btn btn-sm btn-secondary" id="flow-deselect-all-tests">Deselect All</button>
+                </div>
+              </div>
+              <div id="flow-task-candidates" class="flow-editor-candidates"></div>
+              <div class="flow-editor-selected-order">
+                <div class="flow-editor-selected-header">
+                  <div><h4>Selected tests order</h4><p>Use the controls to set execution order.</p></div>
+                  <span id="flow-selected-count">0 selected</span>
+                </div>
+                <div id="flow-task-selected-order" class="flow-editor-selected-list"></div>
+              </div>
+            </div>
+          </div>
         </div>
       </form>
     `;
     showModal('Edit flow', content);
+    const modal = document.querySelector('#modal-overlay .modal');
+    const modalHeader = document.querySelector('#modal-overlay .modal-header');
+    if (modal) modal.classList.add('flow-editor-modal');
+    if (modalHeader && !modalHeader.querySelector('.modal-header-actions')) {
+      const actions = document.createElement('div');
+      actions.className = 'modal-header-actions flow-editor-header-actions';
+      actions.innerHTML = `
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+        <button type="submit" form="edit-flow-form" class="btn btn-primary">Save Flow</button>
+      `;
+      const closeButton = modalHeader.querySelector('.modal-close');
+      modalHeader.insertBefore(actions, closeButton || null);
+    }
     let flowTasksData = tasks.map(t => ({ task_type: t.task_type, task_ref: t.task_ref || {}, position: t.position }));
+    let configuringType = null;
+    let configuringIndex = null;
+    let configuredSelection = [];
+    let configuredVariableValues = {};
+    let configuredEnvironmentId = null;
+    let configuredSearch = '';
+    let configuredTaskRef = {};
+    let configuredTestDelays = {};
+
+    const collectConfiguredVariables = () => {
+      document.querySelectorAll('#flow-task-variables [data-flow-variable]').forEach((input) => {
+        configuredVariableValues[input.getAttribute('data-flow-variable')] = input.value;
+      });
+    };
+
+    const selectedVariableNames = () => {
+      const names = new Set();
+      if (configuringType === 'api') {
+        configuredSelection.forEach((test) => {
+          (apiVariablesByCollection.get(Number(test.collectionId)) || []).forEach((name) => names.add(name));
+        });
+      } else {
+        const testsById = new Map(recordedTests.map((test) => [Number(test.id), test]));
+        configuredSelection.forEach((id) => {
+          (testsById.get(Number(id))?.variable_names || []).forEach((name) => names.add(name));
+        });
+      }
+      return Array.from(names).sort();
+    };
+
+    const renderConfiguredVariables = () => {
+      collectConfiguredVariables();
+      const names = selectedVariableNames();
+      const wrap = document.getElementById('flow-task-variables-wrap');
+      const list = document.getElementById('flow-task-variables');
+      wrap.style.display = names.length ? 'block' : 'none';
+      list.innerHTML = names.map((name) => `
+        <div class="env-var-item" style="margin-bottom:8px;">
+          <label>${escapeHtml(name)}</label>
+          <input type="text" data-flow-variable="${escapeHtml(name)}" value="${escapeHtml(configuredVariableValues[name] || '')}">
+        </div>
+      `).join('');
+    };
+
+    const renderConfiguredSelection = () => {
+      const candidates = document.getElementById('flow-task-candidates');
+      const selectedOrder = document.getElementById('flow-task-selected-order');
+      if (configuringType === 'api') {
+        const selectedKeys = new Set(configuredSelection.map((test) => `${test.collectionId}|${test.path.join('.')}`));
+        const visibleOptions = apiOptions.filter((option) => `${option.collectionName} ${option.name} ${option.method} ${option.url}`.toLowerCase().includes(configuredSearch));
+        candidates.innerHTML = visibleOptions.map((option) => {
+          const key = `${option.collectionId}|${option.path.join('.')}`;
+          const checkboxId = `flow-api-test-${option.collectionId}-${option.path.join('-')}`;
+          const delayValue = configuredTestDelays?.[option.collectionId]?.[option.path.join('.')];
+          return `<div class="flow-editor-candidate flow-editor-api-candidate">
+            <input type="checkbox" id="${checkboxId}" class="flow-config-test" data-key="${key}" ${selectedKeys.has(key) ? 'checked' : ''}>
+            <span class="method-badge ${escapeHtml(option.method)}">${escapeHtml(option.method)}</span>
+            <label for="${checkboxId}" class="flow-editor-candidate-copy">
+              <strong>${escapeHtml(option.name)}</strong>
+              <span>${escapeHtml(option.collectionName)}</span>
+              <code title="${escapeHtml(option.url)}">${escapeHtml(option.url || 'No endpoint')}</code>
+            </label>
+            <input type="number" class="flow-editor-test-delay" data-delay-key="${key}" min="0" step="0.1" value="${delayValue ?? ''}" placeholder="Delay" aria-label="Delay after ${escapeHtml(option.name)} in seconds">
+          </div>`;
+        }).join('') || '<p class="flow-editor-no-results">No API tests match this search.</p>';
+        selectedOrder.innerHTML = configuredSelection.map((test, index) => `
+          <div class="selected-test-item">
+            <strong class="selected-test-id">${index + 1}</strong><span class="method-badge ${escapeHtml(test.method || 'GET')}">${escapeHtml(test.method || 'GET')}</span><span class="selected-test-name">${escapeHtml(test.name || `API test ${index + 1}`)}</span>
+            <button type="button" class="btn btn-sm btn-secondary flow-config-move" data-index="${index}" data-delta="-1" ${index === 0 ? 'disabled' : ''}>Up</button>
+            <button type="button" class="btn btn-sm btn-secondary flow-config-move" data-index="${index}" data-delta="1" ${index === configuredSelection.length - 1 ? 'disabled' : ''}>Down</button>
+          </div>`).join('') || '<p class="muted">Select at least one test.</p>';
+      } else {
+        const selectedIds = new Set(configuredSelection.map(Number));
+        const testsById = new Map(recordedTests.map((test) => [Number(test.id), test]));
+        const visibleTests = recordedTests.filter((test) => String(test.name || '').toLowerCase().includes(configuredSearch));
+        candidates.innerHTML = visibleTests.map((test) => `<label class="flow-editor-candidate flow-editor-ui-candidate">
+          <input type="checkbox" class="flow-config-test" data-key="${test.id}" ${selectedIds.has(Number(test.id)) ? 'checked' : ''}>
+          <span class="ordered-ui-test-number">${configuredSelection.indexOf(Number(test.id)) + 1 || '–'}</span>
+          <span class="flow-editor-candidate-copy"><strong>${escapeHtml(test.name || 'Unnamed UI test')}</strong><span>Recorded UI test</span></span>
+        </label>`).join('') || '<p class="flow-editor-no-results">No UI tests match this search.</p>';
+        selectedOrder.innerHTML = configuredSelection.map((id, index) => `
+          <div class="run-ui-selected-order-item">
+            <strong class="ordered-ui-test-number">${index + 1}</strong><span class="run-ui-selected-order-name">${escapeHtml(testsById.get(Number(id))?.name || `UI test ${id}`)}</span>
+            <button type="button" class="btn btn-sm btn-secondary flow-config-move" data-index="${index}" data-delta="-1" ${index === 0 ? 'disabled' : ''}>Up</button>
+            <button type="button" class="btn btn-sm btn-secondary flow-config-move" data-index="${index}" data-delta="1" ${index === configuredSelection.length - 1 ? 'disabled' : ''}>Down</button>
+          </div>`).join('') || '<p class="muted">Select at least one test.</p>';
+      }
+      document.getElementById('flow-selected-count').textContent = `${configuredSelection.length} selected`;
+      candidates.querySelectorAll('.flow-config-test').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+          if (configuringType === 'api') {
+            const [collectionId, pathText] = checkbox.dataset.key.split('|');
+            const key = checkbox.dataset.key;
+            configuredSelection = configuredSelection.filter((test) => `${test.collectionId}|${test.path.join('.')}` !== key);
+            if (checkbox.checked) {
+              const option = apiOptions.find((item) => Number(item.collectionId) === Number(collectionId) && item.path.join('.') === pathText);
+              configuredSelection.push({ collectionId: Number(collectionId), path: pathText.split('.').map(Number), name: option?.name, method: option?.method, testId: `Flow test ${configuredSelection.length + 1}` });
+            }
+          } else {
+            const id = Number(checkbox.dataset.key);
+            configuredSelection = configuredSelection.filter((selectedId) => Number(selectedId) !== id);
+            if (checkbox.checked) configuredSelection.push(id);
+          }
+          renderConfiguredSelection();
+        });
+      });
+      candidates.querySelectorAll('.flow-editor-test-delay').forEach((input) => {
+        input.addEventListener('input', () => {
+          const [collectionId, pathText] = input.dataset.delayKey.split('|');
+          if (!configuredTestDelays[collectionId]) configuredTestDelays[collectionId] = {};
+          if (input.value === '') delete configuredTestDelays[collectionId][pathText];
+          else configuredTestDelays[collectionId][pathText] = Number(input.value);
+        });
+      });
+      selectedOrder.querySelectorAll('.flow-config-move').forEach((button) => {
+        button.addEventListener('click', () => {
+          const index = Number(button.dataset.index);
+          const nextIndex = index + Number(button.dataset.delta);
+          if (nextIndex < 0 || nextIndex >= configuredSelection.length) return;
+          [configuredSelection[index], configuredSelection[nextIndex]] = [configuredSelection[nextIndex], configuredSelection[index]];
+          renderConfiguredSelection();
+        });
+      });
+      renderConfiguredVariables();
+    };
+
+    const openTaskConfigurator = (type, index = null) => {
+      configuringType = type;
+      configuringIndex = index;
+      configuredSearch = '';
+      document.getElementById('flow-task-search').value = '';
+      document.getElementById('flow-task-variables').innerHTML = '';
+      const ref = index == null ? {} : (flowTasksData[index].task_ref || {});
+      configuredTaskRef = ref;
+      configuredTestDelays = JSON.parse(JSON.stringify(ref.testDelays || {}));
+      if (type === 'api') {
+        configuredSelection = Array.isArray(ref.selectedTestsOrdered)
+          ? ref.selectedTestsOrdered.map((test) => ({ ...test, path: [...test.path] }))
+          : (ref.collectionId && Array.isArray(ref.path) ? [{ collectionId: Number(ref.collectionId), path: [...ref.path], name: ref.label }] : []);
+        configuredVariableValues = { ...(ref.envVars || {}) };
+        configuredEnvironmentId = ref.environmentId || null;
+        document.getElementById('flow-api-environment').value = configuredEnvironmentId || '';
+        document.getElementById('flow-api-delay').value = ref.delayBetweenTests || 0;
+      } else {
+        configuredEnvironmentId = null;
+        configuredSelection = Array.isArray(ref.selectedTestIds)
+          ? ref.selectedTestIds.map(Number)
+          : (ref.recordedTestId ? [Number(ref.recordedTestId)] : []);
+        configuredVariableValues = { ...(ref.uiVariables || {}) };
+        const firstTest = recordedTests.find((test) => Number(test.id) === Number(configuredSelection[0]));
+        document.getElementById('flow-ui-base-url').value = ref.baseUrl || firstTest?.base_url || '';
+        document.getElementById('flow-ui-browser').value = ref.browserName || ref.browser || 'chromium';
+        document.getElementById('flow-ui-headless').checked = ref.headless !== false;
+        document.getElementById('flow-ui-timeout').value = Math.round((ref.timeoutMs || 30000) / 1000);
+        document.getElementById('flow-ui-video').value = ref.video || 'off';
+        document.getElementById('flow-ui-trace').value = ref.trace || 'off';
+        document.getElementById('flow-ui-slow-mo').value = ref.slowMo || 0;
+      }
+      document.getElementById('flow-task-config-title').textContent = `${index == null ? 'Add' : 'Edit'} ${type.toUpperCase()} run`;
+      document.getElementById('flow-api-settings').style.display = type === 'api' ? 'block' : 'none';
+      document.getElementById('flow-ui-settings').style.display = type === 'ui' ? 'block' : 'none';
+      document.getElementById('flow-task-config').style.display = 'block';
+      document.getElementById('flow-editor-empty-state').style.display = 'none';
+      document.getElementById('flow-editor-active').style.display = 'flex';
+      renderConfiguredSelection();
+    };
+
+    const closeTaskConfigurator = () => {
+      configuringType = null;
+      configuringIndex = null;
+      configuredSelection = [];
+      configuredVariableValues = {};
+      configuredSearch = '';
+      configuredTaskRef = {};
+      configuredTestDelays = {};
+      document.getElementById('flow-task-config').style.display = 'none';
+      document.getElementById('flow-editor-active').style.display = 'none';
+      document.getElementById('flow-editor-empty-state').style.display = 'flex';
+    };
+
     const renderTaskList = () => {
       const el = document.getElementById(taskListId);
       el.innerHTML = flowTasksData.map((t, i) => {
-        const label = t.task_ref?.label || (t.task_type === 'api' ? `API: ${t.task_ref?.collectionId}` : `UI: ${t.task_ref?.recordedTestId || ''}`);
-        return `<div class="flow-task-item" data-index="${i}" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        const count = t.task_type === 'api'
+          ? (t.task_ref?.selectedTestsOrdered?.length || (t.task_ref?.path ? 1 : 0))
+          : (t.task_ref?.selectedTestIds?.length || (t.task_ref?.recordedTestId ? 1 : 0));
+        const detail = t.task_type === 'api'
+          ? (t.task_ref?.environmentName || 'No environment')
+          : `${t.task_ref?.browserName || t.task_ref?.browser || 'chromium'} browser`;
+        const label = t.task_ref?.label || `${count} selected test${count === 1 ? '' : 's'}`;
+        return `<div class="flow-task-item flow-editor-task-item" data-index="${i}">
           <span class="run-type-badge run-type-${t.task_type}">${t.task_type === 'api' ? 'API' : 'UI'}</span>
-          <span style="flex:1;font-size:14px;">${(label || 'Task').substring(0, 60)}</span>
-          <button type="button" class="btn btn-secondary" onclick="window.moveFlowTask(${i}, -1)" ${i === 0 ? 'disabled' : ''}>Up</button>
-          <button type="button" class="btn btn-secondary" onclick="window.moveFlowTask(${i}, 1)" ${i === flowTasksData.length - 1 ? 'disabled' : ''}>Down</button>
-          <button type="button" class="btn btn-danger" onclick="window.removeFlowTask(${i})">Remove</button>
+          <span class="flow-editor-task-summary"><strong>${escapeHtml((label || 'Task').substring(0, 60))}</strong><small>${escapeHtml(detail)}</small></span>
+          <span class="flow-editor-task-buttons">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="window.configureFlowTask(${i})">Configure</button>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="window.moveFlowTask(${i}, -1)" ${i === 0 ? 'disabled' : ''}>Up</button>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="window.moveFlowTask(${i}, 1)" ${i === flowTasksData.length - 1 ? 'disabled' : ''}>Down</button>
+            <button type="button" class="btn btn-sm btn-danger" onclick="window.removeFlowTask(${i})">Remove</button>
+          </span>
         </div>`;
       }).join('') || '<p class="muted">No tasks. Add API or UI tasks below.</p>';
+      document.getElementById('flow-task-count').textContent = `${flowTasksData.length} run${flowTasksData.length === 1 ? '' : 's'}`;
     };
     window.moveFlowTask = (index, delta) => {
       const ni = index + delta;
@@ -4864,32 +5138,93 @@ window.editFlow = async (flowId, projectId) => {
       flowTasksData.splice(index, 1);
       renderTaskList();
     };
+    window.configureFlowTask = (index) => openTaskConfigurator(flowTasksData[index].task_type, index);
     renderTaskList();
-    const addType = document.getElementById('flow-add-task-type');
-    const addApi = document.getElementById('flow-add-api-task');
-    const addUi = document.getElementById('flow-add-ui-task');
-    addType.addEventListener('change', () => {
-      addApi.style.display = addType.value === 'api' ? 'inline-block' : 'none';
-      addUi.style.display = addType.value === 'ui' ? 'inline-block' : 'none';
+    document.getElementById('flow-add-api-run').addEventListener('click', () => openTaskConfigurator('api'));
+    document.getElementById('flow-add-ui-run').addEventListener('click', () => openTaskConfigurator('ui'));
+    document.getElementById('flow-task-search').addEventListener('input', (event) => {
+      configuredSearch = event.target.value.trim().toLowerCase();
+      renderConfiguredSelection();
     });
-    addUi.style.display = 'none';
-    document.getElementById('flow-add-task-btn').addEventListener('click', () => {
-      if (addType.value === 'api') {
-        const v = addApi.value;
-        if (!v) return;
-        const [cid, pathStr] = v.split('|');
-        const path = pathStr.split('.').map(Number);
-        const opt = addApi.options[addApi.selectedIndex];
-        const label = opt ? opt.text : '';
-        flowTasksData.push({ task_type: 'api', task_ref: { collectionId: Number(cid), path, label: label || undefined } });
+    const setVisibleCandidateSelection = (selected) => {
+      const keys = Array.from(document.querySelectorAll('#flow-task-candidates .flow-config-test')).map((checkbox) => checkbox.dataset.key);
+      if (configuringType === 'api') {
+        const keySet = new Set(keys);
+        configuredSelection = configuredSelection.filter((test) => selected || !keySet.has(`${test.collectionId}|${test.path.join('.')}`));
+        if (selected) {
+          const existing = new Set(configuredSelection.map((test) => `${test.collectionId}|${test.path.join('.')}`));
+          keys.forEach((key) => {
+            if (existing.has(key)) return;
+            const [collectionId, pathText] = key.split('|');
+            const option = apiOptions.find((item) => Number(item.collectionId) === Number(collectionId) && item.path.join('.') === pathText);
+            if (option) configuredSelection.push({ collectionId: Number(collectionId), path: pathText.split('.').map(Number), name: option.name, method: option.method, testId: `Flow test ${configuredSelection.length + 1}` });
+          });
+        }
       } else {
-        const v = addUi.value;
-        if (!v) return;
-        const opt = addUi.options[addUi.selectedIndex];
-        const label = opt ? opt.text : '';
-        flowTasksData.push({ task_type: 'ui', task_ref: { recordedTestId: Number(v), label: label || undefined } });
+        const ids = new Set(keys.map(Number));
+        configuredSelection = configuredSelection.filter((id) => selected || !ids.has(Number(id)));
+        if (selected) keys.map(Number).forEach((id) => { if (!configuredSelection.includes(id)) configuredSelection.push(id); });
       }
+      renderConfiguredSelection();
+    };
+    document.getElementById('flow-select-all-tests').addEventListener('click', () => setVisibleCandidateSelection(true));
+    document.getElementById('flow-deselect-all-tests').addEventListener('click', () => setVisibleCandidateSelection(false));
+    document.getElementById('flow-api-environment').addEventListener('change', (event) => {
+      configuredEnvironmentId = event.target.value ? Number(event.target.value) : null;
+      const selectedEnvironment = savedEnvironments.find((environment) => String(environment.id) === String(configuredEnvironmentId));
+      configuredVariableValues = selectedEnvironment && typeof window.mergeRunEnvironmentVariables === 'function'
+        ? window.mergeRunEnvironmentVariables(selectedEnvironment, {}, {})
+        : {};
+      document.getElementById('flow-task-variables').innerHTML = '';
+      renderConfiguredVariables();
+    });
+    document.getElementById('flow-task-config-cancel').addEventListener('click', () => {
+      closeTaskConfigurator();
+    });
+    document.getElementById('flow-task-config-apply').addEventListener('click', () => {
+      if (configuredSelection.length === 0) {
+        alert('Select at least one test for this run.');
+        return;
+      }
+      collectConfiguredVariables();
+      let task;
+      if (configuringType === 'api') {
+        const selectedEnvironment = savedEnvironments.find((environment) => String(environment.id) === String(configuredEnvironmentId));
+        task = {
+          task_type: 'api',
+          task_ref: {
+            version: 2,
+            label: configuredTaskRef.label,
+            environmentId: configuredEnvironmentId,
+            environmentName: selectedEnvironment?.name || null,
+            selectedTestsOrdered: configuredSelection.map((test, index) => ({ ...test, testId: test.testId || `Flow test ${index + 1}` })),
+            envVars: { ...configuredVariableValues },
+            delayBetweenTests: Number(document.getElementById('flow-api-delay').value || 0),
+            testDelays: configuredTestDelays
+          }
+        };
+      } else {
+        task = {
+          task_type: 'ui',
+          task_ref: {
+            version: 2,
+            label: configuredTaskRef.label,
+            selectedTestIds: configuredSelection.map(Number),
+            uiVariables: { ...configuredVariableValues },
+            baseUrl: document.getElementById('flow-ui-base-url').value.trim(),
+            browserName: document.getElementById('flow-ui-browser').value,
+            headless: document.getElementById('flow-ui-headless').checked,
+            timeoutMs: Number(document.getElementById('flow-ui-timeout').value || 30) * 1000,
+            video: document.getElementById('flow-ui-video').value,
+            trace: document.getElementById('flow-ui-trace').value,
+            slowMo: Number(document.getElementById('flow-ui-slow-mo').value || 0)
+          }
+        };
+      }
+      if (configuringIndex == null) flowTasksData.push(task);
+      else flowTasksData[configuringIndex] = task;
       renderTaskList();
+      closeTaskConfigurator();
     });
     document.getElementById('edit-flow-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -4927,76 +5262,40 @@ window.runFlow = async (flowId, flowName) => {
     alert(getProjectClosedMessage(window.currentProject));
     return;
   }
-  let flowVariableNames = [];
-  try {
-    const flow = await apiRequest(`/flows/${flowId}`);
-    const recordedIds = Array.from(new Set((flow.flowTasks || [])
-      .filter((task) => task.task_type === 'ui' && task.task_ref && task.task_ref.recordedTestId)
-      .map((task) => Number(task.task_ref.recordedTestId))
-      .filter(Boolean)));
-    const testByRecordedId = new Map((window.currentProjectTests || [])
-      .filter((test) => test.test_type === 'ui_recorded' && test.source_id)
-      .map((test) => [Number(test.source_id), test]));
-    flowVariableNames = getUiVariableNamesForCatalogueTests(recordedIds.map((id) => testByRecordedId.get(id)).filter(Boolean));
-  } catch (_) {
-    flowVariableNames = [];
-  }
   const content = `
     <form id="run-flow-form">
       <div class="form-group">
         <label for="run-flow-name">Run name</label>
         <input type="text" id="run-flow-name" value="${(flowName || 'Flow run').replace(/"/g, '&quot;')}" placeholder="Name for this run">
       </div>
-      <div class="form-group">
-        <label for="run-flow-base-url">Base URL (for UI tests)</label>
-        <input type="url" id="run-flow-base-url" placeholder="https://example.com">
-      </div>
-      ${flowVariableNames.length > 0 ? `
-        <div class="form-group">
-          <label for="run-flow-ui-variable-group">UI Test Variable group</label>
-          <select id="run-flow-ui-variable-group" class="form-control ui-variable-group-select">
-            <option value="">None</option>
-            ${getUiVariableGroupOptionsHtml()}
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Variables used by UI tasks in this flow</label>
-          <div class="ui-variable-fields"></div>
-        </div>
-      ` : ''}
       <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
         <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
-        <button type="submit" class="btn btn-primary">Run</button>
+        <button type="submit" class="btn btn-primary" id="run-flow-submit">Run</button>
       </div>
     </form>
   `;
   showModal('Run flow', content);
-  initializeUiVariableForm(document.getElementById('run-flow-form'), flowVariableNames, window.currentProject?.id);
   document.getElementById('run-flow-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const runNamePrefix = document.getElementById('run-flow-name').value.trim() || flowName;
-    const baseUrl = document.getElementById('run-flow-base-url').value.trim() || undefined;
-    const uiVariables = collectUiVariableValuesFromContainer(document.querySelector('#run-flow-form .ui-variable-fields'));
-    const missingVariables = flowVariableNames.filter((name) => !uiVariables[name] || !String(uiVariables[name]).trim());
-    if (missingVariables.length > 0) {
-      alert(`Provide values for all UI test variables before running: ${missingVariables.join(', ')}`);
-      return;
-    }
+    const submitButton = document.getElementById('run-flow-submit');
     try {
-      const body = { runNamePrefix, baseUrl };
-      if (flowVariableNames.length > 0) {
-        body.uiVariables = Object.fromEntries(Object.entries(uiVariables).map(([key, value]) => [key, String(value).trim()]));
-      }
+      submitButton.disabled = true;
+      submitButton.textContent = 'Running...';
       const result = await apiRequest(`/flows/${flowId}/execute`, {
         method: 'POST',
-        body
+        body: { runNamePrefix }
       });
       hideModal();
-      alert(`Flow execution started. ${(result.apiRunIds?.length || 0) + (result.uiRunIds?.length || 0)} run(s) queued. View Test Runs for progress.`);
+      const outcomes = result.outcomes || [];
+      const failed = outcomes.filter((outcome) => outcome.status === 'failed' || outcome.status === 'invalid').length;
+      alert(`Flow completed: ${outcomes.length} run(s), ${failed} failed.`);
       showView('test-runs');
       loadTestRuns();
     } catch (err) {
-      alert('Error starting flow: ' + (err.message || err));
+      submitButton.disabled = false;
+      submitButton.textContent = 'Run';
+      alert('Error running flow: ' + (err.message || err));
     }
   });
 };
@@ -5406,14 +5705,14 @@ function showJwksResultModal(result) {
           <label style="font-weight: 600;">JWKS (jwks.json)</label>
           <button type="button" class="btn btn-secondary btn-sm" id="copy-jwks-btn">Copy</button>
         </div>
-        <pre style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px; max-height: 260px; overflow-y: auto;">${escapeHtml(jwksJson)}</pre>
+        <pre class="light-surface" style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px; max-height: 260px; overflow-y: auto;">${escapeHtml(jwksJson)}</pre>
       </div>
       <div>
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
           <label style="font-weight: 600;">JWT Token (token.jwt)</label>
           <button type="button" class="btn btn-secondary btn-sm" id="copy-token-btn">Copy</button>
         </div>
-        <pre style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px; word-break: break-all; max-height: 120px; overflow-y: auto;">${escapeHtml(token)}</pre>
+        <pre class="light-surface" style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px; word-break: break-all; max-height: 120px; overflow-y: auto;">${escapeHtml(token)}</pre>
       </div>
       <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
         <button type="button" class="btn btn-secondary" onclick="hideModal()">Close</button>

@@ -14,6 +14,7 @@ const { ProjectClosedError, ensureProjectIsRunnable } = require('./projectStatus
 
 const cronJobs = new Map();
 const intervalIds = new Map();
+const activeScheduleRuns = new Set();
 
 function computeNextRunAt(schedule) {
   if (schedule.cron_expression) {
@@ -32,6 +33,11 @@ function computeNextRunAt(schedule) {
 }
 
 async function runScheduledJob(schedule) {
+  if (activeScheduleRuns.has(schedule.id)) {
+    console.log('[scheduler] Skipping overlapping run for schedule', schedule.id);
+    return;
+  }
+  activeScheduleRuns.add(schedule.id);
   const projectId = schedule.project_id;
   const flowId = schedule.flow_id;
 
@@ -123,6 +129,8 @@ async function runScheduledJob(schedule) {
     console.error('[scheduler] Job failed for schedule', schedule.id, err);
     const next = computeNextRunAt(schedule);
     await schedule.update({ last_run_at: new Date(), next_run_at: next }).catch(() => {});
+  } finally {
+    activeScheduleRuns.delete(schedule.id);
   }
 }
 

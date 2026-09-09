@@ -11,12 +11,13 @@ const { getProxyForUrlAsync } = require('../lib/proxyConfig');
 const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
 const { ensureProjectIsRunnable } = require('./projectStatus');
 const { captureRunCatalogueMemberships, createInitialRunMetadata } = require('./runExecutionSnapshot');
+const { normalizeApiTaskRef, normalizeUiTaskRef } = require('./flowTaskConfig');
 
 /**
  * Run a flow by id. Executes each flow task in order; each task creates one run (test_run or playwright_run) with flow_id.
  * @param {number} flowId - Flow ID
- * @param {object} options - { runNamePrefix, baseUrl, envVars }
- * @returns {Promise<{ apiRunIds: number[], uiRunIds: number[], fuzzRunIds: number[] }>}
+ * @param {object} options - { runNamePrefix, baseUrl, envVars, uiVariables, runByUserId }
+ * @returns {Promise<{ apiRunIds: number[], uiRunIds: number[], fuzzRunIds: number[], outcomes: object[] }>}
  */
 async function executeFlow(flowId, options = {}) {
   const flow = await Flow.findByPk(flowId, {
@@ -41,21 +42,24 @@ async function executeFlow(flowId, options = {}) {
   const apiRunIds = [];
   const uiRunIds = [];
   const fuzzRunIds = [];
+  const outcomes = [];
 
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[i];
     const runName = `${prefix} – ${i + 1}/${tasks.length}`;
 
     if (task.task_type === 'api') {
-      const ref = task.task_ref || {};
-      const collectionId = ref.collectionId;
-      const path = ref.path; // array of indices e.g. [0, 1]
-      if (!collectionId || !Array.isArray(path)) {
-        console.warn(`[flowRunner] Skipping invalid API task ${task.id}: missing collectionId or path`);
+      let ref;
+      try {
+        ref = normalizeApiTaskRef(task.task_ref || {});
+      } catch (err) {
+        outcomes.push({ taskId: task.id, taskType: 'api', status: 'invalid', error: err.message });
+        console.warn(`[flowRunner] Skipping invalid API task ${task.id}: ${err.message}`);
         continue;
       }
-      const selectedTests = { [collectionId]: [path] };
-      const selectedTestsOrdered = [{ collectionId, path, testId: `Step ${i + 1}` }];
+      const selectedTests = ref.selectedTests;
+      const selectedTestsOrdered = ref.selectedTestsOrdered;
+      const taskEnvVars = { ...(envVars || {}), ...ref.envVars };
 
       const testRun = await TestRun.create({
         name: runName,
@@ -72,35 +76,52 @@ async function executeFlow(flowId, options = {}) {
           projectId,
           selectedTests,
           selectedTestsOrdered,
-          envVars
+          envVars: taskEnvVars,
+          delayBetweenTests: ref.delayBetweenTests,
+          testDelays: ref.testDelays
         })
       });
       apiRunIds.push(testRun.id);
 
-      const apiProxy = await getProxyForUrlAsync(deriveUrlFromEnvVars(envVars));
-
-      executeTests(projectId, runName, {
-        testRunId: testRun.id,
-        selectedTests,
-        selectedTestsOrdered,
-        envVars,
-        proxy: apiProxy
-      }).then(() => captureRunCatalogueMemberships('api', testRun.id, projectId)).catch((err) => {
+      try {
+        const apiProxy = await getProxyForUrlAsync(deriveUrlFromEnvVars(taskEnvVars));
+        await executeTests(projectId, runName, {
+          testRunId: testRun.id,
+          selectedTests,
+          selectedTestsOrdered,
+          envVars: taskEnvVars,
+          delayBetweenTests: ref.delayBetweenTests,
+          testDelays: ref.testDelays,
+          proxy: apiProxy
+        });
+        await captureRunCatalogueMemberships('api', testRun.id, projectId);
+        outcomes.push({ taskId: task.id, taskType: 'api', runId: testRun.id, status: 'completed' });
+      } catch (err) {
         console.error(`[flowRunner] API task ${task.id} failed:`, err);
-        TestRun.update({ status: 'failed' }, { where: { id: testRun.id } }).catch(() => {});
-      });
+        await TestRun.update({ status: 'failed' }, { where: { id: testRun.id } }).catch(() => {});
+        outcomes.push({ taskId: task.id, taskType: 'api', runId: testRun.id, status: 'failed', error: err.message });
+      }
     } else if (task.task_type === 'ui') {
-      const ref = task.task_ref || {};
-      const recordedTestId = ref.recordedTestId;
-      if (!recordedTestId) {
-        console.warn(`[flowRunner] Skipping invalid UI task ${task.id}: missing recordedTestId`);
+      let ref;
+      try {
+        ref = normalizeUiTaskRef(task.task_ref || {}, {
+          baseUrl,
+          headless: playwrightConfig.headless,
+          timeoutMs: playwrightConfig.timeoutMs
+        });
+      } catch (err) {
+        outcomes.push({ taskId: task.id, taskType: 'ui', status: 'invalid', error: err.message });
+        console.warn(`[flowRunner] Skipping invalid UI task ${task.id}: ${err.message}`);
         continue;
       }
+      const taskBaseUrl = ref.baseUrl || baseUrl;
+      const taskUiVariables = { ...(uiVariables || {}), ...ref.uiVariables };
+      const runOnly = ref.selectedTestIds.map((id) => `recorded-${id}`);
 
       const run = await PlaywrightRun.create({
         name: runName,
         status: 'running',
-        base_url: baseUrl,
+        base_url: taskBaseUrl,
         project_id: projectId,
         flow_id: flowId,
         total_tests: 0,
@@ -111,34 +132,42 @@ async function executeFlow(flowId, options = {}) {
         ...createInitialRunMetadata(runName, {
           runType: 'ui',
           projectId,
-          baseUrl: baseUrl.replace(/\/$/, ''),
+          baseUrl: taskBaseUrl.replace(/\/$/, ''),
           suite: 'selected',
-          selectedTestIds: ['recorded-' + recordedTestId],
-          headless: playwrightConfig.headless,
-          timeoutMs: playwrightConfig.timeoutMs,
-          video: 'off',
-          trace: 'off',
-          browser: 'chromium',
-          slowMo: 0,
-          uiVariables
+          selectedTestIds: runOnly,
+          headless: ref.headless,
+          timeoutMs: ref.timeoutMs,
+          video: ref.video,
+          trace: ref.trace,
+          browser: ref.browserName,
+          slowMo: ref.slowMo,
+          uiVariables: taskUiVariables
         })
       });
       uiRunIds.push(run.id);
-      const uiProxy = await getProxyForUrlAsync(baseUrl);
-
-      runPlaywrightTests({
-        playwrightRunId: run.id,
-        baseUrl: baseUrl.replace(/\/$/, ''),
-        headless: playwrightConfig.headless,
-        timeoutMs: playwrightConfig.timeoutMs,
-        runOnly: ['recorded-' + recordedTestId],
-        proxy: uiProxy,
-        uiVariables,
-        runByUserId: options?.runByUserId ?? null
-      }).then(() => captureRunCatalogueMemberships('ui', run.id, projectId)).catch((err) => {
+      try {
+        const uiProxy = await getProxyForUrlAsync(taskBaseUrl);
+        await runPlaywrightTests({
+          playwrightRunId: run.id,
+          baseUrl: taskBaseUrl.replace(/\/$/, ''),
+          headless: ref.headless,
+          timeoutMs: ref.timeoutMs,
+          runOnly,
+          video: ref.video,
+          trace: ref.trace,
+          browserName: ref.browserName,
+          slowMo: ref.slowMo,
+          proxy: uiProxy,
+          uiVariables: taskUiVariables,
+          runByUserId: options?.runByUserId ?? null
+        });
+        await captureRunCatalogueMemberships('ui', run.id, projectId);
+        outcomes.push({ taskId: task.id, taskType: 'ui', runId: run.id, status: 'completed' });
+      } catch (err) {
         console.error(`[flowRunner] UI task ${task.id} failed:`, err);
-        PlaywrightRun.update({ status: 'failed' }, { where: { id: run.id } }).catch(() => {});
-      });
+        await PlaywrightRun.update({ status: 'failed' }, { where: { id: run.id } }).catch(() => {});
+        outcomes.push({ taskId: task.id, taskType: 'ui', runId: run.id, status: 'failed', error: err.message });
+      }
     } else if (task.task_type === 'fuzz') {
       const ref = task.task_ref || {};
       const apiSpecId = ref.apiSpecId;
@@ -167,20 +196,25 @@ async function executeFlow(flowId, options = {}) {
         })
       });
       fuzzRunIds.push(fuzzRun.id);
-      const fuzzProxy = await getProxyForUrlAsync(fuzzServerUrl);
-      executeFuzz(projectId, apiSpecId, runName, {
-        fuzzRunId: fuzzRun.id,
-        serverUrl: fuzzServerUrl,
-        flowId,
-        proxy: fuzzProxy
-      }).then(() => captureRunCatalogueMemberships('fuzz', fuzzRun.id, projectId)).catch((err) => {
+      try {
+        const fuzzProxy = await getProxyForUrlAsync(fuzzServerUrl);
+        await executeFuzz(projectId, apiSpecId, runName, {
+          fuzzRunId: fuzzRun.id,
+          serverUrl: fuzzServerUrl,
+          flowId,
+          proxy: fuzzProxy
+        });
+        await captureRunCatalogueMemberships('fuzz', fuzzRun.id, projectId);
+        outcomes.push({ taskId: task.id, taskType: 'fuzz', runId: fuzzRun.id, status: 'completed' });
+      } catch (err) {
         console.error(`[flowRunner] Fuzz task ${task.id} failed:`, err);
-        FuzzRun.update({ status: 'failed' }, { where: { id: fuzzRun.id } }).catch(() => {});
-      });
+        await FuzzRun.update({ status: 'failed' }, { where: { id: fuzzRun.id } }).catch(() => {});
+        outcomes.push({ taskId: task.id, taskType: 'fuzz', runId: fuzzRun.id, status: 'failed', error: err.message });
+      }
     }
   }
 
-  return { apiRunIds, uiRunIds, fuzzRunIds };
+  return { apiRunIds, uiRunIds, fuzzRunIds, outcomes };
 }
 
 module.exports = { executeFlow };

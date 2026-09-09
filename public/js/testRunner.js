@@ -92,6 +92,18 @@ function flattenCollectionItems(items, parentPath = [], collectionId, flatList =
   return flatList;
 }
 
+function syncTestGroupCheckboxes(root = document) {
+  root.querySelectorAll('.group-checkbox').forEach((groupCheckbox) => {
+    const groupId = groupCheckbox.getAttribute('data-group-id');
+    const groupContainer = groupId ? root.getElementById(groupId) : null;
+    const testCheckboxes = groupContainer ? Array.from(groupContainer.querySelectorAll('.test-checkbox')) : [];
+    const selectedCount = testCheckboxes.filter((checkbox) => checkbox.checked).length;
+
+    groupCheckbox.checked = testCheckboxes.length > 0 && selectedCount === testCheckboxes.length;
+    groupCheckbox.indeterminate = selectedCount > 0 && selectedCount < testCheckboxes.length;
+  });
+}
+
 // Helper function to build nested HTML structure
 function buildNestedTestHTML(items, collectionId, parentPath = [], level = 0) {
   let html = '';
@@ -105,6 +117,7 @@ function buildNestedTestHTML(items, collectionId, parentPath = [], level = 0) {
       // This is a test item
       const method = item.request?.method || 'GET';
       const url = item.request?.url ? (typeof item.request.url === 'string' ? item.request.url : item.request.url.raw || '') : '';
+      const testName = item.name || 'Unnamed Test';
       
       html += `
         <div class="test-item" data-path="${pathString}">
@@ -116,11 +129,11 @@ function buildNestedTestHTML(items, collectionId, parentPath = [], level = 0) {
           </div>
           <div class="test-item-body" style="padding-left: ${indent}px;">
             <div class="test-item-row">
-              <span class="test-item-name" style="flex: 1; min-width: 200px;">${item.name || 'Unnamed Test'}</span>
-              <span class="method-badge ${method}" style="flex-shrink: 0;">${method}</span>
-              <input type="number" class="test-delay-input" placeholder="Delay s" min="0" style="width:80px; padding:6px; flex-shrink: 0;" title="Delay after this test (seconds)">
+              <span class="test-item-name" title="${escapeHtml(testName)}">${escapeHtml(testName)}</span>
+              <span class="test-item-endpoint" title="${escapeHtml(url)}">${escapeHtml(url)}</span>
+              <span class="method-badge ${method}">${method}</span>
+              <input type="number" class="test-delay-input" placeholder="Delay" min="0" aria-label="Delay after ${escapeHtml(testName)} in seconds" title="Delay after this test (seconds)">
             </div>
-            <div class="test-item-endpoint" style="width: 100%; margin-top: 6px;">${url}</div>
           </div>
         </div>
       `;
@@ -643,7 +656,6 @@ function showRunTestsModal(initialState = null) {
         // Only add variables that the collection actually uses. Remove empty placeholder env entries first.
         const envList = document.getElementById('env-vars-list');
         if (envList) {
-          const showEnvCheckbox = document.getElementById('show-env-vars');
           // Remove empty placeholder entries (both key and value blank)
           Array.from(envList.querySelectorAll('.env-var-item')).forEach(it => {
             const keyInput = it.querySelector('.env-var-key');
@@ -655,7 +667,6 @@ function showRunTestsModal(initialState = null) {
 
           // Add all detected variables from the collection to the optional environment variables (none are mandatory)
           const allVars = collectionVars.allVars || [];
-          let addedAny = false;
           const collectionJson = selectedCollection.collection_json || {};
 
           allVars.forEach(name => {
@@ -676,16 +687,7 @@ function showRunTestsModal(initialState = null) {
               <button type="button" class="btn btn-secondary" onclick="removeEnvVar(this)">Remove</button>
             `;
             envList.appendChild(newItem);
-            addedAny = true;
           });
-
-          // If we added any variables, show the env-vars section
-          if (addedAny) {
-            if (showEnvCheckbox && !showEnvCheckbox.checked) {
-              showEnvCheckbox.checked = true;
-              toggleEnvVars();
-            }
-          }
         }
 
         // Apply selected environment to prefill collection vars if an env is selected
@@ -721,8 +723,10 @@ function showRunTestsModal(initialState = null) {
     
     // Setup test selection handlers
     function setupTestSelectionHandlers(collectionId) {
+      const runTestsForm = document.getElementById('run-tests-form');
+      if (!runTestsForm) return;
       // Group checkbox handlers
-      document.querySelectorAll('.group-checkbox').forEach(checkbox => {
+      runTestsForm.querySelectorAll('.group-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', (e) => {
           const groupId = e.target.getAttribute('data-group-id');
           const groupContainer = document.getElementById(groupId);
@@ -737,14 +741,14 @@ function showRunTestsModal(initialState = null) {
       });
       
       // Individual test checkbox handlers
-      document.querySelectorAll('.test-checkbox').forEach(checkbox => {
+      runTestsForm.querySelectorAll('.test-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', (e) => {
           handleTestSelection(e.target, e.target.checked);
         });
       });
       
       // Toggle group expand/collapse
-      document.querySelectorAll('.toggle-group').forEach(btn => {
+      runTestsForm.querySelectorAll('.toggle-group').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const groupId = e.target.getAttribute('data-group-id');
           const groupContainer = document.getElementById(groupId);
@@ -792,6 +796,8 @@ function showRunTestsModal(initialState = null) {
       const orderPanel = document.getElementById('selected-tests-order');
       const countEl = document.getElementById('selected-tests-count');
       if (!listContainer || !orderPanel) return;
+
+      syncTestGroupCheckboxes();
       
       if (selectedTestsOrder.length === 0) {
         orderPanel.style.display = 'none';
@@ -856,8 +862,9 @@ function showRunTestsModal(initialState = null) {
     }
     
     // Select all / Deselect all buttons
-    document.getElementById('select-all-tests')?.addEventListener('click', () => {
-      document.querySelectorAll('.test-checkbox').forEach(cb => {
+    const runTestsForm = document.getElementById('run-tests-form');
+    runTestsForm?.querySelector('#select-all-tests')?.addEventListener('click', () => {
+      runTestsForm.querySelectorAll('#test-selection-container .test-checkbox').forEach(cb => {
         if (!cb.checked) {
           cb.checked = true;
           handleTestSelection(cb, true);
@@ -865,8 +872,8 @@ function showRunTestsModal(initialState = null) {
       });
     });
     
-    document.getElementById('deselect-all-tests')?.addEventListener('click', () => {
-      document.querySelectorAll('.test-checkbox').forEach(cb => {
+    runTestsForm?.querySelector('#deselect-all-tests')?.addEventListener('click', () => {
+      runTestsForm.querySelectorAll('#test-selection-container .test-checkbox').forEach(cb => {
         if (cb.checked) {
           cb.checked = false;
           handleTestSelection(cb, false);
@@ -955,8 +962,16 @@ function showRunTestsModal(initialState = null) {
         }
       });
       
-      // Collect additional environment variables if configured
-      const envVars = { ...collectionVars }; // Start with collection variables
+      // Start with the selected saved environment so values edited in this modal can override it.
+      let selectedEnv = null;
+      const envSelectEl = document.getElementById('env-select');
+      if (envSelectEl && envSelectEl.value) {
+        const savedEnvs = loadSavedEnvs();
+        selectedEnv = savedEnvs.find(e => String(e.id) === String(envSelectEl.value)) || null;
+      }
+
+      // Collect optional manual variables; visible collection-variable edits remain authoritative for duplicate keys.
+      const additionalVars = {};
       const envVarItems = document.querySelectorAll('#env-vars-list .env-var-item');
       envVarItems.forEach(item => {
         const keyInput = item.querySelector('.env-var-key');
@@ -964,25 +979,10 @@ function showRunTestsModal(initialState = null) {
         const key = keyInput ? keyInput.value.trim() : '';
         const value = valueInput ? valueInput.value.trim() : '';
         if (key && value) {
-          envVars[key] = value; // Additional vars override collection vars
+          additionalVars[key] = value;
         }
       });
-
-      // If a saved environment was selected, merge all its variables into envVars (except id/name)
-      const envSelectEl = document.getElementById('env-select');
-      if (envSelectEl && envSelectEl.value) {
-        const savedEnvs = loadSavedEnvs();
-        const selectedEnv = savedEnvs.find(e => String(e.id) === String(envSelectEl.value));
-        if (selectedEnv) {
-          Object.keys(selectedEnv).forEach(k => {
-            if (k === 'id' || k === 'name') return;
-            const v = selectedEnv[k];
-            if (typeof v !== 'undefined' && v !== null && String(v).trim() !== '') {
-              envVars[k] = v;
-            }
-          });
-        }
-      }
+      const envVars = mergeRunEnvironmentVariables(selectedEnv, collectionVars, additionalVars);
       
       // IMPORTANT: Read all form values BEFORE hiding the modal!
       // Collect per-test delays (seconds) if provided
@@ -1262,6 +1262,17 @@ function loadSavedEnvs(/* projectId */) {
   return window._userEnvsCache || [];
 }
 
+function mergeRunEnvironmentVariables(savedEnv = {}, collectionVars = {}, additionalVars = {}) {
+  const environmentVars = {};
+  Object.entries(savedEnv || {}).forEach(([key, value]) => {
+    if (key === 'id' || key === 'name') return;
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      environmentVars[key] = value;
+    }
+  });
+  return { ...environmentVars, ...additionalVars, ...collectionVars };
+}
+
 /**
  * Merge a saved environment (by id) into base env vars — same rules as Run API Tests when env-select is set.
  * @param {string|number} _projectId - unused (kept for backward compat)
@@ -1287,6 +1298,8 @@ function mergeSavedEnvironmentIntoEnvVars(_projectId, envId, baseEnv = {}) {
 if (typeof window !== 'undefined') {
   window.getProjectSavedEnvironments = loadSavedEnvs;
   window.mergeSavedEnvironmentIntoEnvVars = mergeSavedEnvironmentIntoEnvVars;
+  window.mergeRunEnvironmentVariables = mergeRunEnvironmentVariables;
+  window.syncTestGroupCheckboxes = syncTestGroupCheckboxes;
   window.extractCollectionVariables = extractCollectionVariables;
   window.loadUserEnvironments = loadUserEnvironments;
 }

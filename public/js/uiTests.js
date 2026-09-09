@@ -1278,7 +1278,7 @@
       ? results.map((result) => {
           const rowValidations = (result.assertions && Array.isArray(result.assertions.validations))
             ? result.assertions.validations.map((validation) => `
-              <li style="display:flex; align-items:flex-start; gap:8px; padding:8px 10px; margin-bottom:4px; border-radius:6px; background:#fff; border:1px solid #e5e7eb; border-left:4px solid ${validation.passed ? '#10b981' : '#ef4444'};">
+              <li class="light-surface" style="display:flex; align-items:flex-start; gap:8px; padding:8px 10px; margin-bottom:4px; border-radius:6px; background:#fff; border:1px solid #e5e7eb; border-left:4px solid ${validation.passed ? '#10b981' : '#ef4444'};">
                 <span style="flex-shrink:0; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:600; background:${validation.passed ? '#d1fae5' : '#fee2e2'}; color:${validation.passed ? '#065f46' : '#991b1b'};">${validation.passed ? 'Passed' : 'Failed'}</span>
                 <div><span style="font-size:13px;">${escapeHtml(validation.description || 'Validation')}</span>${validation.detail ? `<div style="font-size:11px; color:#6b7280; margin-top:2px; white-space:pre-wrap;">${escapeHtml(validation.detail)}</div>` : ''}</div>
               </li>`).join('')
@@ -1331,7 +1331,7 @@
 
     resultsEl.style.display = 'block';
     resultsEl.innerHTML = `
-      <div style="border:1px solid #e5e7eb; border-radius:12px; background:#f8fafc; padding:16px;">
+      <div class="light-surface" style="border:1px solid #e5e7eb; border-radius:12px; background:#f8fafc; padding:16px;">
         <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
           <div>
             <span style="display:inline-flex; align-items:center; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:600; color:${statusColor}; background:${statusBackground};">${escapeHtml(statusLabel)}</span>
@@ -1390,7 +1390,7 @@
     });
     const resultsEl = document.getElementById('recorded-test-validation-results');
     if (resultsEl) {
-      resultsEl.innerHTML = '<div style="border:1px solid #e5e7eb; border-radius:12px; background:#f8fafc; padding:16px;"><p style="margin:0;">Running draft validation. This does not create a UI test run or report.</p></div>';
+      resultsEl.innerHTML = '<div class="light-surface" style="border:1px solid #e5e7eb; border-radius:12px; background:#f8fafc; padding:16px;"><p style="margin:0;">Running draft validation. This does not create a UI test run or report.</p></div>';
       resultsEl.style.display = 'block';
     }
     try {
@@ -2201,11 +2201,11 @@ async function viewPlaywrightRun(id) {
       resultsEl.innerHTML = results.map(r => {
         const validationsHtml = (r.assertions && Array.isArray(r.assertions.validations))
           ? `<div style="margin-top: 8px;"><strong style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Validations</strong><ul style="list-style: none; padding: 0; margin: 4px 0 0 0;">${r.assertions.validations.map(v => `
-            <li style="display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; margin-bottom: 4px; border-radius: 6px; background: #fff; border: 1px solid #e5e7eb; border-left: 4px solid ${v.passed ? '#10b981' : '#ef4444'};">
+            <li class="light-surface" style="display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; margin-bottom: 4px; border-radius: 6px; background: #fff; border: 1px solid #e5e7eb; border-left: 4px solid ${v.passed ? '#10b981' : '#ef4444'};">
               <span style="flex-shrink: 0; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; background: ${v.passed ? '#d1fae5' : '#fee2e2'}; color: ${v.passed ? '#065f46' : '#991b1b'};">${v.passed ? 'Passed' : 'Failed'}</span>
               <div><span style="font-size: 13px;">${v.description}</span>${v.detail ? `<div style="font-size: 11px; color: #6b7280; margin-top: 2px;">${v.detail}</div>` : ''}</div>
             </li>`).join('')}</ul></div>`
-          : (r.assertions ? `<pre style="font-size: 12px; margin-top: 8px; padding: 8px; background: #f9fafb; border-radius: 6px;">${JSON.stringify(r.assertions, null, 2)}</pre>` : '');
+          : (r.assertions ? `<pre class="light-surface" style="font-size: 12px; margin-top: 8px; padding: 8px; background: #f9fafb; border-radius: 6px;">${JSON.stringify(r.assertions, null, 2)}</pre>` : '');
         const resultId = r.id;
         const runId = id;
         const hasResultVideo = !!(r.video_path);

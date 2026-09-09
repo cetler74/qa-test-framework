@@ -14,6 +14,46 @@ async function showProjectPage(page) {
 }
 
 test.describe('project page workspace', () => {
+  test('reflects descendant selection on collapsed test groups', async ({ page }) => {
+    await page.goto('/?projectTab=overview');
+    await page.evaluate(() => {
+      document.body.insertAdjacentHTML('beforeend', `
+        <input type="checkbox" class="group-checkbox" data-group-id="test-group-fixture">
+        <div id="test-group-fixture" style="display:none">
+          <input type="checkbox" class="test-checkbox">
+          <input type="checkbox" class="test-checkbox">
+        </div>
+      `);
+      document.querySelectorAll('#test-group-fixture .test-checkbox').forEach((checkbox) => { checkbox.checked = true; });
+      window.syncTestGroupCheckboxes();
+    });
+
+    const groupCheckbox = page.locator('.group-checkbox[data-group-id="test-group-fixture"]');
+    await expect(groupCheckbox).toBeChecked();
+
+    await page.evaluate(() => {
+      document.querySelector('#test-group-fixture .test-checkbox').checked = false;
+      window.syncTestGroupCheckboxes();
+    });
+    await expect(groupCheckbox).not.toBeChecked();
+    expect(await groupCheckbox.evaluate((checkbox) => checkbox.indeterminate)).toBe(true);
+  });
+
+  test('uses edited run variables instead of stored environment values', async ({ page }) => {
+    await page.goto('/?projectTab=overview');
+
+    const merged = await page.evaluate(() => window.mergeRunEnvironmentVariables(
+      { id: 7, name: 'UAT', phoneNumber: 'stored', endpoint: 'https://stored.example' },
+      { phoneNumber: '+351967165925' },
+      { phoneNumber: 'duplicate-stored-value' }
+    ));
+
+    expect(merged).toEqual({
+      phoneNumber: '+351967165925',
+      endpoint: 'https://stored.example'
+    });
+  });
+
   test('supports keyboard tabs, URL restoration, and mobile containment', async ({ page }) => {
     await page.goto('/?projectTab=overview');
     await showProjectPage(page);
@@ -97,9 +137,9 @@ test.describe('project page workspace', () => {
     });
 
     const overviewActions = page.locator('#project-overview-actions');
-    await expect(overviewActions.locator('[data-project-run-action]')).toHaveCount(5);
+    await expect(overviewActions.locator('[data-project-run-action]')).toHaveCount(4);
     await expect(overviewActions.locator('[data-project-asset-action]')).toHaveCount(3);
-    await expect(overviewActions.locator('[data-project-run-action] svg')).toHaveCount(5);
+    await expect(overviewActions.locator('[data-project-run-action] svg')).toHaveCount(4);
     await expect(overviewActions.locator('[data-project-asset-action] svg')).toHaveCount(3);
     expect(await overviewActions.evaluate((section) => section === section.parentElement.lastElementChild)).toBe(true);
 
