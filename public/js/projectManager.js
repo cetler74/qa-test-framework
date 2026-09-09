@@ -2225,12 +2225,45 @@ function renderProjectTestsTable(projectId) {
   updateProjectTestSelectionSummary(projectId);
 }
 
+function captureProjectTestsScrollPosition(anchorTestId) {
+  const anchorRow = Number.isFinite(Number(anchorTestId))
+    ? document.querySelector(`#project-tests-table tr[data-project-test-id="${Number(anchorTestId)}"]`)
+    : null;
+  return {
+    windowX: window.scrollX,
+    windowY: window.scrollY,
+    anchorViewportTop: anchorRow?.getBoundingClientRect().top ?? null,
+    folderScrollTop: document.querySelector('.project-tests-folder-items')?.scrollTop || 0,
+    tableScrollLeft: document.querySelector('#project-tests-table .table-responsive')?.scrollLeft || 0
+  };
+}
+
+function restoreProjectTestsScrollPosition(scrollPosition, anchorTestId) {
+  if (!scrollPosition) return;
+  const folderItems = document.querySelector('.project-tests-folder-items');
+  const tableContainer = document.querySelector('#project-tests-table .table-responsive');
+  if (folderItems) folderItems.scrollTop = scrollPosition.folderScrollTop;
+  if (tableContainer) tableContainer.scrollLeft = scrollPosition.tableScrollLeft;
+
+  const anchorRow = Number.isFinite(Number(anchorTestId))
+    ? document.querySelector(`#project-tests-table tr[data-project-test-id="${Number(anchorTestId)}"]`)
+    : null;
+  if (anchorRow && scrollPosition.anchorViewportTop !== null) {
+    const offset = anchorRow.getBoundingClientRect().top - scrollPosition.anchorViewportTop;
+    window.scrollBy({ top: offset, left: 0, behavior: 'auto' });
+    return;
+  }
+  window.scrollTo({ top: scrollPosition.windowY, left: scrollPosition.windowX, behavior: 'auto' });
+}
+
 // Load project tests & coverage table
-async function loadProjectTests(projectId) {
+async function loadProjectTests(projectId, options = {}) {
   const tableEl = document.getElementById('project-tests-table');
   if (!tableEl) return;
+  const preservePosition = !!options.preservePosition;
+  const scrollPosition = preservePosition ? captureProjectTestsScrollPosition(options.anchorTestId) : null;
   try {
-    tableEl.innerHTML = '<p class="muted">Loading tests…</p>';
+    if (!preservePosition) tableEl.innerHTML = '<p class="muted">Loading tests…</p>';
     const tests = await apiRequest(`/projects/${projectId}/tests/catalogue`);
     window.currentProjectTests = Array.isArray(tests) ? tests : [];
     const selectedIds = getProjectTestSelection(projectId);
@@ -2240,6 +2273,7 @@ async function loadProjectTests(projectId) {
     });
     updateProjectTestsFolderFilterOptions(window.currentProjectTests);
     renderProjectTestsTable(projectId);
+    restoreProjectTestsScrollPosition(scrollPosition, options.anchorTestId);
   } catch (err) {
     console.error('Error loading project tests:', err);
     tableEl.innerHTML = '<div class="empty-state"><p>Failed to load tests.</p></div>';
@@ -3673,7 +3707,7 @@ window.editProjectTest = async (projectId, projectTestId) => {
           body: { name, description, is_active, method, endpoint, test_type, ticket_urls, folder_path_override }
         });
         hideModal();
-        await loadProjectTests(projectId);
+        await loadProjectTests(projectId, { preservePosition: true, anchorTestId: projectTestId });
         if (typeof window.loadProjectCoverageSummary === 'function') {
           window.loadProjectCoverageSummary(projectId);
         }
@@ -3831,7 +3865,7 @@ window.viewProjectTestDetails = async (projectId, projectTestId) => {
           body
         });
         hideModal();
-        await loadProjectTests(projectId);
+        await loadProjectTests(projectId, { preservePosition: true, anchorTestId: projectTestId });
         if (typeof window.loadProjectCoverageSummary === 'function') {
           window.loadProjectCoverageSummary(projectId);
         }

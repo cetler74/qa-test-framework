@@ -16,6 +16,20 @@ const cronJobs = new Map();
 const intervalIds = new Map();
 const activeScheduleRuns = new Set();
 
+function unregisterSchedule(scheduleId) {
+  const cronJob = cronJobs.get(scheduleId);
+  if (cronJob) {
+    cronJob.stop();
+    cronJobs.delete(scheduleId);
+  }
+
+  const intervalId = intervalIds.get(scheduleId);
+  if (intervalId) {
+    clearInterval(intervalId);
+    intervalIds.delete(scheduleId);
+  }
+}
+
 function computeNextRunAt(schedule) {
   if (schedule.cron_expression) {
     try {
@@ -134,44 +148,59 @@ async function runScheduledJob(schedule) {
   }
 }
 
+function registerSchedule(schedule) {
+  const id = schedule.id;
+  unregisterSchedule(id);
+
+  if (!schedule.enabled) return false;
+
+  if (schedule.cron_expression) {
+    if (!cron.validate(schedule.cron_expression)) {
+      console.warn('[scheduler] Invalid cron expression:', schedule.cron_expression, 'for schedule', id);
+      return false;
+    }
+    const job = cron.schedule(schedule.cron_expression, async () => {
+      const currentSchedule = await Schedule.findByPk(id);
+      if (currentSchedule && currentSchedule.enabled) await runScheduledJob(currentSchedule);
+    });
+    cronJobs.set(id, job);
+    return true;
+  }
+
+  if (schedule.repeat_interval_minutes && schedule.repeat_interval_minutes > 0) {
+    const intervalMs = schedule.repeat_interval_minutes * 60 * 1000;
+    const intervalId = setInterval(async () => {
+      const currentSchedule = await Schedule.findByPk(id);
+      if (currentSchedule && currentSchedule.enabled) await runScheduledJob(currentSchedule);
+    }, intervalMs);
+    intervalIds.set(id, intervalId);
+    return true;
+  }
+
+  return false;
+}
+
 async function start() {
   const schedules = await Schedule.findAll({
     where: { enabled: true }
   });
 
   for (const schedule of schedules) {
-    const id = schedule.id;
-    if (schedule.cron_expression) {
-      try {
-        if (!cron.validate(schedule.cron_expression)) {
-          console.warn('[scheduler] Invalid cron expression:', schedule.cron_expression, 'for schedule', id);
-          continue;
-        }
-        const job = cron.schedule(schedule.cron_expression, async () => {
-          const s = await Schedule.findByPk(id);
-          if (s && s.enabled) await runScheduledJob(s);
-        });
-        cronJobs.set(id, job);
-      } catch (e) {
-        console.warn('[scheduler] Failed to schedule cron for', id, e.message);
+    try {
+      registerSchedule(schedule);
+      if (schedule.next_run_at && new Date(schedule.next_run_at) <= new Date()) {
+        console.log('[scheduler] Recovering overdue schedule', schedule.id);
+        setImmediate(() => runScheduledJob(schedule));
       }
-    } else if (schedule.repeat_interval_minutes && schedule.repeat_interval_minutes > 0) {
-      const intervalMs = schedule.repeat_interval_minutes * 60 * 1000;
-      const idInt = setInterval(async () => {
-        const s = await Schedule.findByPk(id);
-        if (s && s.enabled) await runScheduledJob(s);
-      }, intervalMs);
-      intervalIds.set(id, idInt);
+    } catch (e) {
+      console.warn('[scheduler] Failed to schedule cron for', schedule.id, e.message);
     }
   }
   console.log('[scheduler] Started:', cronJobs.size, 'cron job(s),', intervalIds.size, 'interval(s)');
 }
 
 function stop() {
-  cronJobs.forEach((job) => job.stop());
-  cronJobs.clear();
-  intervalIds.forEach((id) => clearInterval(id));
-  intervalIds.clear();
+  [...cronJobs.keys(), ...intervalIds.keys()].forEach(unregisterSchedule);
 }
 
-module.exports = { start, stop, computeNextRunAt, runScheduledJob };
+module.exports = { start, stop, computeNextRunAt, runScheduledJob, registerSchedule, unregisterSchedule };

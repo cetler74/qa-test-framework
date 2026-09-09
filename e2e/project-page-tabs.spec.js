@@ -117,6 +117,44 @@ test.describe('project page workspace', () => {
     expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
   });
 
+  test('preserves the test position after a catalogue refresh', async ({ page }) => {
+    const tests = Array.from({ length: 80 }, (_, index) => ({
+      id: index + 1,
+      name: `Catalogue test ${String(index + 1).padStart(2, '0')}`,
+      is_active: true,
+      test_type: 'api',
+      effective_folder_path: 'Release validation',
+      stats: { last_status: 'failed' }
+    }));
+    await page.route('**/api/projects/12/tests/catalogue', (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(tests.map((item) => item.id === 60
+        ? { ...item, stats: { last_status: 'passed' } }
+        : item))
+    }));
+    await page.goto('/?projectTab=tests');
+    await showProjectPage(page);
+    await page.evaluate((catalogueTests) => {
+      window.currentProject = { id: 12, name: 'Project', status: 'active' };
+      window.currentProjectTests = catalogueTests;
+      window.renderProjectTestsTable(12);
+    }, tests);
+
+    const anchorRow = page.locator('#project-tests-table tr[data-project-test-id="60"]');
+    await anchorRow.scrollIntoViewIfNeeded();
+    const beforeTop = await anchorRow.evaluate((row) => row.getBoundingClientRect().top);
+
+    await page.evaluate(() => window.loadProjectTests(12, {
+      preservePosition: true,
+      anchorTestId: 60
+    }));
+
+    const afterTop = await anchorRow.evaluate((row) => row.getBoundingClientRect().top);
+    expect(Math.abs(afterTop - beforeTop)).toBeLessThanOrEqual(2);
+    await expect(anchorRow.getByText('passed')).toBeVisible();
+  });
+
   test('keeps run identities and exposes run and asset actions on Overview', async ({ page }) => {
     await page.goto('/?projectTab=overview');
     await page.evaluate(() => new Promise((resolve, reject) => {

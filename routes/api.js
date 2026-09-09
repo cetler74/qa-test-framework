@@ -17,7 +17,7 @@ const { generateReport, getStableReportPath: getTestRunStableReportPath } = requ
 const { runPlaywrightTests, getPlaywrightTestListWithRecorded, cancelPlaywrightRun, detectUiVariableNamesFromSpec, executeRecordedSpec } = require('../services/playwrightRunner');
 const { executeFlow } = require('../services/flowRunner');
 const { normalizeApiTaskRef, normalizeUiTaskRef } = require('../services/flowTaskConfig');
-const { computeNextRunAt, runScheduledJob } = require('../services/scheduler');
+const { computeNextRunAt, runScheduledJob, registerSchedule, unregisterSchedule } = require('../services/scheduler');
 const { executeSoapTests } = require('../services/soapRunner');
 const { executeFuzz, cancelFuzzRun } = require('../services/fuzzRunner');
 const { generateFuzzReport, getStableReportPath } = require('../services/fuzzReportGenerator');
@@ -2449,6 +2449,7 @@ router.post('/projects/:id/schedules', (req, res, next) => {
             const nextRun = computeNextRunAt(schedule);
             if (nextRun) await schedule.update({ next_run_at: nextRun });
             const updated = await Schedule.findByPk(schedule.id);
+            registerSchedule(updated);
             const plain = updated.toJSON();
             if (updated.flow_id) {
                 const flow = await Flow.findByPk(updated.flow_id, { attributes: ['id', 'name'] });
@@ -2497,6 +2498,7 @@ router.put('/schedules/:id', async(req, res) => {
         const next = computeNextRunAt(schedule);
         if (next) await schedule.update({ next_run_at: next });
         const updated = await Schedule.findByPk(schedule.id);
+        registerSchedule(updated);
         const plain = updated.toJSON();
         if (updated.flow_id) {
             const flow = await Flow.findByPk(updated.flow_id, { attributes: ['id', 'name'] });
@@ -2514,6 +2516,7 @@ router.delete('/schedules/:id', async(req, res) => {
         if (!schedule) return res.status(404).json({ error: 'Schedule not found' });
         const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, schedule.project_id);
         if (!canManage) return res.status(403).json({ error: 'Forbidden' });
+        unregisterSchedule(schedule.id);
         await schedule.destroy();
         res.json({ message: 'Schedule deleted' });
     } catch (error) {
