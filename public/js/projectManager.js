@@ -1008,13 +1008,13 @@ function openProjectRun(run) {
 }
 
 async function quickRerunProjectRun(run) {
-  setProjectRunsFeedback(`Starting rerun of ${run.name || `Run ${run.id}`}…`);
+  setProjectRunsFeedback(`Starting resubmit of ${run.name || `Run ${run.id}`}…`);
   try {
     const result = await apiRequest(`/runs/${encodeURIComponent(run.runType || 'api')}/${Number(run.id)}/rerun`, { method: 'POST' });
-    setProjectRunsFeedback(`${result.run?.name || 'Quick rerun'} started.`);
+    setProjectRunsFeedback(`${result.run?.name || 'Quick Resubmit'} started.`);
     await window.loadProjectRuns(window.currentProject.id);
   } catch (error) {
-    setProjectRunsFeedback(error.message || 'Unable to start quick rerun.', true);
+    setProjectRunsFeedback(error.message || 'Unable to start quick resubmit.', true);
   }
 }
 
@@ -1067,7 +1067,7 @@ function renderProjectRunsList() {
             <span role="cell">${run.created_at ? escapeHtml(formatDateTime(run.created_at)) : '—'}</span>
             <span role="cell">${passed} passed · ${failed} failed</span>
             <span role="cell">${duration}</span>
-            <span role="cell" class="project-run-actions"><button type="button" class="link-button project-run-rerun" ${run.can_rerun ? '' : `disabled title="${escapeHtml(run.rerun_unavailable_reason || 'Quick rerun unavailable')}"`}>Quick rerun</button><button type="button" class="link-button danger project-run-delete" ${running ? 'disabled title="Running runs cannot be deleted"' : ''}>Delete</button></span>
+            <span role="cell" class="project-run-actions"><button type="button" class="link-button project-run-rerun" ${run.can_rerun ? '' : `disabled title="${escapeHtml(run.rerun_unavailable_reason || 'Quick Resubmit unavailable')}"`}>Quick Resubmit</button><button type="button" class="link-button danger project-run-delete" ${running ? 'disabled title="Running runs cannot be deleted"' : ''}>Delete</button></span>
           </div>`;
       }).join('')}
     </div>`;

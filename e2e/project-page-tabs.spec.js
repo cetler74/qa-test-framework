@@ -262,7 +262,7 @@ test.describe('project page workspace', () => {
   test('searches, selects, reruns, and deletes project runs', async ({ page }) => {
     const runs = [
       { id: 11, runType: 'api', name: 'Release smoke', status: 'passed', passed_tests: 5, failed_tests: 0, can_rerun: true, created_at: '2026-08-13T09:10:00Z' },
-      { id: 12, runType: 'ui', name: 'Legacy checkout', status: 'failed', passed_tests: 2, failed_tests: 1, can_rerun: false, rerun_unavailable_reason: 'Quick rerun is unavailable for legacy runs.', created_at: '2026-08-12T09:10:00Z' },
+      { id: 12, runType: 'ui', name: 'Legacy checkout', status: 'failed', passed_tests: 2, failed_tests: 1, can_rerun: false, rerun_unavailable_reason: 'Quick Resubmit is unavailable for legacy runs.', created_at: '2026-08-12T09:10:00Z' },
       { id: 13, runType: 'fuzz', name: 'Active fuzz', status: 'running', passed_tests: 0, failed_tests: 0, can_rerun: false, rerun_unavailable_reason: 'Running tests cannot be rerun.', created_at: '2026-08-11T09:10:00Z' }
     ];
     let rerunRequested = false;
@@ -286,8 +286,8 @@ test.describe('project page workspace', () => {
 
     const table = page.getByRole('table', { name: 'Project test runs' });
     await expect(table.locator('.project-run-row:not(.project-run-row-header)')).toHaveCount(3);
-    await expect(table.getByRole('button', { name: 'Quick rerun' })).toHaveCount(3);
-    await expect(table.getByRole('button', { name: 'Quick rerun' }).nth(1)).toBeDisabled();
+    await expect(table.getByRole('button', { name: 'Quick Resubmit' })).toHaveCount(3);
+    await expect(table.getByRole('button', { name: 'Quick Resubmit' }).nth(1)).toBeDisabled();
     await expect(table.getByRole('checkbox', { name: 'Select Active fuzz' })).toBeDisabled();
 
     await page.getByRole('searchbox', { name: 'Search project runs' }).fill('legacy');
@@ -300,7 +300,7 @@ test.describe('project page workspace', () => {
     await expect.poll(() => deletePayload).toEqual({ runs: [{ id: 12, runType: 'ui' }] });
 
     await page.getByRole('searchbox', { name: 'Search project runs' }).fill('release');
-    await table.getByRole('button', { name: 'Quick rerun' }).click();
+    await table.getByRole('button', { name: 'Quick Resubmit' }).click();
     await expect.poll(() => rerunRequested).toBe(true);
     await expect(page.locator('#project-runs-feedback')).toContainText('Release smoke re-run: 1 started.');
   });
