@@ -10,6 +10,10 @@
     "migrate": "node scripts/migrate.js",
     "init-db": "node scripts/init-db.js",
     "test:playwright": "node services/playwrightRunner.js --cli",
+    "test:flow-config": "node scripts/validate-flow-config.js",
+    "test:flow-editor": "set PLAYWRIGHT_BASE_URL=http://localhost:3001&& playwright test e2e/flow-editor.spec.js --reporter=line",
+    "test:run-tests-selection": "set PLAYWRIGHT_BASE_URL=http://localhost:3001&& playwright test e2e/run-tests-selection.spec.js --reporter=line",
+    "test:schedule-timezone": "node scripts/validate-schedule-timezone.js",
     "postman-to-swagger": "node scripts/postman-to-swagger.js",
     "test:recorded-spec-template": "node scripts/validate-recorded-spec-template.js"
   },

@@ -71,6 +71,31 @@ const PlaywrightRun = sequelize.define('PlaywrightRun', {
       key: 'id'
     }
   },
+  execution_snapshot: {
+    type: DataTypes.JSONB,
+    allowNull: true
+  },
+  execution_snapshot_version: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  rerun_lineage_id: {
+    type: DataTypes.UUID,
+    allowNull: true
+  },
+  rerun_number: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0
+  },
+  rerun_base_name: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  rerun_source_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW

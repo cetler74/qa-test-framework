@@ -310,15 +310,52 @@
 
             <!-- Project Detail View -->
             <div id="project-detail-view" class="view">
-                <div class="view-header">
-                        <button class="btn btn-secondary" id="back-to-projects">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                            </svg>
-                            Back to Projects
-                        </button>
-                    <h2 id="project-detail-name"></h2>
-                    <button type="button" class="btn btn-secondary" id="project-detail-edit-btn" title="Edit project name, description, and access" style="display: none;">Edit project</button>
+                <div class="project-detail-heading">
+                    <div class="project-detail-breadcrumb" aria-label="Breadcrumb">
+                        <button type="button" class="link-button" id="back-to-projects">Projects</button>
+                        <span aria-hidden="true">/</span>
+                        <span id="project-detail-breadcrumb-name"></span>
+                    </div>
+                    <div class="project-detail-title-row">
+                        <div>
+                            <div class="project-detail-title-line">
+                                <h2 id="project-detail-name"></h2>
+                                <span id="project-detail-heading-status" class="status-badge ongoing">On going</span>
+                            </div>
+                            <p id="project-detail-heading-meta" class="project-detail-heading-meta"></p>
+                        </div>
+                        <button type="button" class="btn btn-secondary" id="project-detail-edit-btn" title="Edit project name, description, and access" style="display: none;">Edit project</button>
+                    </div>
+                </div>
+                <div class="project-tabs" role="tablist" aria-label="Project sections">
+                    <button type="button" class="project-tab active" id="project-tab-overview" role="tab" aria-selected="true" aria-controls="project-panel-overview" data-project-tab="overview" tabindex="0">Overview</button>
+                    <button type="button" class="project-tab" id="project-tab-tests" role="tab" aria-selected="false" aria-controls="project-panel-tests" data-project-tab="tests" tabindex="-1">Tests</button>
+                    <button type="button" class="project-tab" id="project-tab-runs" role="tab" aria-selected="false" aria-controls="project-panel-runs" data-project-tab="runs" tabindex="-1">Runs</button>
+                    <button type="button" class="project-tab" id="project-tab-coverage" role="tab" aria-selected="false" aria-controls="project-panel-coverage" data-project-tab="coverage" tabindex="-1">Coverage</button>
+                    <button type="button" class="project-tab" id="project-tab-assets" role="tab" aria-selected="false" aria-controls="project-panel-assets" data-project-tab="assets" tabindex="-1">Assets</button>
+                    <button type="button" class="project-tab" id="project-tab-automation" role="tab" aria-selected="false" aria-controls="project-panel-automation" data-project-tab="automation" tabindex="-1">Flows &amp; schedules</button>
+                </div>
+                <div class="project-tab-panels">
+                    <section id="project-panel-overview" class="project-tab-panel" role="tabpanel" aria-labelledby="project-tab-overview" data-project-panel="overview"></section>
+                    <section id="project-panel-tests" class="project-tab-panel" role="tabpanel" aria-labelledby="project-tab-tests" data-project-panel="tests" hidden></section>
+                    <section id="project-panel-runs" class="project-tab-panel" role="tabpanel" aria-labelledby="project-tab-runs" data-project-panel="runs" hidden>
+                        <div class="project-section-box project-section-3d">
+                            <div class="project-runs-heading">
+                                <div><h3>Project runs</h3><p class="muted">Search, rerun, or remove execution history.</p></div>
+                                <button type="button" class="btn btn-secondary" id="project-runs-refresh">Refresh</button>
+                            </div>
+                            <div class="project-runs-toolbar">
+                                <label class="project-runs-search"><span class="sr-only">Search project runs</span><input type="search" id="project-runs-search" placeholder="Search runs" autocomplete="off"></label>
+                                <span id="project-runs-selection-count" class="muted">0 selected</span>
+                                <button type="button" class="btn btn-danger" id="project-runs-delete-selected" disabled>Delete selected</button>
+                            </div>
+                            <p id="project-runs-feedback" class="project-runs-feedback" role="status" aria-live="polite"></p>
+                            <div id="project-runs-list" class="empty-state"><p>Project run history will appear here.</p></div>
+                        </div>
+                    </section>
+                    <section id="project-panel-coverage" class="project-tab-panel" role="tabpanel" aria-labelledby="project-tab-coverage" data-project-panel="coverage" hidden></section>
+                    <section id="project-panel-assets" class="project-tab-panel" role="tabpanel" aria-labelledby="project-tab-assets" data-project-panel="assets" hidden></section>
+                    <section id="project-panel-automation" class="project-tab-panel" role="tabpanel" aria-labelledby="project-tab-automation" data-project-panel="automation" hidden></section>
                 </div>
                 <div class="project-coverage-summary project-section-box project-section-3d">
                     <h3>Tests, Coverage &amp; Daily Activity</h3>
@@ -329,12 +366,6 @@
                     </div>
                 </div>
                 <div class="project-detail-content">
-                    <div class="project-info">
-                        <p id="project-detail-description"></p>
-                        <p id="project-detail-status" class="project-detail-meta"></p>
-                        <p id="project-detail-proxy" class="project-detail-meta"></p>
-                        <div id="project-detail-closed-note" class="project-status-notice" style="display: none;"></div>
-                    </div>
                     <div class="project-actions">
                         <button class="btn btn-primary" id="add-api-spec-btn">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">

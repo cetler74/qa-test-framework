@@ -3,6 +3,247 @@
 // Global flag for Tests & Coverage edit mode
 window.projectTestsEditMode = false;
 window.currentProject = null;
+window.projectTestSelection = window.projectTestSelection || { projectId: null, ids: new Set() };
+window.projectTestsViewMode = window.projectTestsViewMode || 'tree';
+
+const PROJECT_TABS = ['overview', 'tests', 'runs', 'coverage', 'assets', 'automation'];
+const PROJECT_RUN_ACTIONS = [
+  { kind: 'api', sourceId: 'run-tests-btn', label: 'Run API tests', description: 'Choose a collection, tests, and environment.' },
+  { kind: 'ui', sourceId: 'run-ui-test-btn', label: 'Run UI tests', description: 'Run recorded browser tests for this project.' },
+  { kind: 'fuzz', sourceId: 'run-fuzz-btn', label: 'Run Fuzz', description: 'Run CATS against an OpenAPI specification.' },
+  { kind: 'soap', sourceId: 'run-soap-btn', label: 'Run SOAP', description: 'Choose a WSDL and operations to execute.' }
+];
+const PROJECT_ASSET_ACTIONS = [
+  { sourceId: 'add-api-spec-btn', label: 'Add API Spec' },
+  { sourceId: 'upload-postman-collection-btn', label: 'Upload Postman Collection' },
+  { sourceId: 'generate-jwks-btn', label: 'Generate JWKS' }
+];
+
+function getProjectActionIcon(sourceId) {
+  return document.getElementById(sourceId)?.querySelector('svg')?.outerHTML || '';
+}
+
+function dispatchProjectRunAction(kind, projectId) {
+  if (!ensureCurrentProjectRunsAllowed(projectId)) return;
+  if (kind === 'selected') {
+    window.runBatchProjectCatalogueTests(projectId);
+    return;
+  }
+  const action = PROJECT_RUN_ACTIONS.find((item) => item.kind === kind);
+  if (action) document.getElementById(action.sourceId)?.click();
+}
+
+function createProjectOverviewActions() {
+  const section = document.createElement('section');
+  section.id = 'project-overview-actions';
+  section.className = 'project-overview-actions';
+  section.innerHTML = `
+    <div class="project-overview-actions-heading">
+      <div><h3>Project actions</h3><p>Run tests or manage project assets without leaving Overview.</p></div>
+    </div>
+    <div class="project-overview-action-group">
+      <h4>Run tests</h4>
+      <div class="project-overview-action-buttons">
+        ${PROJECT_RUN_ACTIONS.map((action) => `<button type="button" class="btn ${document.getElementById(action.sourceId)?.classList.contains(`btn-run-type-${action.kind}`) ? `btn-run-type-${action.kind}` : 'btn-primary'}" data-project-run-action="${action.kind}">${getProjectActionIcon(action.sourceId)}${escapeHtml(action.label)}</button>`).join('')}
+      </div>
+    </div>
+    <div class="project-overview-action-group">
+      <h4>Assets</h4>
+      <div class="project-overview-action-buttons">
+        ${PROJECT_ASSET_ACTIONS.map((action) => {
+          const source = document.getElementById(action.sourceId);
+          const variant = source?.classList.contains('btn-secondary') ? 'btn-secondary' : 'btn-primary';
+          return `<button type="button" class="btn ${variant}" data-project-asset-action="${action.sourceId}">${getProjectActionIcon(action.sourceId)}${escapeHtml(action.label)}</button>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+  section.querySelectorAll('[data-project-run-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const projectId = Number(window.currentProject?.id);
+      if (projectId) dispatchProjectRunAction(button.dataset.projectRunAction, projectId);
+    });
+  });
+  section.querySelectorAll('[data-project-asset-action]').forEach((button) => {
+    button.addEventListener('click', () => document.getElementById(button.dataset.projectAssetAction)?.click());
+  });
+  return section;
+}
+
+function getProjectTabFromUrl() {
+  const tab = new URLSearchParams(window.location.search).get('projectTab');
+  return PROJECT_TABS.includes(tab) ? tab : 'overview';
+}
+
+function setProjectTab(tabName, { updateHistory = true, focus = false } = {}) {
+  const selectedTab = PROJECT_TABS.includes(tabName) ? tabName : 'overview';
+  document.querySelectorAll('[data-project-tab]').forEach((tab) => {
+    const isSelected = tab.dataset.projectTab === selectedTab;
+    tab.classList.toggle('active', isSelected);
+    tab.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+    tab.tabIndex = isSelected ? 0 : -1;
+    if (isSelected && focus) tab.focus();
+  });
+  document.querySelectorAll('[data-project-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.projectPanel !== selectedTab;
+  });
+
+  if (selectedTab === 'coverage' && window._projectCoverageChart) {
+    window.requestAnimationFrame(() => window._projectCoverageChart?.resize());
+  }
+
+  if (updateHistory) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('projectTab', selectedTab);
+    window.history.pushState({ ...window.history.state, projectTab: selectedTab }, '', url);
+  }
+}
+
+function initializeProjectTabs() {
+  const detailView = document.getElementById('project-detail-view');
+  if (!detailView || detailView.dataset.tabsInitialized === 'true') return;
+
+  const detailContent = detailView.querySelector('.project-detail-content');
+  const overviewPanel = document.getElementById('project-panel-overview');
+  const testsPanel = document.getElementById('project-panel-tests');
+  const coveragePanel = document.getElementById('project-panel-coverage');
+  const assetsPanel = document.getElementById('project-panel-assets');
+  const automationPanel = document.getElementById('project-panel-automation');
+  const projectActions = detailContent?.querySelector('.project-actions');
+
+  const projectInfo = detailContent?.querySelector('.project-info');
+  const projectTests = detailContent?.querySelector('.project-tests');
+  const coverageSummary = detailView.querySelector('.project-coverage-summary');
+  const apiSpecs = detailContent?.querySelector('.project-api-specs');
+  const collections = detailContent?.querySelector('.project-collections');
+  const flows = detailContent?.querySelector('.project-flows');
+  const schedules = detailContent?.querySelector('.project-schedules');
+
+  if (overviewPanel && !document.getElementById('project-overview-dashboard')) {
+    const dashboard = document.createElement('div');
+    dashboard.id = 'project-overview-dashboard';
+    dashboard.className = 'project-overview-dashboard';
+    dashboard.innerHTML = `
+      <div id="project-overview-kpis" class="project-overview-kpis"></div>
+      <div class="project-overview-main-grid">
+        <section class="project-overview-section project-overview-runs-section"><div class="project-overview-section-heading"><h3>Recent test runs</h3><button type="button" class="link-button" data-overview-tab="runs">View all runs</button></div><div id="project-overview-runs"></div></section>
+        <aside class="project-overview-sidebar">
+          <section class="project-overview-section"><div class="project-overview-section-heading"><h3>Coverage by area</h3><button type="button" class="link-button" data-overview-tab="coverage">Detailed coverage</button></div><div id="project-overview-area-coverage"></div><div class="project-overview-coverage-legend"><span><i class="passed"></i>Passed</span><span><i class="failed"></i>Failed</span><span>Unfilled = not run</span></div></section>
+          <section class="project-overview-section project-overview-schedule-section"><div class="project-overview-section-heading"><h3>Next scheduled run</h3><button type="button" class="link-button" data-overview-tab="automation">Manage</button></div><div id="project-overview-schedule"></div></section>
+        </aside>
+      </div>
+    `;
+    overviewPanel.append(dashboard);
+    dashboard.querySelectorAll('[data-overview-tab]').forEach((button) => button.addEventListener('click', () => setProjectTab(button.dataset.overviewTab, { focus: true })));
+  }
+  if (projectInfo) overviewPanel?.append(projectInfo);
+  if (overviewPanel && !document.getElementById('project-overview-actions')) overviewPanel.append(createProjectOverviewActions());
+  if (coverageSummary) {
+    coveragePanel?.append(coverageSummary);
+    const chart = coverageSummary.querySelector('.project-coverage-chart');
+    const coverageWorkspace = document.createElement('div');
+    coverageWorkspace.id = 'project-coverage-workspace';
+    coverageWorkspace.className = 'project-coverage-workspace';
+    coverageWorkspace.innerHTML = `
+      <div id="project-folder-coverage-list" class="project-folder-coverage-list"></div>
+      <aside id="project-coverage-drawer" class="project-coverage-drawer" aria-label="Folder coverage details" tabindex="-1" hidden></aside>
+    `;
+    if (chart) chart.before(coverageWorkspace);
+    else coverageSummary.append(coverageWorkspace);
+  }
+  if (projectTests) testsPanel?.append(projectTests);
+
+  if (projectActions) {
+    const testsActions = document.createElement('div');
+    testsActions.className = 'project-actions project-tests-run-actions';
+    ['run-tests-btn', 'run-ui-test-btn', 'run-fuzz-btn', 'run-soap-btn', 'manage-project-recorded-tests-btn'].forEach((id) => {
+      const button = document.getElementById(id);
+      if (button) testsActions.append(button);
+    });
+    const guidedRunButton = document.createElement('button');
+    guidedRunButton.type = 'button';
+    guidedRunButton.id = 'project-guided-run-btn';
+    guidedRunButton.className = 'btn btn-primary project-guided-run-btn';
+    guidedRunButton.textContent = 'Run tests';
+    guidedRunButton.addEventListener('click', () => {
+      const projectId = guidedRunButton.getAttribute('data-project-id');
+      if (projectId) window.showProjectRunLauncher(Number(projectId));
+    });
+    testsActions.prepend(guidedRunButton);
+    testsActions.querySelectorAll('#run-tests-btn, #run-ui-test-btn, #run-fuzz-btn, #run-soap-btn').forEach((button) => {
+      button.hidden = true;
+    });
+    testsPanel?.prepend(testsActions);
+    assetsPanel?.append(projectActions);
+  }
+  if (apiSpecs) assetsPanel?.append(apiSpecs);
+  if (collections) assetsPanel?.append(collections);
+  if (flows) automationPanel?.append(flows);
+  if (schedules) automationPanel?.append(schedules);
+  detailContent?.remove();
+
+  const testsTable = document.getElementById('project-tests-table');
+  if (testsTable && !document.getElementById('project-tests-selection-summary')) {
+    const projectTestsSection = testsTable.closest('.project-tests');
+    const testHeading = projectTestsSection?.querySelector(':scope > h3');
+    if (testHeading) {
+      const headingRow = document.createElement('div');
+      headingRow.className = 'project-tests-heading-row';
+      testHeading.before(headingRow);
+      headingRow.append(testHeading);
+      const viewToggle = document.createElement('div');
+      viewToggle.className = 'project-tests-view-toggle';
+      viewToggle.setAttribute('role', 'group');
+      viewToggle.setAttribute('aria-label', 'Test list view');
+      viewToggle.innerHTML = `
+        <button type="button" class="active" data-project-tests-view="tree">Folder tree</button>
+        <button type="button" data-project-tests-view="grouped">Grouped table</button>
+      `;
+      headingRow.append(viewToggle);
+      viewToggle.querySelectorAll('[data-project-tests-view]').forEach((button) => {
+        button.addEventListener('click', () => setProjectTestsViewMode(button.dataset.projectTestsView));
+      });
+    }
+
+    const selectionSummary = document.createElement('div');
+    selectionSummary.id = 'project-tests-selection-summary';
+    selectionSummary.className = 'project-tests-selection-summary';
+    selectionSummary.setAttribute('aria-live', 'polite');
+    selectionSummary.hidden = true;
+    testsTable.before(selectionSummary);
+
+    const workspace = document.createElement('div');
+    workspace.id = 'project-tests-workspace';
+    workspace.className = 'project-tests-workspace tree-view';
+    const folderTree = document.createElement('aside');
+    folderTree.id = 'project-tests-folder-tree';
+    folderTree.className = 'project-tests-folder-tree';
+    folderTree.setAttribute('aria-label', 'Test folders');
+    const testList = document.createElement('div');
+    testList.className = 'project-tests-list-pane';
+    selectionSummary.before(workspace);
+    workspace.append(folderTree, testList);
+    testList.append(selectionSummary, testsTable);
+  }
+
+  const tabs = Array.from(detailView.querySelectorAll('[data-project-tab]'));
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => setProjectTab(tab.dataset.projectTab));
+    tab.addEventListener('keydown', (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      let nextIndex = index;
+      if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
+      if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
+      if (event.key === 'Home') nextIndex = 0;
+      if (event.key === 'End') nextIndex = tabs.length - 1;
+      setProjectTab(tabs[nextIndex].dataset.projectTab, { focus: true });
+    });
+  });
+
+  detailView.dataset.tabsInitialized = 'true';
+  setProjectTab(getProjectTabFromUrl(), { updateHistory: false });
+}
 
 function projectRunsAreClosed(project) {
     return typeof window.isProjectClosed === 'function' ? window.isProjectClosed(project) : false;
@@ -21,6 +262,43 @@ function ensureCurrentProjectRunsAllowed(projectId) {
     return false;
 }
 
+function getProjectTestSelection(projectId) {
+  if (String(window.projectTestSelection.projectId) !== String(projectId)) {
+    window.projectTestSelection = { projectId: Number(projectId), ids: new Set() };
+  }
+  return window.projectTestSelection.ids;
+}
+
+window.showProjectRunLauncher = (projectId) => {
+  if (!ensureCurrentProjectRunsAllowed(projectId)) return;
+  const selectedCount = getProjectTestSelection(projectId).size;
+  const content = `
+    <div class="project-run-launcher" data-project-id="${projectId}">
+      <p class="muted">${selectedCount ? `${selectedCount} catalogue test(s) selected.` : 'Choose an execution type, or select catalogue tests first.'}</p>
+      <div class="project-run-launcher-options">
+        <button type="button" class="project-run-option project-run-option-selected" data-run-kind="selected" ${selectedCount ? '' : 'disabled'}>
+          <span class="project-run-option-heading"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg><strong>Run selected tests</strong></span>
+          <span>Run the checked API or recorded UI catalogue tests.</span>
+        </button>
+        ${PROJECT_RUN_ACTIONS.map((action) => `
+          <button type="button" class="project-run-option btn-run-type-${action.kind}" data-run-kind="${action.kind}">
+            <span class="project-run-option-heading">${getProjectActionIcon(action.sourceId)}<strong>${escapeHtml(action.label)}</strong></span>
+            <span>${escapeHtml(action.description)}</span>
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  showModal('Run tests', content);
+  document.querySelectorAll('.project-run-option').forEach((option) => {
+    option.addEventListener('click', () => {
+      const kind = option.dataset.runKind;
+      hideModal();
+      dispatchProjectRunAction(kind, projectId);
+    });
+  });
+};
+
 function setProjectRunButtonState(button, disabled, title) {
     if (!button) return;
     button.disabled = !!disabled;
@@ -37,6 +315,8 @@ function applyProjectRunAvailability(project) {
     setProjectRunButtonState(document.getElementById('run-fuzz-btn'), isClosed, blockedTitle);
     setProjectRunButtonState(document.getElementById('run-soap-btn'), isClosed, blockedTitle);
     setProjectRunButtonState(document.getElementById('project-tests-run-selected-btn'), isClosed, blockedTitle);
+    setProjectRunButtonState(document.getElementById('project-guided-run-btn'), isClosed, blockedTitle);
+    document.querySelectorAll('[data-project-run-action]').forEach((button) => setProjectRunButtonState(button, isClosed, blockedTitle));
 
     const statusEl = document.getElementById('project-detail-status');
     if (statusEl) {
@@ -62,6 +342,8 @@ function applyProjectRunAvailability(project) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  initializeProjectTabs();
+
     // Create project button
     document.getElementById('create-project-btn')?.addEventListener('click', showCreateProjectModal);
 
@@ -682,19 +964,299 @@ function parseTicketUrlsTextarea(text) {
   return String(text || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
 }
 
+const selectedProjectRunKeys = new Set();
+
+function getProjectRunKey(run) {
+  return `${run.runType || 'api'}:${Number(run.id)}`;
+}
+
+function setProjectRunsFeedback(message, isError = false) {
+  const feedback = document.getElementById('project-runs-feedback');
+  if (!feedback) return;
+  feedback.textContent = message || '';
+  feedback.classList.toggle('error', isError);
+}
+
+function getVisibleProjectRuns() {
+  const runs = window.currentProjectRuns?.runs || [];
+  const query = String(document.getElementById('project-runs-search')?.value || '').trim().toLowerCase();
+  if (!query) return runs;
+  return runs.filter((run) => [run.name, run.runType, run.status, run.run_by?.username, run.run_by_username]
+    .some((value) => String(value || '').toLowerCase().includes(query)));
+}
+
+function updateProjectRunsSelectionControls(visibleRuns = getVisibleProjectRuns()) {
+  const selectable = visibleRuns.filter((run) => String(run.status || '').toLowerCase() !== 'running');
+  const selectedVisible = selectable.filter((run) => selectedProjectRunKeys.has(getProjectRunKey(run)));
+  const selectAll = document.getElementById('project-runs-select-all');
+  if (selectAll) {
+    selectAll.checked = selectable.length > 0 && selectedVisible.length === selectable.length;
+    selectAll.indeterminate = selectedVisible.length > 0 && selectedVisible.length < selectable.length;
+    selectAll.disabled = selectable.length === 0;
+  }
+  const selectedCount = document.getElementById('project-runs-selection-count');
+  if (selectedCount) selectedCount.textContent = `${selectedVisible.length} selected`;
+  const deleteButton = document.getElementById('project-runs-delete-selected');
+  if (deleteButton) deleteButton.disabled = selectedVisible.length === 0;
+}
+
+function openProjectRun(run) {
+  const runId = Number(run.id);
+  if (run.runType === 'ui') window.viewPlaywrightRun?.(runId);
+  else if (run.runType === 'fuzz') window.viewFuzzRun?.(runId);
+  else window.viewTestRun?.(runId);
+}
+
+async function quickRerunProjectRun(run) {
+  setProjectRunsFeedback(`Starting resubmit of ${run.name || `Run ${run.id}`}…`);
+  try {
+    const result = await apiRequest(`/runs/${encodeURIComponent(run.runType || 'api')}/${Number(run.id)}/rerun`, { method: 'POST' });
+    setProjectRunsFeedback(`${result.run?.name || 'Quick Resubmit'} started.`);
+    await window.loadProjectRuns(window.currentProject.id);
+  } catch (error) {
+    setProjectRunsFeedback(error.message || 'Unable to start quick resubmit.', true);
+  }
+}
+
+async function deleteProjectRuns(runs) {
+  const deletable = runs.filter((run) => String(run.status || '').toLowerCase() !== 'running');
+  if (!deletable.length) return;
+  const label = deletable.length === 1 ? `“${deletable[0].name || `Run ${deletable[0].id}`}”` : `${deletable.length} selected runs`;
+  if (!confirm(`Delete ${label}? This removes their results and artifacts and cannot be undone.`)) return;
+  setProjectRunsFeedback(`Deleting ${deletable.length} run${deletable.length === 1 ? '' : 's'}…`);
+  try {
+    const result = await apiRequest('/runs', {
+      method: 'DELETE',
+      body: { runs: deletable.map((run) => ({ id: run.id, runType: run.runType || 'api' })) }
+    });
+    result.deleted?.forEach((run) => selectedProjectRunKeys.delete(`${run.runType}:${Number(run.id)}`));
+    setProjectRunsFeedback(result.message || 'Runs deleted.');
+    await window.loadProjectRuns(window.currentProject.id);
+  } catch (error) {
+    setProjectRunsFeedback(error.message || 'Unable to delete runs.', true);
+  }
+}
+
+function renderProjectRunsList() {
+  const list = document.getElementById('project-runs-list');
+  if (!list) return;
+  const runs = getVisibleProjectRuns();
+  if (!runs.length) {
+    list.innerHTML = '<div class="empty-state"><p>No matching project runs.</p></div>';
+    updateProjectRunsSelectionControls(runs);
+    return;
+  }
+  list.innerHTML = `
+    <div class="project-runs-table" role="table" aria-label="Project test runs">
+      <div class="project-run-row project-run-row-header" role="row">
+        <span role="columnheader"><input type="checkbox" id="project-runs-select-all" aria-label="Select all visible runs"></span><span role="columnheader">Run</span><span role="columnheader">Status</span><span role="columnheader">Date</span><span role="columnheader">Results</span><span role="columnheader">Duration</span><span role="columnheader">Actions</span>
+      </div>
+      ${runs.map((run) => {
+        const runType = run.runType || 'api';
+        const passed = Number(run.passed_tests ?? run.passed_count ?? run.passed ?? 0);
+        const failed = Number(run.failed_tests ?? run.failed_count ?? run.failed ?? 0);
+        const duration = run.duration != null ? `${Number(run.duration).toFixed(1)}s` : run.duration_ms != null ? `${Math.round(Number(run.duration_ms) / 1000)}s` : '—';
+        const status = String(run.status || 'pending');
+        const key = getProjectRunKey(run);
+        const running = status.toLowerCase() === 'running';
+        return `
+          <div class="project-run-row" role="row" data-run-key="${escapeHtml(key)}">
+            <span role="cell"><input type="checkbox" class="project-run-check" aria-label="Select ${escapeHtml(run.name || `Run ${run.id}`)}" ${selectedProjectRunKeys.has(key) ? 'checked' : ''} ${running ? 'disabled title="Running runs cannot be deleted"' : ''}></span>
+            <button type="button" class="project-run-identity project-run-open"><span class="project-run-type ${escapeHtml(runType)}">${escapeHtml(runType.toUpperCase())}</span><span><strong>${escapeHtml(run.name || `Run ${run.id}`)}</strong><small>${escapeHtml(run.run_by?.username || run.run_by_username || '')}</small></span></button>
+            <span role="cell"><span class="status-badge ${escapeHtml(status)}">${escapeHtml(status.replace(/_/g, ' '))}</span></span>
+            <span role="cell">${run.created_at ? escapeHtml(formatDateTime(run.created_at)) : '—'}</span>
+            <span role="cell">${passed} passed · ${failed} failed</span>
+            <span role="cell">${duration}</span>
+            <span role="cell" class="project-run-actions"><button type="button" class="link-button project-run-rerun" ${run.can_rerun ? '' : `disabled title="${escapeHtml(run.rerun_unavailable_reason || 'Quick Resubmit unavailable')}"`}>Quick Resubmit</button><button type="button" class="link-button danger project-run-delete" ${running ? 'disabled title="Running runs cannot be deleted"' : ''}>Delete</button></span>
+          </div>`;
+      }).join('')}
+    </div>`;
+
+  list.querySelector('#project-runs-select-all')?.addEventListener('change', (event) => {
+    runs.filter((run) => String(run.status || '').toLowerCase() !== 'running').forEach((run) => {
+      if (event.target.checked) selectedProjectRunKeys.add(getProjectRunKey(run));
+      else selectedProjectRunKeys.delete(getProjectRunKey(run));
+    });
+    renderProjectRunsList();
+  });
+  list.querySelectorAll('[data-run-key]').forEach((row) => {
+    const run = runs.find((item) => getProjectRunKey(item) === row.dataset.runKey);
+    row.querySelector('.project-run-check')?.addEventListener('change', (event) => {
+      if (event.target.checked) selectedProjectRunKeys.add(row.dataset.runKey);
+      else selectedProjectRunKeys.delete(row.dataset.runKey);
+      updateProjectRunsSelectionControls(runs);
+    });
+    row.querySelector('.project-run-open')?.addEventListener('click', () => openProjectRun(run));
+    row.querySelector('.project-run-rerun')?.addEventListener('click', () => quickRerunProjectRun(run));
+    row.querySelector('.project-run-delete')?.addEventListener('click', () => deleteProjectRuns([run]));
+  });
+  updateProjectRunsSelectionControls(runs);
+}
+
+window.loadProjectRuns = async (projectId) => {
+  const list = document.getElementById('project-runs-list');
+  if (!list) return;
+  list.innerHTML = '<p class="muted">Loading project runs…</p>';
+  try {
+    const runs = await apiRequest(`/test-runs?projectId=${encodeURIComponent(projectId)}&limit=50&type=all`);
+    window.currentProjectRuns = { projectId: Number(projectId), runs: Array.isArray(runs) ? runs : [] };
+    const loadedKeys = new Set(window.currentProjectRuns.runs.map(getProjectRunKey));
+    [...selectedProjectRunKeys].forEach((key) => { if (!loadedKeys.has(key)) selectedProjectRunKeys.delete(key); });
+    renderProjectHeading(window.currentProject, window.currentProjectRuns.runs);
+    renderProjectOverview(projectId);
+    renderProjectRunsList();
+  } catch (error) {
+    console.error('Error loading project runs:', error);
+    list.innerHTML = '<div class="empty-state"><p>Failed to load project runs.</p></div>';
+  }
+};
+
+document.getElementById('project-runs-search')?.addEventListener('input', renderProjectRunsList);
+document.getElementById('project-runs-refresh')?.addEventListener('click', () => window.currentProject?.id && window.loadProjectRuns(window.currentProject.id));
+document.getElementById('project-runs-delete-selected')?.addEventListener('click', () => {
+  const selectedRuns = getVisibleProjectRuns().filter((run) => selectedProjectRunKeys.has(getProjectRunKey(run)));
+  deleteProjectRuns(selectedRuns);
+});
+
+function getProjectRunDetailHandler(run) {
+  const runId = Number(run.id);
+  if (run.runType === 'ui') return () => window.viewPlaywrightRun?.(runId);
+  if (run.runType === 'fuzz') return () => window.viewFuzzRun?.(runId);
+  return () => window.viewTestRun?.(runId);
+}
+
+function formatProjectRunDuration(run) {
+  const milliseconds = run.duration_ms != null ? Number(run.duration_ms) : run.duration != null ? Number(run.duration) * 1000 : 0;
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return '—';
+  const seconds = Math.round(milliseconds / 1000);
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes}m ${String(seconds % 60).padStart(2, '0')}s` : `${seconds}s`;
+}
+
+function formatProjectRunDate(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
+}
+
+function renderProjectHeading(project, runs = []) {
+  if (!project) return;
+  const name = project.name || 'Project';
+  const owner = project.owner?.username || project.owner?.name || project.owner?.email || (project.owner_id === window.currentUser?.id ? window.currentUser?.username : null) || 'Unassigned';
+  const visibility = String(project.visibility || 'private');
+  const visibilityLabel = visibility.charAt(0).toUpperCase() + visibility.slice(1);
+  const statusClass = typeof window.normalizeProjectStatus === 'function' ? window.normalizeProjectStatus(project.status) : 'ongoing';
+  const statusLabel = typeof window.getProjectStatusLabel === 'function' ? window.getProjectStatusLabel(project.status) : 'On going';
+  const activityCandidates = [project.updated_at, ...(runs || []).map((run) => run.created_at)].filter(Boolean).map((value) => new Date(value)).filter((date) => !Number.isNaN(date.getTime()));
+  const lastActivity = activityCandidates.sort((a, b) => b - a)[0];
+  const title = document.getElementById('project-detail-name');
+  const breadcrumbName = document.getElementById('project-detail-breadcrumb-name');
+  const status = document.getElementById('project-detail-heading-status');
+  const meta = document.getElementById('project-detail-heading-meta');
+  if (title) title.textContent = name;
+  if (breadcrumbName) breadcrumbName.textContent = name;
+  if (status) {
+    status.className = `status-badge ${statusClass}`;
+    status.textContent = statusLabel;
+  }
+  if (meta) meta.textContent = `Owned by ${owner} · ${visibilityLabel} project · Last activity ${lastActivity ? formatDateTime(lastActivity) : 'not available'}`;
+}
+
+function getOverviewFolderRows(folders) {
+  const normalized = (folders || []).map((folder) => ({
+    path: folder.folder_path || '',
+    label: folder.folder_path || 'No folder',
+    total: Number(folder.total_tests || 0),
+    passed: Number(folder.last_status_counts?.passed || 0),
+    failed: Number(folder.last_status_counts?.failed || 0) + Number(folder.last_status_counts?.partial_failed || 0)
+  })).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+  if (normalized.length <= 5) return normalized;
+  const visible = normalized.slice(0, 4);
+  const remainder = normalized.slice(4).reduce((total, folder) => ({
+    path: null,
+    label: 'Other areas',
+    total: total.total + folder.total,
+    passed: total.passed + folder.passed,
+    failed: total.failed + folder.failed
+  }), { path: null, label: 'Other areas', total: 0, passed: 0, failed: 0 });
+  return [...visible, remainder];
+}
+
+function renderProjectOverview(projectId) {
+  const kpis = document.getElementById('project-overview-kpis');
+  const runsEl = document.getElementById('project-overview-runs');
+  const scheduleEl = document.getElementById('project-overview-schedule');
+  const areaCoverageEl = document.getElementById('project-overview-area-coverage');
+  if (!kpis || !runsEl || !scheduleEl || !areaCoverageEl) return;
+  const coverage = window.currentProjectCoverageSummary?.computed;
+  const runs = window.currentProjectRuns?.projectId === Number(projectId) ? window.currentProjectRuns.runs : [];
+  const schedules = window.currentProjectSchedules?.projectId === Number(projectId) ? window.currentProjectSchedules.schedules : [];
+  const totalTests = coverage?.totalTests || 0;
+  const percentage = (value) => totalTests > 0 ? Math.round((Number(value || 0) / totalTests) * 100) : 0;
+  const metrics = [
+    { label: 'Current coverage', value: coverage ? `${coverage.coveragePct}%` : '—', detail: coverage ? `${coverage.coveredNow} of ${totalTests} active tests covered` : 'Coverage data loading', tab: 'coverage', tone: 'coverage', progress: coverage?.coveragePct || 0 },
+    { label: 'Passed', value: coverage?.passed ?? '—', detail: coverage ? `${percentage(coverage.passed)}% of active tests` : 'Coverage data loading', tab: 'coverage', tone: 'passed' },
+    { label: 'Failed', value: coverage?.failed ?? '—', detail: coverage ? `${percentage(coverage.failed)}% of active tests` : 'Coverage data loading', tab: 'tests', tone: 'failed' },
+    { label: 'Partial failed', value: coverage?.partial ?? '—', detail: coverage ? (coverage.partial ? `${percentage(coverage.partial)}% of active tests` : 'No partial results') : 'Coverage data loading', tab: 'tests', tone: 'partial' },
+    { label: 'Not yet run', value: coverage?.notRun ?? '—', detail: coverage ? `${percentage(coverage.notRun)}% coverage gap` : 'Coverage data loading', tab: 'tests', tone: 'not-run' }
+  ];
+  kpis.innerHTML = metrics.map((metric) => `<button type="button" class="project-overview-kpi ${metric.tone}" data-overview-tab="${metric.tab}"><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(String(metric.value))}</strong>${metric.progress != null ? `<span class="project-overview-kpi-progress"><i style="width:${Math.max(0, Math.min(100, metric.progress))}%"></i></span>` : ''}<small>${escapeHtml(metric.detail)}</small></button>`).join('');
+  kpis.querySelectorAll('[data-overview-tab]').forEach((button) => button.addEventListener('click', () => setProjectTab(button.dataset.overviewTab, { focus: true })));
+
+  const recentRuns = runs.slice(0, 3);
+  runsEl.innerHTML = recentRuns.length ? recentRuns.map((run) => {
+    const passed = Number(run.passed_tests ?? run.passed_count ?? run.passed ?? 0);
+    const failed = Number(run.failed_tests ?? run.failed_count ?? run.failed ?? 0);
+    const total = Number(run.total_tests ?? passed + failed);
+    const result = failed ? `${failed} failed` : passed ? `${passed} passed` : `${total} tests`;
+    const runType = String(run.runType || 'api').toLowerCase();
+    const runner = run.run_by?.username || run.run_by_username || 'Unknown runner';
+    const status = String(run.status || 'pending');
+    return `<button type="button" class="project-overview-run" data-overview-run-id="${run.id}">
+      <span class="project-overview-run-identity"><span class="project-overview-run-type ${escapeHtml(runType)}">${escapeHtml(runType.toUpperCase())}</span><span><strong>${escapeHtml(run.name || `Run ${run.id}`)}</strong><small>${total} test${total === 1 ? '' : 's'} · run by ${escapeHtml(runner)}</small></span></span>
+      <span class="status-badge ${escapeHtml(status)}">${escapeHtml(status.replace(/_/g, ' '))}</span>
+      <time>${escapeHtml(formatProjectRunDate(run.created_at))}</time><span>${escapeHtml(result)}</span><span>${escapeHtml(formatProjectRunDuration(run))}</span>
+    </button>`;
+  }).join('') : '<p class="empty-state-inline">No project runs yet.</p>';
+  runsEl.querySelectorAll('[data-overview-run-id]').forEach((button) => {
+    const run = recentRuns.find((item) => String(item.id) === button.dataset.overviewRunId);
+    if (run) button.addEventListener('click', getProjectRunDetailHandler(run));
+  });
+
+  const areaRows = getOverviewFolderRows(coverage?.folders || []);
+  areaCoverageEl.innerHTML = areaRows.length ? areaRows.map((folder) => {
+    const covered = folder.passed + folder.failed;
+    const coveredPct = folder.total ? Math.round((covered / folder.total) * 100) : 0;
+    const passedPct = folder.total ? (folder.passed / folder.total) * 100 : 0;
+    const failedPct = folder.total ? (folder.failed / folder.total) * 100 : 0;
+    const label = folder.label.split('/').filter(Boolean).pop() || folder.label;
+    return `<button type="button" class="project-overview-coverage-row" ${folder.path === null ? 'data-overview-tab="coverage"' : `data-overview-folder-path="${escapeHtml(folder.path)}"`} title="${escapeHtml(folder.label)}"><span class="project-overview-coverage-name"><strong>${escapeHtml(label)}</strong><small>${covered} / ${folder.total} · ${coveredPct}%</small></span><span class="project-overview-coverage-track"><i class="passed" style="width:${passedPct}%"></i><i class="failed" style="width:${failedPct}%"></i></span></button>`;
+  }).join('') : '<p class="empty-state-inline">No folder coverage available.</p>';
+  areaCoverageEl.querySelectorAll('[data-overview-folder-path]').forEach((button) => button.addEventListener('click', () => {
+    setProjectTab('coverage');
+    window.openProjectCoverageFolder(projectId, button.dataset.overviewFolderPath || '', button);
+  }));
+  areaCoverageEl.querySelectorAll('[data-overview-tab]').forEach((button) => button.addEventListener('click', () => setProjectTab(button.dataset.overviewTab, { focus: true })));
+
+  const nextSchedule = schedules.filter((schedule) => schedule.enabled && schedule.next_run_at).sort((a, b) => new Date(a.next_run_at) - new Date(b.next_run_at))[0];
+  scheduleEl.innerHTML = nextSchedule
+    ? `<div class="project-overview-next"><strong>${escapeHtml(nextSchedule.flow?.name ? `Flow: ${nextSchedule.flow.name}` : 'Whole project')}</strong><span>${escapeHtml(formatDateTime(nextSchedule.next_run_at))}</span></div>`
+    : '<p class="empty-state-inline">No enabled schedule with an upcoming run.</p>';
+}
+
 // View Project
 window.viewProject = async (projectId) => {
   try {
     const project = await apiRequest(`/projects/${projectId}`);
     window.currentProject = project;
+    window.currentProjectRuns = { projectId: Number(projectId), runs: [] };
+    window.currentProjectSchedules = { projectId: Number(projectId), schedules: [] };
+    window.currentProjectCoverageSummary = null;
+    renderProjectOverview(projectId);
     
     document.getElementById('project-detail-name').textContent = project.name;
-    document.getElementById('project-detail-description').textContent = project.description || 'No description';
-
-    const proxyEl = document.getElementById('project-detail-proxy');
-    if (proxyEl) {
-      proxyEl.textContent = 'Proxy: Inferred from URL per run';
-    }
+    renderProjectHeading(project);
     applyProjectRunAvailability(project);
 
     // Load project-level coverage summary and chart
@@ -720,6 +1282,7 @@ window.viewProject = async (projectId) => {
     document.getElementById('add-api-spec-btn').setAttribute('data-project-id', projectId);
     document.getElementById('upload-postman-collection-btn').setAttribute('data-project-id', projectId);
     document.getElementById('run-tests-btn').setAttribute('data-project-id', projectId);
+    document.getElementById('project-guided-run-btn')?.setAttribute('data-project-id', projectId);
     const runUiTestBtn = document.getElementById('run-ui-test-btn');
     const runFuzzBtn = document.getElementById('run-fuzz-btn');
     const manageProjectRecordedBtn = document.getElementById('manage-project-recorded-tests-btn');
@@ -755,6 +1318,7 @@ window.viewProject = async (projectId) => {
 
     // Switch view immediately so navigation is not blocked by slower follow-up requests (flows, collections, catalogue).
     showView('project-detail');
+    window.loadProjectRuns(projectId);
 
     // Load flows for project
     const flowsList = document.getElementById('project-flows-list');
@@ -792,6 +1356,8 @@ window.viewProject = async (projectId) => {
     if (schedulesList) {
       try {
         const schedules = await apiRequest(`/projects/${projectId}/schedules`);
+        window.currentProjectSchedules = { projectId: Number(projectId), schedules };
+        renderProjectOverview(projectId);
         if (schedules.length === 0) {
           schedulesList.innerHTML = `
             <div class="empty-state">
@@ -906,6 +1472,7 @@ window.toggleProjectTestsFolderGroup = (projectId, folderKey) => {
 // Project-level tests & coverage summary (dashboard strip + chart)
 window.loadProjectCoverageSummary = async (projectId) => {
   const statsEl = document.getElementById('project-coverage-stats');
+  const folderListEl = document.getElementById('project-folder-coverage-list');
   const canvas = document.getElementById('project-coverage-chart-canvas');
   const chartContainer = (canvas && canvas.parentElement) || document.querySelector('.project-coverage-chart');
   if (!statsEl) return;
@@ -927,11 +1494,13 @@ window.loadProjectCoverageSummary = async (projectId) => {
     data = await apiRequest(`/projects/${projectId}/tests/coverage-summary`);
   } catch (error) {
     statsEl.innerHTML = '<div class="empty-state"><p>Failed to load coverage summary.</p></div>';
+    if (folderListEl) folderListEl.innerHTML = '';
     return;
   }
 
   if (!data || !data.summary) {
     statsEl.innerHTML = '<div class="empty-state"><p>No tests catalogue data yet. Sync from specs to get started.</p></div>';
+    if (folderListEl) folderListEl.innerHTML = '';
     return;
   }
 
@@ -967,6 +1536,7 @@ window.loadProjectCoverageSummary = async (projectId) => {
       folders: folderRows
     }
   };
+  renderProjectOverview(projectId);
 
   const foldersCoverageHtml = folderRows.length
     ? `
@@ -990,7 +1560,7 @@ window.loadProjectCoverageSummary = async (projectId) => {
               const coverage = Number(f.coverage_pct || 0);
               return `
                 <tr>
-                  <td>${escapeHtml(f.folder_path || 'No folder')}</td>
+                  <td><button type="button" class="link-button project-coverage-folder-link" data-folder-path="${escapeHtml(f.folder_path || '')}">${escapeHtml(f.folder_path || 'No folder')}</button></td>
                   <td>${Number(f.total_tests || 0)}</td>
                   <td>${Number(f.covered_tests || 0)}</td>
                   <td><span class="folder-metric-badge metric-passed">${Number(counts.passed || 0)}</span></td>
@@ -1033,11 +1603,20 @@ window.loadProjectCoverageSummary = async (projectId) => {
       <div class="stat-value">${notRun}</div>
       <div class="stat-subtext">Active tests with no successful or failed runs yet</div>
     </div>
-    <div class="project-folder-coverage-section">
-      <h4 class="project-folder-coverage-title">Coverage by folder</h4>
-      ${foldersCoverageHtml}
-    </div>
   `;
+  if (folderListEl) {
+    folderListEl.innerHTML = `
+      <div class="project-folder-coverage-section">
+        <div class="project-folder-coverage-heading">
+          <div><h4 class="project-folder-coverage-title">Coverage by folder</h4><p>Select a folder to inspect its tests without leaving coverage.</p></div>
+        </div>
+        ${foldersCoverageHtml}
+      </div>
+    `;
+    folderListEl.querySelectorAll('.project-coverage-folder-link').forEach((button) => {
+      button.addEventListener('click', () => window.openProjectCoverageFolder(projectId, button.dataset.folderPath || '', button));
+    });
+  }
 
   // When no active tests (e.g. after Clear tests), clear chart and show message so it doesn't show old run data
   if (totalTests === 0) {
@@ -1144,6 +1723,97 @@ window.loadProjectCoverageSummary = async (projectId) => {
   });
 };
 
+function closeProjectCoverageDrawer() {
+  const drawer = document.getElementById('project-coverage-drawer');
+  if (!drawer || drawer.hidden) return;
+  drawer.hidden = true;
+  drawer.innerHTML = '';
+  document.getElementById('project-coverage-workspace')?.classList.remove('drawer-open');
+  window.projectCoverageDrawerState?.trigger?.focus();
+  window.projectCoverageDrawerState = null;
+}
+
+function renderProjectCoverageDrawer() {
+  const state = window.projectCoverageDrawerState;
+  const drawer = document.getElementById('project-coverage-drawer');
+  if (!state || !drawer) return;
+  const folderTests = (window.currentProjectTests || []).filter((test) => {
+    return test.is_active && getEffectiveFolderPath(test) === state.folderPath;
+  });
+  const counts = folderTests.reduce((result, test) => {
+    const status = test.stats?.last_status || 'not_run';
+    result[status] = (result[status] || 0) + 1;
+    return result;
+  }, {});
+  const filteredTests = state.status === 'all'
+    ? folderTests
+    : folderTests.filter((test) => (test.stats?.last_status || 'not_run') === state.status);
+  const statusOptions = [
+    ['all', 'All', folderTests.length],
+    ['failed', 'Failed', counts.failed || 0],
+    ['partial_failed', 'Partial', counts.partial_failed || 0],
+    ['passed', 'Passed', counts.passed || 0],
+    ['not_run', 'Not run', counts.not_run || 0]
+  ];
+  drawer.innerHTML = `
+    <div class="project-coverage-drawer-header">
+      <div><span class="muted">Folder</span><h4>${escapeHtml(state.folderPath || 'No folder')}</h4></div>
+      <button type="button" class="icon-btn project-coverage-drawer-close" aria-label="Close folder details">&times;</button>
+    </div>
+    <div class="project-coverage-drawer-tabs" role="group" aria-label="Filter folder tests by status">
+      ${statusOptions.map(([value, label, count]) => `<button type="button" class="${state.status === value ? 'active' : ''}" data-coverage-status="${value}">${label} <span>${count}</span></button>`).join('')}
+    </div>
+    <div class="project-coverage-drawer-tests">
+      ${filteredTests.length ? filteredTests.map((test) => {
+        const stats = test.stats || {};
+        const status = stats.last_status || 'not_run';
+        const statusClass = status === 'passed' ? 'passed' : status === 'failed' ? 'failed' : status === 'partial_failed' ? 'partial_failed' : 'pending';
+        const typeLabel = test.test_type === 'ui_recorded' ? 'UI recorded' : test.test_type === 'ui_builtin' ? 'UI built-in' : test.test_type === 'soap' ? 'SOAP' : test.test_type === 'manual' ? 'Manual' : 'API';
+        const lastRun = stats.last_run_at ? formatDateTime(stats.last_run_at) : 'Never run';
+        return `
+          <article class="project-coverage-test-row">
+            <div class="project-coverage-test-row-heading"><strong>${escapeHtml(test.name || '')}</strong><span class="status-badge ${statusClass}">${escapeHtml(status.replace(/_/g, ' '))}</span></div>
+            <p>${escapeHtml(typeLabel)}${test.method ? ` · ${escapeHtml(test.method)}` : ''}${test.endpoint ? ` · ${escapeHtml(test.endpoint)}` : ''}</p>
+            <small>${escapeHtml(lastRun)} · ${Number(stats.total_runs || 0)} run(s)${stats.last_run_by_username ? ` · ${escapeHtml(stats.last_run_by_username)}` : ''}</small>
+            <div class="project-coverage-test-actions">
+              <button type="button" class="link-button" onclick="window.viewProjectTestDetails(${state.projectId}, ${test.id})">View details</button>
+              ${stats.last_run_id ? `<button type="button" class="link-button" onclick='window.openLastRunForTest(${stats.last_run_id}, ${JSON.stringify(String(stats.last_run_type || stats.last_run_source || ''))})'>View last run</button>` : ''}
+            </div>
+          </article>
+        `;
+      }).join('') : '<div class="empty-state"><p>No tests match this status.</p></div>'}
+    </div>
+    <div class="project-coverage-drawer-footer"><button type="button" class="btn btn-primary" id="project-coverage-open-tests-btn">Open in Tests</button></div>
+  `;
+  drawer.querySelector('.project-coverage-drawer-close')?.addEventListener('click', closeProjectCoverageDrawer);
+  drawer.querySelectorAll('[data-coverage-status]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.status = button.dataset.coverageStatus || 'all';
+      renderProjectCoverageDrawer();
+    });
+  });
+  document.getElementById('project-coverage-open-tests-btn')?.addEventListener('click', () => {
+    const folderFilter = document.getElementById('project-tests-folder-filter');
+    if (folderFilter) folderFilter.value = state.folderPath;
+    setProjectTab('tests');
+    renderProjectTestsTable(state.projectId);
+  });
+}
+
+window.openProjectCoverageFolder = (projectId, folderPath, trigger) => {
+  const drawer = document.getElementById('project-coverage-drawer');
+  if (!drawer) return;
+  window.projectCoverageDrawerState = { projectId: Number(projectId), folderPath: folderPath || '', status: 'all', trigger };
+  drawer.hidden = false;
+  document.getElementById('project-coverage-workspace')?.classList.add('drawer-open');
+  renderProjectCoverageDrawer();
+  drawer.focus();
+};
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && window.projectCoverageDrawerState) closeProjectCoverageDrawer();
+});
+
 function getEffectiveFolderPath(test) {
   if (!test) return '';
   return test.effective_folder_path || test.folder_path_override || test.default_folder_path || '';
@@ -1160,6 +1830,114 @@ function getCatalogueTestRunKind(t) {
   return null;
 }
 window.getCatalogueTestRunKind = getCatalogueTestRunKind;
+
+function updateProjectTestSelectionSummary(projectId) {
+  const summary = document.getElementById('project-tests-selection-summary');
+  if (!summary) return;
+  const selectedIds = getProjectTestSelection(projectId);
+  const selectedTests = (window.currentProjectTests || []).filter((test) => selectedIds.has(Number(test.id)));
+  const runnable = selectedTests.filter((test) => getCatalogueTestRunKind(test));
+  const apiCount = runnable.filter((test) => getCatalogueTestRunKind(test) === 'api').length;
+  const uiCount = runnable.filter((test) => getCatalogueTestRunKind(test) === 'ui_recorded').length;
+  const unavailableCount = selectedTests.length - runnable.length;
+
+  summary.hidden = selectedTests.length === 0;
+  summary.innerHTML = selectedTests.length === 0 ? '' : `
+    <div>
+      <strong>${selectedTests.length} selected</strong>
+      <span>${runnable.length} runnable${unavailableCount ? ` · ${unavailableCount} review only` : ''}${apiCount && uiCount ? ' · mixed API and UI selection' : ''}</span>
+    </div>
+    <button type="button" class="link-button" id="project-tests-clear-selection-btn">Clear selection</button>
+  `;
+  document.getElementById('project-tests-clear-selection-btn')?.addEventListener('click', () => {
+    selectedIds.clear();
+    renderProjectTestsTable(projectId);
+  });
+}
+
+function setProjectTestsViewMode(mode) {
+  window.projectTestsViewMode = mode === 'grouped' ? 'grouped' : 'tree';
+  const workspace = document.getElementById('project-tests-workspace');
+  workspace?.classList.toggle('tree-view', window.projectTestsViewMode === 'tree');
+  workspace?.classList.toggle('grouped-view', window.projectTestsViewMode === 'grouped');
+  document.querySelectorAll('[data-project-tests-view]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.projectTestsView === window.projectTestsViewMode);
+  });
+  const folderFilter = document.getElementById('project-tests-folder-filter');
+  folderFilter?.classList.toggle('project-tests-folder-filter-hidden', window.projectTestsViewMode === 'tree');
+  if (window.currentProject?.id) renderProjectTestsTable(window.currentProject.id);
+}
+
+function renderProjectTestsFolderTree(projectId, tests) {
+  const tree = document.getElementById('project-tests-folder-tree');
+  if (!tree) return;
+  const folderFilter = document.getElementById('project-tests-folder-filter');
+  const selectedFolder = folderFilter?.value || '';
+  const previousSearch = tree.querySelector('#project-tests-folder-search')?.value || '';
+  const visibleTests = (tests || []).filter((test) => window.projectTestsEditMode || test.is_active);
+  const folders = new Map();
+  visibleTests.forEach((test) => {
+    const path = getEffectiveFolderPath(test);
+    const key = path || '__NO_FOLDER__';
+    if (!folders.has(key)) folders.set(key, { path, label: path || 'No folder', total: 0, failed: 0, notRun: 0 });
+    const folder = folders.get(key);
+    folder.total += 1;
+    const status = test.stats?.last_status || 'not_run';
+    if (status === 'failed') folder.failed += 1;
+    if (status === 'not_run') folder.notRun += 1;
+  });
+  const items = Array.from(folders.values()).sort((a, b) => a.label.localeCompare(b.label));
+  tree.innerHTML = `
+    <div class="project-tests-folder-tree-heading"><span>Folders</span><strong>${items.length}</strong></div>
+    <label class="project-tests-folder-search-wrap" for="project-tests-folder-search">
+      <span class="sr-only">Find a folder</span>
+      <input type="search" id="project-tests-folder-search" placeholder="Find a folder" autocomplete="off" value="${escapeHtml(previousSearch)}">
+    </label>
+    <div class="project-tests-folder-items">
+    <button type="button" class="project-tests-folder-item project-tests-folder-all ${selectedFolder === '' ? 'active' : ''}" data-folder-path="" aria-pressed="${selectedFolder === ''}">
+      <span class="project-tests-folder-name">All tests</span><strong class="project-tests-folder-total">${visibleTests.length}</strong>
+    </button>
+    ${items.map((folder) => {
+      const segments = folder.label.split('/').filter(Boolean);
+      const name = segments.pop() || folder.label;
+      const parent = segments.join(' / ');
+      return `
+      <button type="button" class="project-tests-folder-item ${selectedFolder === folder.path ? 'active' : ''}" data-folder-path="${escapeHtml(folder.path)}" data-folder-search="${escapeHtml(folder.label.toLowerCase())}" title="${escapeHtml(folder.label)}" aria-pressed="${selectedFolder === folder.path}">
+        <span class="project-tests-folder-copy">
+          <span class="project-tests-folder-name">${escapeHtml(name)}</span>
+          ${parent ? `<small class="project-tests-folder-parent">${escapeHtml(parent)}</small>` : ''}
+        </span>
+        <span class="project-tests-folder-metrics">
+          ${folder.failed ? `<small class="project-tests-folder-status failed">${folder.failed} failed</small>` : ''}
+          ${folder.notRun ? `<small class="project-tests-folder-status not-run">${folder.notRun} not run</small>` : ''}
+          <strong class="project-tests-folder-total">${folder.total}</strong>
+        </span>
+      </button>
+    `;
+    }).join('')}
+    <p class="project-tests-folder-no-results" hidden>No matching folders.</p>
+    </div>
+  `;
+  tree.querySelectorAll('[data-folder-path]').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (folderFilter) folderFilter.value = button.dataset.folderPath || '';
+      renderProjectTestsTable(projectId);
+    });
+  });
+  const search = tree.querySelector('#project-tests-folder-search');
+  const applyFolderSearch = () => {
+    const query = search?.value.trim().toLowerCase() || '';
+    let matches = 0;
+    tree.querySelectorAll('.project-tests-folder-item:not(.project-tests-folder-all)').forEach((button) => {
+      const isMatch = !query || button.dataset.folderSearch.includes(query);
+      button.hidden = !isMatch;
+      if (isMatch) matches += 1;
+    });
+    tree.querySelector('.project-tests-folder-no-results').hidden = matches > 0;
+  };
+  search?.addEventListener('input', applyFolderSearch);
+  applyFolderSearch();
+}
 
 function updateProjectTestsFolderFilterOptions(tests) {
   const folderEl = document.getElementById('project-tests-folder-filter');
@@ -1232,7 +2010,14 @@ function renderProjectTestsTable(projectId) {
   if (!tableEl) return;
 
   const allTests = window.currentProjectTests || [];
+  const selectedIds = getProjectTestSelection(projectId);
   const inEditMode = !!window.projectTestsEditMode;
+  renderProjectTestsFolderTree(projectId, allTests);
+  const workspace = document.getElementById('project-tests-workspace');
+  workspace?.classList.toggle('tree-view', window.projectTestsViewMode === 'tree');
+  workspace?.classList.toggle('grouped-view', window.projectTestsViewMode === 'grouped');
+  const folderFilter = document.getElementById('project-tests-folder-filter');
+  folderFilter?.classList.toggle('project-tests-folder-filter-hidden', window.projectTestsViewMode === 'tree');
   const tests = applyProjectTestsFilters(allTests, inEditMode);
 
   if (!tests || tests.length === 0) {
@@ -1342,7 +2127,7 @@ function renderProjectTestsTable(projectId) {
         ? `<button type="button" class="btn btn-outline btn-sm" onclick="window.runProjectCatalogueTest(${projectId}, ${t.id}, '${runKind}')" title="${runTitle}" ${isClosed ? 'disabled' : ''}>Run</button>`
         : `<span class="project-test-actions-placeholder muted" title="Run is only available for tests synced from API collections (Sync from specs) or linked UI recordings—not for manual-only catalogue rows.">—</span>`;
       const runHistoryCell = `<td class="project-test-actions-cell"><div class="project-test-row-actions">${runBtn} ${historyBtn}</div></td>`;
-      const checkCell = `<td class="project-test-col-check"><input type="checkbox" class="project-test-row-check" data-project-test-id="${t.id}" aria-label="Select row" /></td>`;
+      const checkCell = `<td class="project-test-col-check"><input type="checkbox" class="project-test-row-check" data-project-test-id="${t.id}" aria-label="Select ${escapeHtml(t.name || 'test')}" ${selectedIds.has(Number(t.id)) ? 'checked' : ''} /></td>`;
       const sourceSpecName = t.source_api_spec_name || t.source_api_spec_original_filename || '';
       const inactiveSourceTitle = [t.stale_reason, t.stale_at ? `Marked ${formatDateTime(t.stale_at)}` : '']
         .filter(Boolean)
@@ -1409,25 +2194,86 @@ function renderProjectTestsTable(projectId) {
       </div>
     `;
   const selectAll = document.getElementById('project-tests-select-all');
+  const visibleChecks = Array.from(document.querySelectorAll('#project-tests-table .project-test-row-check'));
   if (selectAll) {
+    const selectedVisibleCount = visibleChecks.filter((checkbox) => checkbox.checked).length;
+    selectAll.checked = visibleChecks.length > 0 && selectedVisibleCount === visibleChecks.length;
+    selectAll.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleChecks.length;
     selectAll.addEventListener('change', () => {
-      document.querySelectorAll('#project-tests-table .project-test-row-check').forEach((cb) => {
+      visibleChecks.forEach((cb) => {
         cb.checked = selectAll.checked;
+        const testId = Number(cb.getAttribute('data-project-test-id'));
+        if (selectAll.checked) selectedIds.add(testId);
+        else selectedIds.delete(testId);
       });
+      updateProjectTestSelectionSummary(projectId);
     });
   }
+  visibleChecks.forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      const testId = Number(checkbox.getAttribute('data-project-test-id'));
+      if (checkbox.checked) selectedIds.add(testId);
+      else selectedIds.delete(testId);
+      const checkedCount = visibleChecks.filter((item) => item.checked).length;
+      if (selectAll) {
+        selectAll.checked = visibleChecks.length > 0 && checkedCount === visibleChecks.length;
+        selectAll.indeterminate = checkedCount > 0 && checkedCount < visibleChecks.length;
+      }
+      updateProjectTestSelectionSummary(projectId);
+    });
+  });
+  updateProjectTestSelectionSummary(projectId);
+}
+
+function captureProjectTestsScrollPosition(anchorTestId) {
+  const anchorRow = Number.isFinite(Number(anchorTestId))
+    ? document.querySelector(`#project-tests-table tr[data-project-test-id="${Number(anchorTestId)}"]`)
+    : null;
+  return {
+    windowX: window.scrollX,
+    windowY: window.scrollY,
+    anchorViewportTop: anchorRow?.getBoundingClientRect().top ?? null,
+    folderScrollTop: document.querySelector('.project-tests-folder-items')?.scrollTop || 0,
+    tableScrollLeft: document.querySelector('#project-tests-table .table-responsive')?.scrollLeft || 0
+  };
+}
+
+function restoreProjectTestsScrollPosition(scrollPosition, anchorTestId) {
+  if (!scrollPosition) return;
+  const folderItems = document.querySelector('.project-tests-folder-items');
+  const tableContainer = document.querySelector('#project-tests-table .table-responsive');
+  if (folderItems) folderItems.scrollTop = scrollPosition.folderScrollTop;
+  if (tableContainer) tableContainer.scrollLeft = scrollPosition.tableScrollLeft;
+
+  const anchorRow = Number.isFinite(Number(anchorTestId))
+    ? document.querySelector(`#project-tests-table tr[data-project-test-id="${Number(anchorTestId)}"]`)
+    : null;
+  if (anchorRow && scrollPosition.anchorViewportTop !== null) {
+    const offset = anchorRow.getBoundingClientRect().top - scrollPosition.anchorViewportTop;
+    window.scrollBy({ top: offset, left: 0, behavior: 'auto' });
+    return;
+  }
+  window.scrollTo({ top: scrollPosition.windowY, left: scrollPosition.windowX, behavior: 'auto' });
 }
 
 // Load project tests & coverage table
-async function loadProjectTests(projectId) {
+async function loadProjectTests(projectId, options = {}) {
   const tableEl = document.getElementById('project-tests-table');
   if (!tableEl) return;
+  const preservePosition = !!options.preservePosition;
+  const scrollPosition = preservePosition ? captureProjectTestsScrollPosition(options.anchorTestId) : null;
   try {
-    tableEl.innerHTML = '<p class="muted">Loading tests…</p>';
+    if (!preservePosition) tableEl.innerHTML = '<p class="muted">Loading tests…</p>';
     const tests = await apiRequest(`/projects/${projectId}/tests/catalogue`);
     window.currentProjectTests = Array.isArray(tests) ? tests : [];
+    const selectedIds = getProjectTestSelection(projectId);
+    const availableIds = new Set(window.currentProjectTests.map((test) => Number(test.id)));
+    Array.from(selectedIds).forEach((id) => {
+      if (!availableIds.has(id)) selectedIds.delete(id);
+    });
     updateProjectTestsFolderFilterOptions(window.currentProjectTests);
     renderProjectTestsTable(projectId);
+    restoreProjectTestsScrollPosition(scrollPosition, options.anchorTestId);
   } catch (err) {
     console.error('Error loading project tests:', err);
     tableEl.innerHTML = '<div class="empty-state"><p>Failed to load tests.</p></div>';
@@ -1725,8 +2571,7 @@ window.runProjectCatalogueTestFromGlobal = (projectId, projectTestId, kind, test
 
 window.runBatchProjectCatalogueTests = async (projectId) => {
   if (!ensureCurrentProjectRunsAllowed(projectId)) return;
-  const checked = document.querySelectorAll('#project-tests-table .project-test-row-check:checked');
-  const ids = [...checked].map((cb) => parseInt(cb.getAttribute('data-project-test-id'), 10));
+  const ids = Array.from(getProjectTestSelection(projectId));
   if (ids.length === 0) {
     alert('Select at least one test using the checkboxes.');
     return;
@@ -2862,7 +3707,7 @@ window.editProjectTest = async (projectId, projectTestId) => {
           body: { name, description, is_active, method, endpoint, test_type, ticket_urls, folder_path_override }
         });
         hideModal();
-        await loadProjectTests(projectId);
+        await loadProjectTests(projectId, { preservePosition: true, anchorTestId: projectTestId });
         if (typeof window.loadProjectCoverageSummary === 'function') {
           window.loadProjectCoverageSummary(projectId);
         }
@@ -3020,7 +3865,7 @@ window.viewProjectTestDetails = async (projectId, projectTestId) => {
           body
         });
         hideModal();
-        await loadProjectTests(projectId);
+        await loadProjectTests(projectId, { preservePosition: true, anchorTestId: projectTestId });
         if (typeof window.loadProjectCoverageSummary === 'function') {
           window.loadProjectCoverageSummary(projectId);
         }
@@ -3928,7 +4773,15 @@ function flattenCollectionItems(items, parentPath = [], collectionId, out = []) 
   items.forEach((item, index) => {
     const path = [...parentPath, index];
     if (item.request) {
-      out.push({ collectionId, path, name: item.name || 'Unnamed request' });
+      out.push({
+        collectionId,
+        path,
+        name: item.name || 'Unnamed request',
+        method: item.request.method || 'GET',
+        url: item.request.url
+          ? (typeof item.request.url === 'string' ? item.request.url : (item.request.url.raw || ''))
+          : ''
+      });
     } else if (item.item && Array.isArray(item.item)) {
       flattenCollectionItems(item.item, path, collectionId, out);
     }
@@ -3959,12 +4812,12 @@ function showCreateFlowModal(projectId) {
     const name = document.getElementById('flow-name').value.trim();
     const description = document.getElementById('flow-description').value.trim();
     try {
-      await apiRequest(`/projects/${projectId}/flows`, {
+      const flow = await apiRequest(`/projects/${projectId}/flows`, {
         method: 'POST',
         body: { name, description: description || null }
       });
       hideModal();
-      viewProject(projectId);
+      await editFlow(flow.id, projectId);
     } catch (err) {
       alert('Error creating flow: ' + (err.message || err));
     }
@@ -3976,62 +4829,338 @@ window.editFlow = async (flowId, projectId) => {
     const flow = await apiRequest(`/flows/${flowId}`);
     const collections = await apiRequest(`/projects/${projectId}/collections`);
     const recordedTests = await apiRequest(`/projects/${projectId}/recorded-tests`);
+    const savedEnvironments = typeof window.loadUserEnvironments === 'function'
+      ? await window.loadUserEnvironments()
+      : (window.getProjectSavedEnvironments?.(projectId) || []);
     const apiOptions = [];
+    const apiVariablesByCollection = new Map();
     collections.forEach(c => {
+      const variableInfo = typeof extractCollectionVariables === 'function'
+        ? extractCollectionVariables(c)
+        : { userProvided: [] };
+      apiVariablesByCollection.set(Number(c.id), variableInfo.userProvided || []);
       const items = flattenCollectionItems(c.collection_json?.item || [], [], c.id);
       items.forEach(it => apiOptions.push({ ...it, collectionName: c.name }));
     });
     const tasks = (flow.flowTasks || []).sort((a, b) => (a.position || 0) - (b.position || 0));
     const taskListId = 'flow-edit-task-list';
     const content = `
-      <form id="edit-flow-form">
-        <div class="form-group">
-          <label for="edit-flow-name">Flow name *</label>
-          <input type="text" id="edit-flow-name" value="${(flow.name || '').replace(/"/g, '&quot;')}" required>
-        </div>
-        <div class="form-group">
-          <label for="edit-flow-description">Description</label>
-          <textarea id="edit-flow-description">${(flow.description || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
-        </div>
-        <div class="form-group">
-          <label>Tasks (order preserved)</label>
-          <div id="${taskListId}" class="flow-task-list"></div>
-          <div class="flow-add-task" style="margin-top: 12px;">
-            <select id="flow-add-task-type">
-              <option value="api">API test</option>
-              <option value="ui">UI test</option>
-            </select>
-            <select id="flow-add-api-task" style="display:inline-block; max-width: 320px;">
-              <option value="">Select API test...</option>
-              ${apiOptions.map(o => `<option value="${o.collectionId}|${o.path.join('.')}">${(o.collectionName || '')} – ${(o.name || 'Unnamed').substring(0, 50)}</option>`).join('')}
-            </select>
-            <select id="flow-add-ui-task" style="display:none; max-width: 320px;">
-              <option value="">Select UI test...</option>
-              ${recordedTests.map(r => `<option value="${r.id}">${(r.name || 'Unnamed').substring(0, 50)}</option>`).join('')}
-            </select>
-            <button type="button" class="btn btn-secondary" id="flow-add-task-btn">Add task</button>
+      <form id="edit-flow-form" class="flow-editor-form-layout">
+        <div class="flow-editor-setup-bar">
+          <div class="flow-editor-field">
+            <label for="edit-flow-name">Flow name *</label>
+            <input type="text" id="edit-flow-name" value="${(flow.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}" required>
+          </div>
+          <div class="flow-editor-field flow-editor-description-field">
+            <label for="edit-flow-description">Description</label>
+            <input type="text" id="edit-flow-description" value="${(flow.description || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}" placeholder="Optional flow description">
           </div>
         </div>
-        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
-          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save</button>
+        <div class="flow-editor-workspace">
+          <aside class="flow-editor-left-panel">
+            <section class="flow-editor-panel-section">
+              <div class="flow-editor-panel-heading">
+                <div>
+                  <h4>Configured runs</h4>
+                  <p>Runs execute from top to bottom.</p>
+                </div>
+                <span id="flow-task-count">0 runs</span>
+              </div>
+              <div id="${taskListId}" class="flow-task-list flow-editor-task-list"></div>
+              <div class="flow-add-task flow-editor-add-actions">
+                <button type="button" class="btn btn-secondary" id="flow-add-api-run">Add API run</button>
+                <button type="button" class="btn btn-secondary" id="flow-add-ui-run">Add UI run</button>
+              </div>
+            </section>
+            <section id="flow-task-config" class="flow-editor-settings" style="display:none;">
+              <div id="flow-api-settings" style="display:none;">
+                <div class="flow-editor-panel-section">
+                  <div class="flow-editor-panel-heading"><div><h4>API run settings</h4><p>Choose the environment and default delay.</p></div></div>
+                  <div class="form-group">
+                    <label for="flow-api-environment">Environment</label>
+                    <select id="flow-api-environment">
+                      <option value="">No saved environment</option>
+                      ${savedEnvironments.map((environment) => `<option value="${environment.id}">${escapeHtml(environment.name || `Environment ${environment.id}`)}</option>`).join('')}
+                    </select>
+                    <p class="muted form-hint">Current values are copied into this flow and can be overridden below.</p>
+                  </div>
+                  <div class="form-group">
+                    <label for="flow-api-delay">Global delay (seconds)</label>
+                    <input id="flow-api-delay" type="number" min="0" step="0.1" value="0">
+                  </div>
+                </div>
+              </div>
+              <div id="flow-ui-settings" style="display:none;">
+                <div class="flow-editor-panel-section">
+                  <div class="flow-editor-panel-heading"><div><h4>UI run settings</h4><p>Configure the browser and run artifacts.</p></div></div>
+                  <div class="form-group"><label for="flow-ui-base-url">Base URL</label><input id="flow-ui-base-url" type="url" placeholder="https://example.test"></div>
+                  <div class="flow-editor-settings-grid">
+                    <div class="form-group"><label for="flow-ui-browser">Browser</label><select id="flow-ui-browser"><option value="chromium">Chromium</option><option value="firefox">Firefox</option><option value="webkit">WebKit</option></select></div>
+                    <div class="form-group"><label for="flow-ui-timeout">Timeout (seconds)</label><input id="flow-ui-timeout" type="number" min="10" max="300" value="30"></div>
+                    <div class="form-group"><label for="flow-ui-video">Video</label><select id="flow-ui-video"><option value="off">Off</option><option value="on">On</option><option value="retain-on-failure">Retain on failure</option><option value="on-first-retry">On first retry</option></select></div>
+                    <div class="form-group"><label for="flow-ui-trace">Trace</label><select id="flow-ui-trace"><option value="off">Off</option><option value="on">On</option><option value="retain-on-failure">Retain on failure</option><option value="on-first-retry">On first retry</option></select></div>
+                    <div class="form-group"><label for="flow-ui-slow-mo">Slow motion (ms)</label><input id="flow-ui-slow-mo" type="number" min="0" value="0"></div>
+                  </div>
+                  <label class="flow-editor-checkbox-label"><input id="flow-ui-headless" type="checkbox" checked> Run headless</label>
+                </div>
+              </div>
+              <div id="flow-task-variables-wrap" class="flow-editor-panel-section" style="display:none;">
+                <div class="flow-editor-panel-heading"><div><h4>Variables</h4><p>Values are saved with this flow.</p></div></div>
+                <div id="flow-task-variables" class="flow-editor-variables"></div>
+              </div>
+              <div class="flow-editor-task-actions">
+                <button type="button" class="btn btn-secondary" id="flow-task-config-cancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="flow-task-config-apply">Apply run</button>
+              </div>
+            </section>
+          </aside>
+          <div class="flow-editor-center-panel">
+            <div id="flow-editor-empty-state" class="flow-editor-empty-state">
+              <h4>Add or configure a run</h4>
+              <p>Select an API or UI run from the left to choose tests, order, variables, and execution settings.</p>
+            </div>
+            <div id="flow-editor-active" class="flow-editor-active" style="display:none;">
+              <div class="flow-editor-test-toolbar">
+                <div>
+                  <h4 id="flow-task-config-title"></h4>
+                  <p id="flow-task-config-help">Select tests and arrange their execution order.</p>
+                </div>
+                <div class="flow-editor-test-tools">
+                  <input type="search" id="flow-task-search" placeholder="Search tests..." aria-label="Search flow tests">
+                  <button type="button" class="btn btn-sm btn-secondary" id="flow-select-all-tests">Select All</button>
+                  <button type="button" class="btn btn-sm btn-secondary" id="flow-deselect-all-tests">Deselect All</button>
+                </div>
+              </div>
+              <div id="flow-task-candidates" class="flow-editor-candidates"></div>
+              <div class="flow-editor-selected-order">
+                <div class="flow-editor-selected-header">
+                  <div><h4>Selected tests order</h4><p>Use the controls to set execution order.</p></div>
+                  <span id="flow-selected-count">0 selected</span>
+                </div>
+                <div id="flow-task-selected-order" class="flow-editor-selected-list"></div>
+              </div>
+            </div>
+          </div>
         </div>
       </form>
     `;
     showModal('Edit flow', content);
+    const modal = document.querySelector('#modal-overlay .modal');
+    const modalHeader = document.querySelector('#modal-overlay .modal-header');
+    if (modal) modal.classList.add('flow-editor-modal');
+    if (modalHeader && !modalHeader.querySelector('.modal-header-actions')) {
+      const actions = document.createElement('div');
+      actions.className = 'modal-header-actions flow-editor-header-actions';
+      actions.innerHTML = `
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+        <button type="submit" form="edit-flow-form" class="btn btn-primary">Save Flow</button>
+      `;
+      const closeButton = modalHeader.querySelector('.modal-close');
+      modalHeader.insertBefore(actions, closeButton || null);
+    }
     let flowTasksData = tasks.map(t => ({ task_type: t.task_type, task_ref: t.task_ref || {}, position: t.position }));
+    let configuringType = null;
+    let configuringIndex = null;
+    let configuredSelection = [];
+    let configuredVariableValues = {};
+    let configuredEnvironmentId = null;
+    let configuredSearch = '';
+    let configuredTaskRef = {};
+    let configuredTestDelays = {};
+
+    const collectConfiguredVariables = () => {
+      document.querySelectorAll('#flow-task-variables [data-flow-variable]').forEach((input) => {
+        configuredVariableValues[input.getAttribute('data-flow-variable')] = input.value;
+      });
+    };
+
+    const selectedVariableNames = () => {
+      const names = new Set();
+      if (configuringType === 'api') {
+        configuredSelection.forEach((test) => {
+          (apiVariablesByCollection.get(Number(test.collectionId)) || []).forEach((name) => names.add(name));
+        });
+      } else {
+        const testsById = new Map(recordedTests.map((test) => [Number(test.id), test]));
+        configuredSelection.forEach((id) => {
+          (testsById.get(Number(id))?.variable_names || []).forEach((name) => names.add(name));
+        });
+      }
+      return Array.from(names).sort();
+    };
+
+    const renderConfiguredVariables = () => {
+      collectConfiguredVariables();
+      const names = selectedVariableNames();
+      const wrap = document.getElementById('flow-task-variables-wrap');
+      const list = document.getElementById('flow-task-variables');
+      wrap.style.display = names.length ? 'block' : 'none';
+      list.innerHTML = names.map((name) => `
+        <div class="env-var-item" style="margin-bottom:8px;">
+          <label>${escapeHtml(name)}</label>
+          <input type="text" data-flow-variable="${escapeHtml(name)}" value="${escapeHtml(configuredVariableValues[name] || '')}">
+        </div>
+      `).join('');
+    };
+
+    const renderConfiguredSelection = () => {
+      const candidates = document.getElementById('flow-task-candidates');
+      const selectedOrder = document.getElementById('flow-task-selected-order');
+      if (configuringType === 'api') {
+        const selectedKeys = new Set(configuredSelection.map((test) => `${test.collectionId}|${test.path.join('.')}`));
+        const visibleOptions = apiOptions.filter((option) => `${option.collectionName} ${option.name} ${option.method} ${option.url}`.toLowerCase().includes(configuredSearch));
+        candidates.innerHTML = visibleOptions.map((option) => {
+          const key = `${option.collectionId}|${option.path.join('.')}`;
+          const checkboxId = `flow-api-test-${option.collectionId}-${option.path.join('-')}`;
+          const delayValue = configuredTestDelays?.[option.collectionId]?.[option.path.join('.')];
+          return `<div class="flow-editor-candidate flow-editor-api-candidate">
+            <input type="checkbox" id="${checkboxId}" class="flow-config-test" data-key="${key}" ${selectedKeys.has(key) ? 'checked' : ''}>
+            <span class="method-badge ${escapeHtml(option.method)}">${escapeHtml(option.method)}</span>
+            <label for="${checkboxId}" class="flow-editor-candidate-copy">
+              <strong>${escapeHtml(option.name)}</strong>
+              <span>${escapeHtml(option.collectionName)}</span>
+              <code title="${escapeHtml(option.url)}">${escapeHtml(option.url || 'No endpoint')}</code>
+            </label>
+            <input type="number" class="flow-editor-test-delay" data-delay-key="${key}" min="0" step="0.1" value="${delayValue ?? ''}" placeholder="Delay" aria-label="Delay after ${escapeHtml(option.name)} in seconds">
+          </div>`;
+        }).join('') || '<p class="flow-editor-no-results">No API tests match this search.</p>';
+        selectedOrder.innerHTML = configuredSelection.map((test, index) => `
+          <div class="selected-test-item">
+            <strong class="selected-test-id">${index + 1}</strong><span class="method-badge ${escapeHtml(test.method || 'GET')}">${escapeHtml(test.method || 'GET')}</span><span class="selected-test-name">${escapeHtml(test.name || `API test ${index + 1}`)}</span>
+            <button type="button" class="btn btn-sm btn-secondary flow-config-move" data-index="${index}" data-delta="-1" ${index === 0 ? 'disabled' : ''}>Up</button>
+            <button type="button" class="btn btn-sm btn-secondary flow-config-move" data-index="${index}" data-delta="1" ${index === configuredSelection.length - 1 ? 'disabled' : ''}>Down</button>
+          </div>`).join('') || '<p class="muted">Select at least one test.</p>';
+      } else {
+        const selectedIds = new Set(configuredSelection.map(Number));
+        const testsById = new Map(recordedTests.map((test) => [Number(test.id), test]));
+        const visibleTests = recordedTests.filter((test) => String(test.name || '').toLowerCase().includes(configuredSearch));
+        candidates.innerHTML = visibleTests.map((test) => `<label class="flow-editor-candidate flow-editor-ui-candidate">
+          <input type="checkbox" class="flow-config-test" data-key="${test.id}" ${selectedIds.has(Number(test.id)) ? 'checked' : ''}>
+          <span class="ordered-ui-test-number">${configuredSelection.indexOf(Number(test.id)) + 1 || '–'}</span>
+          <span class="flow-editor-candidate-copy"><strong>${escapeHtml(test.name || 'Unnamed UI test')}</strong><span>Recorded UI test</span></span>
+        </label>`).join('') || '<p class="flow-editor-no-results">No UI tests match this search.</p>';
+        selectedOrder.innerHTML = configuredSelection.map((id, index) => `
+          <div class="run-ui-selected-order-item">
+            <strong class="ordered-ui-test-number">${index + 1}</strong><span class="run-ui-selected-order-name">${escapeHtml(testsById.get(Number(id))?.name || `UI test ${id}`)}</span>
+            <button type="button" class="btn btn-sm btn-secondary flow-config-move" data-index="${index}" data-delta="-1" ${index === 0 ? 'disabled' : ''}>Up</button>
+            <button type="button" class="btn btn-sm btn-secondary flow-config-move" data-index="${index}" data-delta="1" ${index === configuredSelection.length - 1 ? 'disabled' : ''}>Down</button>
+          </div>`).join('') || '<p class="muted">Select at least one test.</p>';
+      }
+      document.getElementById('flow-selected-count').textContent = `${configuredSelection.length} selected`;
+      candidates.querySelectorAll('.flow-config-test').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+          if (configuringType === 'api') {
+            const [collectionId, pathText] = checkbox.dataset.key.split('|');
+            const key = checkbox.dataset.key;
+            configuredSelection = configuredSelection.filter((test) => `${test.collectionId}|${test.path.join('.')}` !== key);
+            if (checkbox.checked) {
+              const option = apiOptions.find((item) => Number(item.collectionId) === Number(collectionId) && item.path.join('.') === pathText);
+              configuredSelection.push({ collectionId: Number(collectionId), path: pathText.split('.').map(Number), name: option?.name, method: option?.method, testId: `Flow test ${configuredSelection.length + 1}` });
+            }
+          } else {
+            const id = Number(checkbox.dataset.key);
+            configuredSelection = configuredSelection.filter((selectedId) => Number(selectedId) !== id);
+            if (checkbox.checked) configuredSelection.push(id);
+          }
+          renderConfiguredSelection();
+        });
+      });
+      candidates.querySelectorAll('.flow-editor-test-delay').forEach((input) => {
+        input.addEventListener('input', () => {
+          const [collectionId, pathText] = input.dataset.delayKey.split('|');
+          if (!configuredTestDelays[collectionId]) configuredTestDelays[collectionId] = {};
+          if (input.value === '') delete configuredTestDelays[collectionId][pathText];
+          else configuredTestDelays[collectionId][pathText] = Number(input.value);
+        });
+      });
+      selectedOrder.querySelectorAll('.flow-config-move').forEach((button) => {
+        button.addEventListener('click', () => {
+          const index = Number(button.dataset.index);
+          const nextIndex = index + Number(button.dataset.delta);
+          if (nextIndex < 0 || nextIndex >= configuredSelection.length) return;
+          [configuredSelection[index], configuredSelection[nextIndex]] = [configuredSelection[nextIndex], configuredSelection[index]];
+          renderConfiguredSelection();
+        });
+      });
+      renderConfiguredVariables();
+    };
+
+    const openTaskConfigurator = (type, index = null) => {
+      configuringType = type;
+      configuringIndex = index;
+      configuredSearch = '';
+      document.getElementById('flow-task-search').value = '';
+      document.getElementById('flow-task-variables').innerHTML = '';
+      const ref = index == null ? {} : (flowTasksData[index].task_ref || {});
+      configuredTaskRef = ref;
+      configuredTestDelays = JSON.parse(JSON.stringify(ref.testDelays || {}));
+      if (type === 'api') {
+        configuredSelection = Array.isArray(ref.selectedTestsOrdered)
+          ? ref.selectedTestsOrdered.map((test) => ({ ...test, path: [...test.path] }))
+          : (ref.collectionId && Array.isArray(ref.path) ? [{ collectionId: Number(ref.collectionId), path: [...ref.path], name: ref.label }] : []);
+        configuredVariableValues = { ...(ref.envVars || {}) };
+        configuredEnvironmentId = ref.environmentId || null;
+        document.getElementById('flow-api-environment').value = configuredEnvironmentId || '';
+        document.getElementById('flow-api-delay').value = ref.delayBetweenTests || 0;
+      } else {
+        configuredEnvironmentId = null;
+        configuredSelection = Array.isArray(ref.selectedTestIds)
+          ? ref.selectedTestIds.map(Number)
+          : (ref.recordedTestId ? [Number(ref.recordedTestId)] : []);
+        configuredVariableValues = { ...(ref.uiVariables || {}) };
+        const firstTest = recordedTests.find((test) => Number(test.id) === Number(configuredSelection[0]));
+        document.getElementById('flow-ui-base-url').value = ref.baseUrl || firstTest?.base_url || '';
+        document.getElementById('flow-ui-browser').value = ref.browserName || ref.browser || 'chromium';
+        document.getElementById('flow-ui-headless').checked = ref.headless !== false;
+        document.getElementById('flow-ui-timeout').value = Math.round((ref.timeoutMs || 30000) / 1000);
+        document.getElementById('flow-ui-video').value = ref.video || 'off';
+        document.getElementById('flow-ui-trace').value = ref.trace || 'off';
+        document.getElementById('flow-ui-slow-mo').value = ref.slowMo || 0;
+      }
+      document.getElementById('flow-task-config-title').textContent = `${index == null ? 'Add' : 'Edit'} ${type.toUpperCase()} run`;
+      document.getElementById('flow-api-settings').style.display = type === 'api' ? 'block' : 'none';
+      document.getElementById('flow-ui-settings').style.display = type === 'ui' ? 'block' : 'none';
+      document.getElementById('flow-task-config').style.display = 'block';
+      document.getElementById('flow-editor-empty-state').style.display = 'none';
+      document.getElementById('flow-editor-active').style.display = 'flex';
+      renderConfiguredSelection();
+    };
+
+    const closeTaskConfigurator = () => {
+      configuringType = null;
+      configuringIndex = null;
+      configuredSelection = [];
+      configuredVariableValues = {};
+      configuredSearch = '';
+      configuredTaskRef = {};
+      configuredTestDelays = {};
+      document.getElementById('flow-task-config').style.display = 'none';
+      document.getElementById('flow-editor-active').style.display = 'none';
+      document.getElementById('flow-editor-empty-state').style.display = 'flex';
+    };
+
     const renderTaskList = () => {
       const el = document.getElementById(taskListId);
       el.innerHTML = flowTasksData.map((t, i) => {
-        const label = t.task_ref?.label || (t.task_type === 'api' ? `API: ${t.task_ref?.collectionId}` : `UI: ${t.task_ref?.recordedTestId || ''}`);
-        return `<div class="flow-task-item" data-index="${i}" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        const count = t.task_type === 'api'
+          ? (t.task_ref?.selectedTestsOrdered?.length || (t.task_ref?.path ? 1 : 0))
+          : (t.task_ref?.selectedTestIds?.length || (t.task_ref?.recordedTestId ? 1 : 0));
+        const detail = t.task_type === 'api'
+          ? (t.task_ref?.environmentName || 'No environment')
+          : `${t.task_ref?.browserName || t.task_ref?.browser || 'chromium'} browser`;
+        const label = t.task_ref?.label || `${count} selected test${count === 1 ? '' : 's'}`;
+        return `<div class="flow-task-item flow-editor-task-item" data-index="${i}">
           <span class="run-type-badge run-type-${t.task_type}">${t.task_type === 'api' ? 'API' : 'UI'}</span>
-          <span style="flex:1;font-size:14px;">${(label || 'Task').substring(0, 60)}</span>
-          <button type="button" class="btn btn-secondary" onclick="window.moveFlowTask(${i}, -1)" ${i === 0 ? 'disabled' : ''}>Up</button>
-          <button type="button" class="btn btn-secondary" onclick="window.moveFlowTask(${i}, 1)" ${i === flowTasksData.length - 1 ? 'disabled' : ''}>Down</button>
-          <button type="button" class="btn btn-danger" onclick="window.removeFlowTask(${i})">Remove</button>
+          <span class="flow-editor-task-summary"><strong>${escapeHtml((label || 'Task').substring(0, 60))}</strong><small>${escapeHtml(detail)}</small></span>
+          <span class="flow-editor-task-buttons">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="window.configureFlowTask(${i})">Configure</button>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="window.moveFlowTask(${i}, -1)" ${i === 0 ? 'disabled' : ''}>Up</button>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="window.moveFlowTask(${i}, 1)" ${i === flowTasksData.length - 1 ? 'disabled' : ''}>Down</button>
+            <button type="button" class="btn btn-sm btn-danger" onclick="window.removeFlowTask(${i})">Remove</button>
+          </span>
         </div>`;
       }).join('') || '<p class="muted">No tasks. Add API or UI tasks below.</p>';
+      document.getElementById('flow-task-count').textContent = `${flowTasksData.length} run${flowTasksData.length === 1 ? '' : 's'}`;
     };
     window.moveFlowTask = (index, delta) => {
       const ni = index + delta;
@@ -4043,32 +5172,93 @@ window.editFlow = async (flowId, projectId) => {
       flowTasksData.splice(index, 1);
       renderTaskList();
     };
+    window.configureFlowTask = (index) => openTaskConfigurator(flowTasksData[index].task_type, index);
     renderTaskList();
-    const addType = document.getElementById('flow-add-task-type');
-    const addApi = document.getElementById('flow-add-api-task');
-    const addUi = document.getElementById('flow-add-ui-task');
-    addType.addEventListener('change', () => {
-      addApi.style.display = addType.value === 'api' ? 'inline-block' : 'none';
-      addUi.style.display = addType.value === 'ui' ? 'inline-block' : 'none';
+    document.getElementById('flow-add-api-run').addEventListener('click', () => openTaskConfigurator('api'));
+    document.getElementById('flow-add-ui-run').addEventListener('click', () => openTaskConfigurator('ui'));
+    document.getElementById('flow-task-search').addEventListener('input', (event) => {
+      configuredSearch = event.target.value.trim().toLowerCase();
+      renderConfiguredSelection();
     });
-    addUi.style.display = 'none';
-    document.getElementById('flow-add-task-btn').addEventListener('click', () => {
-      if (addType.value === 'api') {
-        const v = addApi.value;
-        if (!v) return;
-        const [cid, pathStr] = v.split('|');
-        const path = pathStr.split('.').map(Number);
-        const opt = addApi.options[addApi.selectedIndex];
-        const label = opt ? opt.text : '';
-        flowTasksData.push({ task_type: 'api', task_ref: { collectionId: Number(cid), path, label: label || undefined } });
+    const setVisibleCandidateSelection = (selected) => {
+      const keys = Array.from(document.querySelectorAll('#flow-task-candidates .flow-config-test')).map((checkbox) => checkbox.dataset.key);
+      if (configuringType === 'api') {
+        const keySet = new Set(keys);
+        configuredSelection = configuredSelection.filter((test) => selected || !keySet.has(`${test.collectionId}|${test.path.join('.')}`));
+        if (selected) {
+          const existing = new Set(configuredSelection.map((test) => `${test.collectionId}|${test.path.join('.')}`));
+          keys.forEach((key) => {
+            if (existing.has(key)) return;
+            const [collectionId, pathText] = key.split('|');
+            const option = apiOptions.find((item) => Number(item.collectionId) === Number(collectionId) && item.path.join('.') === pathText);
+            if (option) configuredSelection.push({ collectionId: Number(collectionId), path: pathText.split('.').map(Number), name: option.name, method: option.method, testId: `Flow test ${configuredSelection.length + 1}` });
+          });
+        }
       } else {
-        const v = addUi.value;
-        if (!v) return;
-        const opt = addUi.options[addUi.selectedIndex];
-        const label = opt ? opt.text : '';
-        flowTasksData.push({ task_type: 'ui', task_ref: { recordedTestId: Number(v), label: label || undefined } });
+        const ids = new Set(keys.map(Number));
+        configuredSelection = configuredSelection.filter((id) => selected || !ids.has(Number(id)));
+        if (selected) keys.map(Number).forEach((id) => { if (!configuredSelection.includes(id)) configuredSelection.push(id); });
       }
+      renderConfiguredSelection();
+    };
+    document.getElementById('flow-select-all-tests').addEventListener('click', () => setVisibleCandidateSelection(true));
+    document.getElementById('flow-deselect-all-tests').addEventListener('click', () => setVisibleCandidateSelection(false));
+    document.getElementById('flow-api-environment').addEventListener('change', (event) => {
+      configuredEnvironmentId = event.target.value ? Number(event.target.value) : null;
+      const selectedEnvironment = savedEnvironments.find((environment) => String(environment.id) === String(configuredEnvironmentId));
+      configuredVariableValues = selectedEnvironment && typeof window.mergeRunEnvironmentVariables === 'function'
+        ? window.mergeRunEnvironmentVariables(selectedEnvironment, {}, {})
+        : {};
+      document.getElementById('flow-task-variables').innerHTML = '';
+      renderConfiguredVariables();
+    });
+    document.getElementById('flow-task-config-cancel').addEventListener('click', () => {
+      closeTaskConfigurator();
+    });
+    document.getElementById('flow-task-config-apply').addEventListener('click', () => {
+      if (configuredSelection.length === 0) {
+        alert('Select at least one test for this run.');
+        return;
+      }
+      collectConfiguredVariables();
+      let task;
+      if (configuringType === 'api') {
+        const selectedEnvironment = savedEnvironments.find((environment) => String(environment.id) === String(configuredEnvironmentId));
+        task = {
+          task_type: 'api',
+          task_ref: {
+            version: 2,
+            label: configuredTaskRef.label,
+            environmentId: configuredEnvironmentId,
+            environmentName: selectedEnvironment?.name || null,
+            selectedTestsOrdered: configuredSelection.map((test, index) => ({ ...test, testId: test.testId || `Flow test ${index + 1}` })),
+            envVars: { ...configuredVariableValues },
+            delayBetweenTests: Number(document.getElementById('flow-api-delay').value || 0),
+            testDelays: configuredTestDelays
+          }
+        };
+      } else {
+        task = {
+          task_type: 'ui',
+          task_ref: {
+            version: 2,
+            label: configuredTaskRef.label,
+            selectedTestIds: configuredSelection.map(Number),
+            uiVariables: { ...configuredVariableValues },
+            baseUrl: document.getElementById('flow-ui-base-url').value.trim(),
+            browserName: document.getElementById('flow-ui-browser').value,
+            headless: document.getElementById('flow-ui-headless').checked,
+            timeoutMs: Number(document.getElementById('flow-ui-timeout').value || 30) * 1000,
+            video: document.getElementById('flow-ui-video').value,
+            trace: document.getElementById('flow-ui-trace').value,
+            slowMo: Number(document.getElementById('flow-ui-slow-mo').value || 0)
+          }
+        };
+      }
+      if (configuringIndex == null) flowTasksData.push(task);
+      else flowTasksData[configuringIndex] = task;
       renderTaskList();
+      closeTaskConfigurator();
     });
     document.getElementById('edit-flow-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -4106,76 +5296,40 @@ window.runFlow = async (flowId, flowName) => {
     alert(getProjectClosedMessage(window.currentProject));
     return;
   }
-  let flowVariableNames = [];
-  try {
-    const flow = await apiRequest(`/flows/${flowId}`);
-    const recordedIds = Array.from(new Set((flow.flowTasks || [])
-      .filter((task) => task.task_type === 'ui' && task.task_ref && task.task_ref.recordedTestId)
-      .map((task) => Number(task.task_ref.recordedTestId))
-      .filter(Boolean)));
-    const testByRecordedId = new Map((window.currentProjectTests || [])
-      .filter((test) => test.test_type === 'ui_recorded' && test.source_id)
-      .map((test) => [Number(test.source_id), test]));
-    flowVariableNames = getUiVariableNamesForCatalogueTests(recordedIds.map((id) => testByRecordedId.get(id)).filter(Boolean));
-  } catch (_) {
-    flowVariableNames = [];
-  }
   const content = `
     <form id="run-flow-form">
       <div class="form-group">
         <label for="run-flow-name">Run name</label>
         <input type="text" id="run-flow-name" value="${(flowName || 'Flow run').replace(/"/g, '&quot;')}" placeholder="Name for this run">
       </div>
-      <div class="form-group">
-        <label for="run-flow-base-url">Base URL (for UI tests)</label>
-        <input type="url" id="run-flow-base-url" placeholder="https://example.com">
-      </div>
-      ${flowVariableNames.length > 0 ? `
-        <div class="form-group">
-          <label for="run-flow-ui-variable-group">UI Test Variable group</label>
-          <select id="run-flow-ui-variable-group" class="form-control ui-variable-group-select">
-            <option value="">None</option>
-            ${getUiVariableGroupOptionsHtml()}
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Variables used by UI tasks in this flow</label>
-          <div class="ui-variable-fields"></div>
-        </div>
-      ` : ''}
       <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
         <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
-        <button type="submit" class="btn btn-primary">Run</button>
+        <button type="submit" class="btn btn-primary" id="run-flow-submit">Run</button>
       </div>
     </form>
   `;
   showModal('Run flow', content);
-  initializeUiVariableForm(document.getElementById('run-flow-form'), flowVariableNames, window.currentProject?.id);
   document.getElementById('run-flow-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const runNamePrefix = document.getElementById('run-flow-name').value.trim() || flowName;
-    const baseUrl = document.getElementById('run-flow-base-url').value.trim() || undefined;
-    const uiVariables = collectUiVariableValuesFromContainer(document.querySelector('#run-flow-form .ui-variable-fields'));
-    const missingVariables = flowVariableNames.filter((name) => !uiVariables[name] || !String(uiVariables[name]).trim());
-    if (missingVariables.length > 0) {
-      alert(`Provide values for all UI test variables before running: ${missingVariables.join(', ')}`);
-      return;
-    }
+    const submitButton = document.getElementById('run-flow-submit');
     try {
-      const body = { runNamePrefix, baseUrl };
-      if (flowVariableNames.length > 0) {
-        body.uiVariables = Object.fromEntries(Object.entries(uiVariables).map(([key, value]) => [key, String(value).trim()]));
-      }
+      submitButton.disabled = true;
+      submitButton.textContent = 'Running...';
       const result = await apiRequest(`/flows/${flowId}/execute`, {
         method: 'POST',
-        body
+        body: { runNamePrefix }
       });
       hideModal();
-      alert(`Flow execution started. ${(result.apiRunIds?.length || 0) + (result.uiRunIds?.length || 0)} run(s) queued. View Test Runs for progress.`);
+      const outcomes = result.outcomes || [];
+      const failed = outcomes.filter((outcome) => outcome.status === 'failed' || outcome.status === 'invalid').length;
+      alert(`Flow completed: ${outcomes.length} run(s), ${failed} failed.`);
       showView('test-runs');
       loadTestRuns();
     } catch (err) {
-      alert('Error starting flow: ' + (err.message || err));
+      submitButton.disabled = false;
+      submitButton.textContent = 'Run';
+      alert('Error running flow: ' + (err.message || err));
     }
   });
 };
@@ -4585,14 +5739,14 @@ function showJwksResultModal(result) {
           <label style="font-weight: 600;">JWKS (jwks.json)</label>
           <button type="button" class="btn btn-secondary btn-sm" id="copy-jwks-btn">Copy</button>
         </div>
-        <pre style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px; max-height: 260px; overflow-y: auto;">${escapeHtml(jwksJson)}</pre>
+        <pre class="light-surface" style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px; max-height: 260px; overflow-y: auto;">${escapeHtml(jwksJson)}</pre>
       </div>
       <div>
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
           <label style="font-weight: 600;">JWT Token (token.jwt)</label>
           <button type="button" class="btn btn-secondary btn-sm" id="copy-token-btn">Copy</button>
         </div>
-        <pre style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px; word-break: break-all; max-height: 120px; overflow-y: auto;">${escapeHtml(token)}</pre>
+        <pre class="light-surface" style="background: var(--color-gray-50); border: 1px solid var(--color-gray-200); border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 12px; word-break: break-all; max-height: 120px; overflow-y: auto;">${escapeHtml(token)}</pre>
       </div>
       <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
         <button type="button" class="btn btn-secondary" onclick="hideModal()">Close</button>

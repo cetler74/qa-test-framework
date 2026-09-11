@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QA Test Hub - Workspace proposal</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #d8dee9;
+      --surface: #ffffff;
+      --canvas: #f3f6f8;
+      --nav: #111827;
+      --teal: #087e78;
+      --teal-soft: #e1f4f1;
+      --green: #16845b;
+      --green-soft: #e1f4ea;
+      --red: #c73a46;
+      --red-soft: #fde9eb;
+      --amber: #a76208;
+      --amber-soft: #fff0d5;
+      --blue: #2463a9;
+      --blue-soft: #e7f0fa;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 1180px;
+      background:
+        linear-gradient(90deg, rgba(8, 126, 120, .035) 1px, transparent 1px),
+        linear-gradient(rgba(8, 126, 120, .035) 1px, transparent 1px),
+        var(--canvas);
+      background-size: 28px 28px;
+      color: var(--ink);
+      font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    .app { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100vh; }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 24px 16px;
+      background: var(--nav);
+      color: #d7deea;
+      border-right: 1px solid #263247;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 24px; }
+    .brand img { width: 70px; height: 32px; object-fit: contain; }
+    .brand strong { color: white; font-size: 15px; line-height: 1.2; }
+    .project-label { margin: 12px 10px 8px; color: #8692a6; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .project-picker { width: 100%; padding: 12px; color: white; background: #1c273a; border: 1px solid #3a475c; border-radius: 6px; text-align: left; }
+    .nav { display: grid; gap: 5px; margin-top: 20px; }
+    .nav button { display: flex; align-items: center; gap: 11px; padding: 11px 12px; border: 0; border-radius: 6px; color: #bdc7d6; background: transparent; text-align: left; }
+    .nav button.active { color: white; background: #087e78; font-weight: 700; }
+    .nav .icon { width: 20px; text-align: center; font-size: 16px; }
+    .sidebar-foot { position: absolute; right: 16px; bottom: 20px; left: 16px; border-top: 1px solid #2b374a; padding-top: 16px; }
+    .user { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+    .avatar { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: #15a89e; color: white; font-weight: 800; }
+
+    main { padding: 0 32px 40px; }
+    .topbar { height: 68px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+    .breadcrumb { color: var(--muted); font-size: 13px; }
+    .breadcrumb strong { color: var(--ink); }
+    .top-actions { display: flex; gap: 10px; align-items: center; }
+    .search { width: 260px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; background: white; }
+    .icon-button { width: 38px; height: 38px; border: 1px solid var(--line); border-radius: 6px; background: white; color: var(--muted); }
+
+    .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; padding: 27px 0 20px; }
+    h1 { margin: 0 0 5px; font-family: Georgia, serif; font-size: 31px; }
+    .subtitle { margin: 0; color: var(--muted); font-size: 14px; }
+    .head-actions { display: flex; gap: 10px; }
+    .btn { min-height: 40px; padding: 0 16px; border: 1px solid var(--line); border-radius: 6px; background: white; color: var(--ink); font-weight: 700; }
+    .btn.primary { border-color: var(--teal); background: var(--teal); color: white; }
+    .btn .count { margin-left: 8px; padding: 2px 7px; border-radius: 10px; background: rgba(255,255,255,.2); }
+
+    .status-strip { display: grid; grid-template-columns: 1.25fr repeat(4, 1fr); margin-bottom: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
+    .status-block { min-height: 92px; padding: 17px 20px; border-right: 1px solid var(--line); }
+    .status-block:last-child { border-right: 0; }
+    .eyebrow { margin-bottom: 7px; color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+    .big { font-size: 27px; font-weight: 800; }
+    .small { margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .readiness { display: flex; align-items: center; gap: 12px; }
+    .ring { display: grid; width: 54px; height: 54px; place-items: center; border-radius: 50%; background: conic-gradient(var(--amber) 0 28%, #e7ebf0 28%); }
+    .ring::after { content: "28%"; display: grid; width: 42px; height: 42px; place-items: center; border-radius: 50%; background: white; font-size: 12px; font-weight: 800; }
+    .metric.pass .big { color: var(--green); }
+    .metric.fail .big { color: var(--red); }
+    .metric.gap .big { color: var(--amber); }
+
+    .workspace { display: grid; grid-template-columns: minmax(650px, 1fr) 340px; gap: 18px; align-items: start; }
+    .panel { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+    .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 17px 18px; border-bottom: 1px solid var(--line); }
+    .panel-title { margin: 0; font-size: 17px; }
+    .tabs { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: #f6f8fa; }
+    .tabs button { padding: 7px 14px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-weight: 700; }
+    .tabs button.active { background: white; color: var(--teal); box-shadow: 0 1px 2px rgba(16,24,40,.12); }
+
+    .filters { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; padding: 13px 18px; background: #fafbfc; border-bottom: 1px solid var(--line); }
+    .filters input { min-width: 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: 5px; }
+    .filter-button { padding: 8px 12px; border: 1px solid var(--line); border-radius: 5px; background: white; color: #394459; }
+    .selection-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 18px; background: var(--teal-soft); border-bottom: 1px solid #a9dcd6; color: #115d58; font-size: 13px; }
+    .selection-bar strong { color: #084a46; }
+
+    .test-group { border-bottom: 1px solid var(--line); }
+    .group-head { display: flex; justify-content: space-between; padding: 11px 18px; color: #334155; background: #f8fafb; font-size: 13px; font-weight: 800; }
+    .test-row { display: grid; grid-template-columns: 32px minmax(270px, 1fr) 90px 116px 100px 36px; align-items: center; min-height: 58px; padding: 0 14px; border-top: 1px solid #edf0f4; font-size: 13px; }
+    .test-row:hover { background: #f7fbfb; }
+    .test-name strong { display: block; margin-bottom: 3px; font-size: 13px; }
+    .test-name span { color: var(--muted); font-size: 11px; }
+    .type { color: var(--muted); font-weight: 700; }
+    .chip { display: inline-block; width: max-content; padding: 4px 8px; border-radius: 12px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .chip.failed { color: #9f2430; background: var(--red-soft); }
+    .chip.passed { color: #126843; background: var(--green-soft); }
+    .chip.notrun { color: #775010; background: var(--amber-soft); }
+    .history { color: var(--muted); font-size: 11px; }
+    .more { width: 30px; height: 30px; border: 0; background: transparent; font-weight: 800; }
+
+    .right { display: grid; gap: 18px; }
+    .side-body { padding: 17px; }
+    .attention { display: grid; gap: 10px; }
+    .attention-item { display: grid; grid-template-columns: 8px 1fr auto; gap: 10px; align-items: start; padding: 11px; border: 1px solid var(--line); border-radius: 6px; }
+    .attention-item .bar { width: 4px; height: 100%; min-height: 36px; border-radius: 3px; background: var(--red); }
+    .attention-item.warning .bar { background: var(--amber); }
+    .attention-item strong { display: block; font-size: 12px; }
+    .attention-item span { color: var(--muted); font-size: 11px; }
+    .attention-item button { border: 0; background: transparent; color: var(--blue); font-weight: 700; font-size: 11px; }
+    .coverage-row { margin-bottom: 15px; }
+    .coverage-label { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px; }
+    .track { height: 7px; border-radius: 4px; background: #e7ebf0; overflow: hidden; }
+    .fill { height: 100%; background: var(--teal); }
+    .fill.low { background: var(--amber); }
+    .panel-foot { padding: 13px 17px; border-top: 1px solid var(--line); }
+    .text-button { padding: 0; border: 0; background: transparent; color: var(--blue); font-weight: 700; }
+    .footer-note { margin-top: 17px; color: #778196; font-size: 11px; text-align: right; }
+
+    @media (max-width: 800px) {
+      body { min-width: 0; }
+      .app { display: block; }
+      .sidebar { position: static; width: 100%; height: auto; padding: 14px 16px 10px; }
+      .brand { padding: 0 0 12px; }
+      .project-label, .sidebar-foot { display: none; }
+      .project-picker { margin-bottom: 10px; }
+      .nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; margin: 0; }
+      .nav button { justify-content: center; min-width: 0; padding: 9px 4px; font-size: 11px; white-space: nowrap; }
+      .nav .icon { display: none; }
+      .nav button:nth-child(n+5) { display: none; }
+      main { padding: 0 14px 28px; }
+      .topbar { height: 56px; }
+      .top-actions .search { display: none; }
+      .page-head { display: block; padding: 20px 0 16px; }
+      h1 { font-size: 25px; }
+      .head-actions { margin-top: 16px; }
+      .head-actions .btn { flex: 1; }
+      .status-strip { grid-template-columns: 1fr 1fr; }
+      .status-block { min-height: 82px; border-bottom: 1px solid var(--line); }
+      .status-block:first-child { grid-column: 1 / -1; }
+      .workspace { grid-template-columns: 1fr; }
+      .panel-head { align-items: flex-start; flex-direction: column; }
+      .tabs { width: 100%; overflow-x: auto; }
+      .tabs button { flex: 1 0 auto; }
+      .filters { grid-template-columns: 1fr 1fr; }
+      .filters input { grid-column: 1 / -1; }
+      .selection-bar { align-items: flex-start; flex-direction: column; }
+      .test-row { grid-template-columns: 28px minmax(0, 1fr) 86px 30px; padding: 8px 12px; }
+      .test-row .type, .test-row .history { display: none; }
+      .right { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="../../logo-meo.svg" alt="MEO">
+        <strong>QA Test Hub</strong>
+      </div>
+      <div class="project-label">Current project</div>
+      <button class="project-picker">SmartAPI R2.3&nbsp;&nbsp;⌄</button>
+      <nav class="nav" aria-label="Project workspace">
+        <button><span class="icon">⌂</span>Overview</button>
+        <button class="active"><span class="icon">✓</span>Test workspace</button>
+        <button><span class="icon">▶</span>Runs</button>
+        <button><span class="icon">◫</span>Coverage</button>
+        <button><span class="icon">≋</span>Flows & schedules</button>
+        <button><span class="icon">⚙</span>Project settings</button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="user"><span class="avatar">A</span><span><strong>admin</strong><br>QA administrator</span></div>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div class="breadcrumb">Projects / <strong>SmartAPI R2.3</strong> / Test workspace</div>
+        <div class="top-actions">
+          <input class="search" type="search" placeholder="Search tests, runs, tickets…">
+          <button class="icon-button" title="Notifications">●</button>
+          <button class="icon-button" title="Help">?</button>
+        </div>
+      </header>
+
+      <section class="page-head">
+        <div>
+          <h1>SmartAPI R2.3 test workspace</h1>
+          <p class="subtitle">Plan coverage, execute tests, and investigate failures without leaving the project.</p>
+        </div>
+        <div class="head-actions">
+          <button class="btn">Create test</button>
+          <button class="btn primary">▶ Run selected <span class="count">6</span></button>
+        </div>
+      </section>
+
+      <section class="status-strip" aria-label="Release readiness">
+        <div class="status-block readiness">
+          <div class="ring"></div>
+          <div><div class="eyebrow">Release readiness</div><div class="big">At risk</div><div class="small">26 failures need review</div></div>
+        </div>
+        <div class="status-block metric"><div class="eyebrow">Active tests</div><div class="big">218</div><div class="small">Across 31 folders</div></div>
+        <div class="status-block metric pass"><div class="eyebrow">Passing</div><div class="big">17</div><div class="small">8% of coverage</div></div>
+        <div class="status-block metric fail"><div class="eyebrow">Failing</div><div class="big">26</div><div class="small">4 new since last run</div></div>
+        <div class="status-block metric gap"><div class="eyebrow">Not run</div><div class="big">175</div><div class="small">80% coverage gap</div></div>
+      </section>
+
+      <div class="workspace">
+        <section class="panel">
+          <div class="panel-head">
+            <h2 class="panel-title">Tests</h2>
+            <div class="tabs" aria-label="Workspace mode">
+              <button class="active">Plan & run</button>
+              <button>Recent results</button>
+              <button>Saved suites</button>
+            </div>
+          </div>
+          <div class="filters">
+            <input type="search" placeholder="Search by test, endpoint, or ticket">
+            <button class="filter-button">Type: All ⌄</button>
+            <button class="filter-button">Status: Failed + Not run ⌄</button>
+            <button class="filter-button">More filters</button>
+          </div>
+          <div class="selection-bar">
+            <span><strong>6 tests selected</strong> · 4 API, 2 UI · Estimated 2m 40s</span>
+            <span>Environment: <strong>QA</strong> ⌄ &nbsp; Run sequentially ☑</span>
+          </div>
+
+          <div class="test-group">
+            <div class="group-head"><span>⌄ Device Reachability Status</span><span>3 of 24 selected</span></div>
+            <div class="test-row">
+              <input type="checkbox" checked aria-label="Select Reachable Using SMS">
+              <div class="test-name"><strong>Reachable Using SMS</strong><span>GET /device-reachability</span></div>
+              <span class="type">API</span><span class="chip failed">Failed</span><span class="history">13 Aug · admin</span><button class="more">···</button>
+            </div>
+            <div class="test-row">
+              <input type="checkbox" checked aria-label="Select Missing identifier">
+              <div class="test-name"><strong>Missing identifier</strong><span>GET /device-reachability · CAMARA-184</span></div>
+              <span class="type">API</span><span class="chip notrun">Not run</span><span class="history">No runs</span><button class="more">···</button>
+            </div>
+            <div class="test-row">
+              <input type="checkbox" checked aria-label="Select Not reachable">
+              <div class="test-name"><strong>Not reachable over mobile network</strong><span>POST /subscriptions</span></div>
+              <span class="type">API</span><span class="chip passed">Passed</span><span class="history">12 Aug · admin</span><button class="more">···</button>
+            </div>
+          </div>
+          <div class="test-group">
+            <div class="group-head"><span>⌄ Device Location Verification</span><span>3 of 18 selected</span></div>
+            <div class="test-row">
+              <input type="checkbox" checked aria-label="Select Verify location">
+              <div class="test-name"><strong>Verify location by network</strong><span>POST /verify · CAMARA-203</span></div>
+              <span class="type">API</span><span class="chip failed">Failed</span><span class="history">13 Aug · admin</span><button class="more">···</button>
+            </div>
+            <div class="test-row">
+              <input type="checkbox" checked aria-label="Select customer flow">
+              <div class="test-name"><strong>Create customer and service account</strong><span>Recorded browser flow · 17 steps</span></div>
+              <span class="type">UI</span><span class="chip failed">Failed</span><span class="history">13 Aug · admin</span><button class="more">···</button>
+            </div>
+            <div class="test-row">
+              <input type="checkbox" checked aria-label="Select consent flow">
+              <div class="test-name"><strong>Alter consent application</strong><span>Recorded browser flow · 2 validations</span></div>
+              <span class="type">UI</span><span class="chip passed">Passed</span><span class="history">13 Aug · admin</span><button class="more">···</button>
+            </div>
+          </div>
+          <div class="panel-foot"><button class="text-button">Load 36 more tests</button></div>
+        </section>
+
+        <aside class="right">
+          <section class="panel">
+            <div class="panel-head"><h2 class="panel-title">Needs attention</h2><span class="chip failed">5 items</span></div>
+            <div class="side-body attention">
+              <div class="attention-item"><span class="bar"></span><div><strong>4 new failures</strong><span>Since the previous comparable run</span></div><button>Review</button></div>
+              <div class="attention-item"><span class="bar"></span><div><strong>UI flow timed out</strong><span>Create customer · step 17 of 31</span></div><button>Evidence</button></div>
+              <div class="attention-item warning"><span class="bar"></span><div><strong>175 tests not run</strong><span>12 high-priority coverage gaps</span></div><button>Select</button></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2 class="panel-title">Coverage by area</h2><button class="text-button">Full report</button></div>
+            <div class="side-body">
+              <div class="coverage-row"><div class="coverage-label"><strong>Reachability</strong><span>50%</span></div><div class="track"><div class="fill" style="width:50%"></div></div></div>
+              <div class="coverage-row"><div class="coverage-label"><strong>Location</strong><span>34%</span></div><div class="track"><div class="fill low" style="width:34%"></div></div></div>
+              <div class="coverage-row"><div class="coverage-label"><strong>Consent</strong><span>72%</span></div><div class="track"><div class="fill" style="width:72%"></div></div></div>
+              <div class="coverage-row"><div class="coverage-label"><strong>Device status</strong><span>18%</span></div><div class="track"><div class="fill low" style="width:18%"></div></div></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2 class="panel-title">Latest run</h2><span class="chip failed">Partial failed</span></div>
+            <div class="side-body">
+              <strong>UI global test</strong>
+              <p class="small">2 passed · 1 failed · 1m 11s</p>
+              <button class="btn" style="width:100%; margin-top:10px">Review failed test →</button>
+            </div>
+          </section>
+        </aside>
+      </div>
+      <div class="footer-note">UX proposal · static mockup · no production data changed</div>
+    </main>
+  </div>
+</body>
+</html>
