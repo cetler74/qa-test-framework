@@ -454,6 +454,53 @@ const reportTemplate = `
             </div>
         </div>
 
+        {{#if rateLimitSummary}}
+        <div class="test-results">
+            <h2>Rate Limit Summary</h2>
+            {{#each rateLimitSummary}}
+            <div class="test-group">
+                <div class="test-group-header">
+                    <h3>{{this.testName}}</h3>
+                    <span>{{this.requestsFired}} request(s) fired{{#if this.limitReached}} &mdash; Limit reached{{/if}}</span>
+                </div>
+                <div class="detail-section" style="margin: 12px;">
+                    <div class="detail-label">Final Rate Limit Indicators</div>
+                    <div class="detail-value">X-Global-RateLimit-Remaining-minute: {{this.globalRemainingMinute}} / {{this.globalLimitMinute}}
+X-RateLimit-Remaining-Minute: {{this.routeRemainingMinute}} / {{this.routeLimitMinute}}
+X-RateLimit-Remaining-Second: {{this.routeRemainingSecond}} / {{this.routeLimitSecond}}
+RateLimit-Remaining: {{this.ratelimitRemaining}} / {{this.ratelimitLimit}} (Reset: {{this.ratelimitReset}}s)</div>
+                </div>
+                <table style="width:100%; border-collapse: collapse; margin: 0 12px 12px;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left; padding:6px; border-bottom:1px solid #e5e7eb;">Attempt</th>
+                            <th style="text-align:left; padding:6px; border-bottom:1px solid #e5e7eb;">Response Code</th>
+                            <th style="text-align:left; padding:6px; border-bottom:1px solid #e5e7eb;">X-Global-RateLimit-Remaining-minute</th>
+                            <th style="text-align:left; padding:6px; border-bottom:1px solid #e5e7eb;">X-RateLimit-Remaining-Minute</th>
+                            <th style="text-align:left; padding:6px; border-bottom:1px solid #e5e7eb;">X-RateLimit-Remaining-Second</th>
+                            <th style="text-align:left; padding:6px; border-bottom:1px solid #e5e7eb;">RateLimit-Remaining</th>
+                            <th style="text-align:left; padding:6px; border-bottom:1px solid #e5e7eb;">RateLimit-Reset</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{#each this.attempts}}
+                        <tr>
+                            <td style="padding:6px; border-bottom:1px solid #f3f4f6;">{{this.attempt}}</td>
+                            <td style="padding:6px; border-bottom:1px solid #f3f4f6;">{{this.responseCode}}</td>
+                            <td style="padding:6px; border-bottom:1px solid #f3f4f6;">{{this.globalRemainingMinute}}</td>
+                            <td style="padding:6px; border-bottom:1px solid #f3f4f6;">{{this.routeRemainingMinute}}</td>
+                            <td style="padding:6px; border-bottom:1px solid #f3f4f6;">{{this.routeRemainingSecond}}</td>
+                            <td style="padding:6px; border-bottom:1px solid #f3f4f6;">{{this.ratelimitRemaining}}</td>
+                            <td style="padding:6px; border-bottom:1px solid #f3f4f6;">{{this.ratelimitReset}}</td>
+                        </tr>
+                        {{/each}}
+                    </tbody>
+                </table>
+            </div>
+            {{/each}}
+        </div>
+        {{/if}}
+
         <div class="test-results">
             <h2>Test Results</h2>
             {{#each testResultsBySpec}}
@@ -467,6 +514,7 @@ const reportTemplate = `
                     <div class="test-item-header" data-detail-id="{{this.groupIndex}}_{{this.itemIndex}}">
                         <div>
                             {{#if this.test_id}}<span style="margin-right: 10px; font-weight: bold; color: #14b8a6;">{{this.test_id}}</span>{{/if}}
+                            {{#if this.iteration_number}}<span style="margin-right: 10px; font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #e0f2fe; color: #075985;">Iteration {{this.iteration_number}}</span>{{/if}}
                             <span class="method-badge {{this.method}}">{{this.method}}</span>
                             <span class="test-item-name">{{this.test_name}}</span>
                         </div>
@@ -780,11 +828,62 @@ async function generateReport(testRunId, options = {}) {
     // Prepare data for template
     const runByUser = testRun.runByUser;
     const runByUsername = runByUser ? (runByUser.display_name || runByUser.username || '') : null;
+
+    // Rate Limit mode: summarize all captured Kong rate-limit indicators per test, clearly
+    // separating the gateway-wide "global" minute window from the per-route window/second window
+    // and the draft-standard RateLimit-* headers.
+    let rateLimitSummary = null;
+    if (testRun.run_type === 'rate_limit') {
+      const attemptsByTest = new Map();
+      Object.values(testResultsBySpec).forEach((list) => {
+        list.forEach((result) => {
+          if (!result.rate_limit_evidence) return;
+          if (!attemptsByTest.has(result.test_name)) attemptsByTest.set(result.test_name, []);
+          attemptsByTest.get(result.test_name).push(result);
+        });
+      });
+      rateLimitSummary = Array.from(attemptsByTest.entries()).map(([testName, attempts]) => {
+        attempts.sort((a, b) => (a.iteration_number || 0) - (b.iteration_number || 0));
+        const last = attempts[attempts.length - 1];
+        const limitReached = attempts.some((a) =>
+          a.rate_limit_evidence?.global_remaining_minute === 0 ||
+          a.rate_limit_evidence?.route_remaining_minute === 0 ||
+          a.rate_limit_evidence?.route_remaining_second === 0 ||
+          a.rate_limit_evidence?.ratelimit_remaining === 0 ||
+          a.response_code === 429
+        );
+        return {
+          testName,
+          requestsFired: attempts.length,
+          limitReached,
+          globalLimitMinute: last.rate_limit_evidence?.global_limit_minute ?? null,
+          globalRemainingMinute: last.rate_limit_evidence?.global_remaining_minute ?? null,
+          routeLimitMinute: last.rate_limit_evidence?.route_limit_minute ?? null,
+          routeRemainingMinute: last.rate_limit_evidence?.route_remaining_minute ?? null,
+          routeLimitSecond: last.rate_limit_evidence?.route_limit_second ?? null,
+          routeRemainingSecond: last.rate_limit_evidence?.route_remaining_second ?? null,
+          ratelimitLimit: last.rate_limit_evidence?.ratelimit_limit ?? null,
+          ratelimitRemaining: last.rate_limit_evidence?.ratelimit_remaining ?? null,
+          ratelimitReset: last.rate_limit_evidence?.ratelimit_reset ?? null,
+          attempts: attempts.map((a) => ({
+            attempt: a.iteration_number,
+            responseCode: a.response_code,
+            globalRemainingMinute: a.rate_limit_evidence?.global_remaining_minute ?? null,
+            routeRemainingMinute: a.rate_limit_evidence?.route_remaining_minute ?? null,
+            routeRemainingSecond: a.rate_limit_evidence?.route_remaining_second ?? null,
+            ratelimitRemaining: a.rate_limit_evidence?.ratelimit_remaining ?? null,
+            ratelimitReset: a.rate_limit_evidence?.ratelimit_reset ?? null
+          }))
+        };
+      });
+    }
+
     const templateData = {
       testRun: testRun.toJSON(),
       project: testRun.project.toJSON(),
       testResultsBySpec: testResultsBySpec,
-      runByUsername
+      runByUsername,
+      rateLimitSummary
     };
 
     // Render template (compiled once at load)

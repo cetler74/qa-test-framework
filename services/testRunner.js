@@ -240,7 +240,9 @@ const HEADER_EVIDENCE_FIELDS = [
   'response_meta',
   'trace_evidence',
   'trace_id',
-  'npu_id'
+  'npu_id',
+  'iteration_number',
+  'rate_limit_evidence'
 ];
 
 const SENSITIVE_HEADER_NAMES = new Set([
@@ -270,6 +272,21 @@ const NPU_HEADER_NAMES = new Set([
   'x-npu',
   'npu-id',
   'x-npu-id'
+]);
+
+// Kong (and compatible gateway) rate-limit response headers. Both the "global" (gateway-wide)
+// and "route" (per-route) minute-window indicators must be surfaced distinctly in reports.
+const RATE_LIMIT_HEADER_NAMES = new Set([
+  'x-global-ratelimit-limit-minute',
+  'x-global-ratelimit-remaining-minute',
+  'x-ratelimit-limit-second',
+  'x-ratelimit-remaining-second',
+  'x-ratelimit-limit-minute',
+  'x-ratelimit-remaining-minute',
+  'ratelimit-limit',
+  'ratelimit-remaining',
+  'ratelimit-reset',
+  'retry-after'
 ]);
 
 function shouldMaskHeader(name) {
@@ -351,6 +368,38 @@ function extractTraceEvidence(requestHeaders, responseHeaders) {
     items: evidence,
     trace_id: firstTrace ? firstTrace.value : null,
     npu_id: firstNpu ? firstNpu.value : null
+  };
+}
+
+/**
+ * Parse Kong rate-limit headers out of normalized response header evidence.
+ * Distinguishes the gateway-wide "global" minute window from the per-route window.
+ * @param {{list: Array<{name:string, value:string}>}} responseHeaders - normalizeHeaderEvidence() output
+ * @returns {object|null} Parsed rate-limit evidence, or null when no rate-limit headers are present
+ */
+function extractRateLimitEvidence(responseHeaders) {
+  const list = responseHeaders && Array.isArray(responseHeaders.list) ? responseHeaders.list : [];
+  const found = {};
+  for (const header of list) {
+    const lower = header.name.toLowerCase();
+    if (RATE_LIMIT_HEADER_NAMES.has(lower)) {
+      found[lower] = header.value;
+    }
+  }
+  if (Object.keys(found).length === 0) return null;
+
+  const toNum = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
+  return {
+    global_limit_minute: toNum(found['x-global-ratelimit-limit-minute']),
+    global_remaining_minute: toNum(found['x-global-ratelimit-remaining-minute']),
+    route_limit_minute: toNum(found['x-ratelimit-limit-minute']),
+    route_remaining_minute: toNum(found['x-ratelimit-remaining-minute']),
+    route_limit_second: toNum(found['x-ratelimit-limit-second']),
+    route_remaining_second: toNum(found['x-ratelimit-remaining-second']),
+    ratelimit_limit: toNum(found['ratelimit-limit']),
+    ratelimit_remaining: toNum(found['ratelimit-remaining']),
+    ratelimit_reset: toNum(found['ratelimit-reset']),
+    retry_after: toNum(found['retry-after'])
   };
 }
 
@@ -726,8 +775,12 @@ function runNewmanTests(collection, options = {}) {
 
     // Disable SSL certificate verification for this process
     // This is needed when APIs use certificates that don't match hostnames
+    // Skipped when the caller manages process env once for a batch of concurrent runs (see withNewmanProcessEnv).
+    const manageProcessEnv = !options.skipProcessEnvManagement;
     const originalRejectUnauthorized = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    if (manageProcessEnv) {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    }
 
     // Newman supports collection variables (initial values from collection JSON) and environment variables.
     // Note: pm.collectionVariables.set() at runtime is NOT reliably supported by Newman (see postmanlabs/newman#2190, #2631).
@@ -801,41 +854,46 @@ function runNewmanTests(collection, options = {}) {
 
     // Isolate proxy env per run so Newman does not inherit shell/container proxy vars.
     // This prevents internal URLs from being tunneled through a corporate proxy.
+    // Skipped when the caller manages process env once for a batch of concurrent runs (see withNewmanProcessEnv).
     const proxy = options.proxy && (options.proxy.http || options.proxy.https) ? options.proxy : null;
     const proxyEnvKeys = ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy'];
     const savedEnv = {};
-    for (const key of proxyEnvKeys) {
-      savedEnv[key] = process.env[key];
-      delete process.env[key];
-    }
-    if (proxy) {
-      const httpUrl = proxy.http || proxy.https || '';
-      const httpsUrl = proxy.https || proxy.http || '';
-      const noProxyValue = buildNoProxyValue(collection, options, proxy.bypass || '');
-      process.env.HTTP_PROXY = httpUrl;
-      process.env.HTTPS_PROXY = httpsUrl;
-      process.env.NO_PROXY = noProxyValue;
-      process.env.http_proxy = httpUrl;
-      process.env.https_proxy = httpsUrl;
-      process.env.no_proxy = noProxyValue;
-      console.log('[testRunner] Applied proxy for Newman run:', {
-        httpProxy: httpUrl,
-        httpsProxy: httpsUrl,
-        noProxy: noProxyValue
-      });
+    if (manageProcessEnv) {
+      for (const key of proxyEnvKeys) {
+        savedEnv[key] = process.env[key];
+        delete process.env[key];
+      }
+      if (proxy) {
+        const httpUrl = proxy.http || proxy.https || '';
+        const httpsUrl = proxy.https || proxy.http || '';
+        const noProxyValue = buildNoProxyValue(collection, options, proxy.bypass || '');
+        process.env.HTTP_PROXY = httpUrl;
+        process.env.HTTPS_PROXY = httpsUrl;
+        process.env.NO_PROXY = noProxyValue;
+        process.env.http_proxy = httpUrl;
+        process.env.https_proxy = httpsUrl;
+        process.env.no_proxy = noProxyValue;
+        console.log('[testRunner] Applied proxy for Newman run:', {
+          httpProxy: httpUrl,
+          httpsProxy: httpsUrl,
+          noProxy: noProxyValue
+        });
+      }
     }
 
     newman.run(newmanOptions, (err, summary) => {
-      // Restore proxy env
-      for (const [key, val] of Object.entries(savedEnv)) {
-        if (val !== undefined) process.env[key] = val;
-        else delete process.env[key];
-      }
-      // Restore original SSL verification setting
-      if (originalRejectUnauthorized !== undefined) {
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalRejectUnauthorized;
-      } else {
-        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+      // Restore proxy env (only when this call owns process env management)
+      if (manageProcessEnv) {
+        for (const [key, val] of Object.entries(savedEnv)) {
+          if (val !== undefined) process.env[key] = val;
+          else delete process.env[key];
+        }
+        // Restore original SSL verification setting
+        if (originalRejectUnauthorized !== undefined) {
+          process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalRejectUnauthorized;
+        } else {
+          delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+        }
       }
 
       // Clean up temp file
@@ -1037,6 +1095,57 @@ function runNewmanTests(collection, options = {}) {
 }
 
 /**
+ * Manage proxy/TLS process env once around a batch of concurrent runNewmanTests() calls.
+ * Needed for Rate Limit mode: firing N Newman runs in parallel via Promise.all is unsafe if each
+ * call independently sets/restores process.env (a call finishing early would clear proxy/TLS state
+ * for siblings still in flight). Callers must pass `skipProcessEnvManagement: true` in the options
+ * given to each runNewmanTests() call made inside `fn`.
+ * @param {object|null} proxy - Project proxy config ({http, https, bypass}) or null
+ * @param {object} collectionForNoProxy - Collection used to compute internal no-proxy hosts
+ * @param {object} options - Base run options (used for buildNoProxyValue)
+ * @param {() => Promise<any>} fn - Async function performing the concurrent batch of Newman runs
+ * @returns {Promise<any>} Resolves with fn()'s result
+ */
+async function withNewmanProcessEnv(proxy, collectionForNoProxy, options, fn) {
+  const originalRejectUnauthorized = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+  const activeProxy = proxy && (proxy.http || proxy.https) ? proxy : null;
+  const proxyEnvKeys = ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy'];
+  const savedEnv = {};
+  for (const key of proxyEnvKeys) {
+    savedEnv[key] = process.env[key];
+    delete process.env[key];
+  }
+  if (activeProxy) {
+    const httpUrl = activeProxy.http || activeProxy.https || '';
+    const httpsUrl = activeProxy.https || activeProxy.http || '';
+    const noProxyValue = buildNoProxyValue(collectionForNoProxy, options, activeProxy.bypass || '');
+    process.env.HTTP_PROXY = httpUrl;
+    process.env.HTTPS_PROXY = httpsUrl;
+    process.env.NO_PROXY = noProxyValue;
+    process.env.http_proxy = httpUrl;
+    process.env.https_proxy = httpsUrl;
+    process.env.no_proxy = noProxyValue;
+    console.log('[testRunner] Applied proxy for concurrent Newman batch:', { httpProxy: httpUrl, httpsProxy: httpsUrl, noProxy: noProxyValue });
+  }
+
+  try {
+    return await fn();
+  } finally {
+    for (const [key, val] of Object.entries(savedEnv)) {
+      if (val !== undefined) process.env[key] = val;
+      else delete process.env[key];
+    }
+    if (originalRejectUnauthorized !== undefined) {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = originalRejectUnauthorized;
+    } else {
+      delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    }
+  }
+}
+
+/**
  * Get item from collection using nested path (array of indices)
  * @param {object} collection - Postman collection object
  * @param {Array<number>} path - Array of indices representing nested path (e.g., [0, 1, 2])
@@ -1159,9 +1268,21 @@ async function executeTests(projectId, testRunName, options = {}) {
       hasDelayBetweenTests: typeof options.delayBetweenTests !== 'undefined',
       delayBetweenTests: options.delayBetweenTests,
       hasSelectedTestsOrdered: !!options.selectedTestsOrdered,
-      hasTestDelays: !!options.testDelays
+      hasTestDelays: !!options.testDelays,
+      mode: options.mode
     });
-    
+
+    // Iterations mode loops the whole selected-test sequence N times.
+    // Rate Limit mode fires N requests in parallel per selected test to reach the configured limit.
+    // Delay (global/per-test) remains combinable with either mode.
+    const mode = options.mode === 'iterations' || options.mode === 'rate_limit' ? options.mode : 'standard';
+    const iterationCount = mode === 'iterations'
+      ? Math.max(2, Math.min(50, parseInt(options.iterationCount, 10) || 2))
+      : 1;
+    const rateLimitRequestCount = mode === 'rate_limit'
+      ? Math.max(2, Math.min(20, parseInt(options.rateLimitRequestCount, 10) || 2))
+      : 1;
+
     let collectionIds;
     let selectedTests = null;
 
@@ -1345,7 +1466,16 @@ async function executeTests(projectId, testRunName, options = {}) {
       };
       totalTestsToRun = countItems(mergedCollection.item || []);
     }
-    
+
+    // Multiply total tests for the new run modes: Iterations replays the whole
+    // selected-test sequence N times; Rate Limit fires N parallel requests per test.
+    const singlePassTestsToRun = totalTestsToRun;
+    if (mode === 'iterations') {
+      totalTestsToRun = singlePassTestsToRun * iterationCount;
+    } else if (mode === 'rate_limit') {
+      totalTestsToRun = singlePassTestsToRun * rateLimitRequestCount;
+    }
+
     // Update total tests count early so frontend can show progress
     await testRun.update({
       total_tests: totalTestsToRun
@@ -1393,6 +1523,41 @@ async function executeTests(projectId, testRunName, options = {}) {
     // so single-test runs use values provided from saved environments or manual input.
     applyEnvVarsToRequestPathVariables(mergedCollection, options.envVars);
 
+    // Rate Limit mode has its own execution shape (concurrent bursts per test) and is
+    // handled separately from the standard/iterations sequential-execution logic below.
+    if (mode === 'rate_limit') {
+      return await executeRateLimitMode({
+        testRun,
+        mergedCollection,
+        options,
+        collections,
+        testIdMap,
+        orderedExecutionMeta,
+        selectedTestsOrderedArray,
+        rateLimitRequestCount,
+        testRunName,
+        projectId,
+        usedVariants,
+        jwtVariants: JWT_VARIANTS
+      });
+    }
+
+    // Iterations mode: replay the whole selected-test sequence N times by replicating the
+    // merged item list, tagging each clone with its pass number for reporting/DB tracking.
+    // This reuses the existing sequential per-item execution/delay logic unchanged.
+    if (mode === 'iterations') {
+      const originalItems = mergedCollection.item || [];
+      const repeatedItems = [];
+      for (let iter = 1; iter <= iterationCount; iter++) {
+        for (const it of originalItems) {
+          const clone = JSON.parse(JSON.stringify(it));
+          clone._iterationNumber = iter;
+          repeatedItems.push(clone);
+        }
+      }
+      mergedCollection.item = repeatedItems;
+    }
+
     // Run tests with options (environment variables, etc.)
     // Use Newman's delayRequest option for delays between tests
     // Convert delayBetweenTests to number and validate
@@ -1408,7 +1573,7 @@ async function executeTests(projectId, testRunName, options = {}) {
     let newmanResults;
     let skipDuplicateSave = false; // Flag to skip duplicate save when results are saved incrementally
     
-    const shouldRunSequentially = hasPerItemDelay || hasGlobalDelay || (selectedTestsOrderedArray && selectedTestsOrderedArray.length > 0);
+    const shouldRunSequentially = hasPerItemDelay || hasGlobalDelay || mode === 'iterations' || (selectedTestsOrderedArray && selectedTestsOrderedArray.length > 0);
 
     // Run sequentially when delay behavior or explicit execution order matters.
     // This also prevents a single Newman callback timeout from discarding the whole run.
@@ -1773,7 +1938,8 @@ async function executeTests(projectId, testRunName, options = {}) {
             npu_id: executionResult.item.trace_evidence?.npu_id || null,
             assertions: executionResult.assertions || [],
             error_message: errorMessage,
-            api_spec_id: apiSpecId
+            api_spec_id: apiSpecId,
+            iteration_number: item._iterationNumber || null
           };
           
           if (testInfo) {
@@ -2142,6 +2308,270 @@ async function executeTests(projectId, testRunName, options = {}) {
   } catch (error) {
     throw new Error(`Test execution failed: ${error.message}`);
   }
+}
+
+/**
+ * Rate Limit run mode: run `rateLimitRequestCount` independent, concurrent "lanes" through the
+ * whole selected-test sequence simultaneously (like N parallel copies of the same API test run),
+ * to fire enough near-simultaneous requests to reach the configured rate limit. Each lane has its
+ * own private environment so chained variables (e.g. an OAuth auth_req_id/access_token produced by
+ * an earlier request in the sequence) stay correctly paired within that lane instead of being
+ * shared/reused across lanes (which would break single-use auth flows). Each response is scanned
+ * for Kong rate-limit headers and stored on TestResult.rate_limit_evidence for reporting.
+ * @param {object} params
+ * @returns {Promise<{testRun: object, testResults: Array, summary: object}>}
+ */
+async function executeRateLimitMode({
+  testRun,
+  mergedCollection,
+  options,
+  collections,
+  testIdMap,
+  orderedExecutionMeta,
+  selectedTestsOrderedArray,
+  rateLimitRequestCount,
+  testRunName,
+  projectId,
+  usedVariants,
+  jwtVariants
+}) {
+  const items = mergedCollection.item || [];
+  const started = Date.now();
+
+  const tempDir = path.join(__dirname, '..', 'temp');
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+  const delayBetweenTestsNum = (typeof options.delayBetweenTests !== 'undefined' && options.delayBetweenTests !== null)
+    ? Number(options.delayBetweenTests)
+    : undefined;
+  const hasGlobalDelay = delayBetweenTestsNum !== undefined && !isNaN(delayBetweenTestsNum) && delayBetweenTestsNum > 0;
+
+  const baseEnvVars = { ...(options.envVars || {}) };
+  const runId = testRun.id || generateId();
+
+  // Execute one full pass through the selected-test sequence for a single lane. Runs sequentially
+  // within the lane (so chained variables and JWT refresh behave exactly like the standard path),
+  // while all lanes execute concurrently with the others.
+  async function runLane(laneIndex) {
+    const laneResults = [];
+    const laneEnvId = generateId();
+    const laneEnvFile = path.join(tempDir, `rate-limit-lane-${runId}-${laneIndex}.json`);
+    const laneEnvObject = {
+      id: laneEnvId,
+      name: `Rate Limit Lane ${laneIndex + 1} Environment ${testRunName}`,
+      values: Object.entries(baseEnvVars).map(([key, value]) => ({
+        key, value: normalizeBaseUrl(String(value)), type: 'string', enabled: true
+      })),
+      _postman_variable_scope: 'environment',
+      _postman_exported_at: new Date().toISOString(),
+      _postman_exported_using: 'DEO/EPS -- QA Testing Tool'
+    };
+    fs.writeFileSync(laneEnvFile, JSON.stringify(laneEnvObject, null, 2));
+
+    try {
+      for (let i = 0; i < items.length; i++) {
+        if (isTestRunCancelled(testRun.id)) break;
+
+        const item = items[i];
+        const currentTestName = item.name || item.request?.method || 'Unnamed';
+        const singleCollection = {
+          info: mergedCollection.info || { name: testRunName },
+          item: [JSON.parse(JSON.stringify(item))]
+        };
+        if (Array.isArray(mergedCollection.variable)) singleCollection.variable = JSON.parse(JSON.stringify(mergedCollection.variable));
+        if (mergedCollection.auth) singleCollection.auth = JSON.parse(JSON.stringify(mergedCollection.auth));
+
+        // Refresh signed JWTs for this lane/request so each request across every lane gets a
+        // unique jti (generateSignedJwtFromEnvVars always mints a fresh jti) and never a replay.
+        if (usedVariants && usedVariants.size > 0) {
+          try {
+            const currentEnvContent = JSON.parse(fs.readFileSync(laneEnvFile, 'utf8'));
+            const currentEnvVars = {};
+            for (const v of (currentEnvContent.values || [])) currentEnvVars[v.key] = v.value;
+            let jwtRefreshed = false;
+            for (const { varName, audienceKey } of (jwtVariants || [])) {
+              if (!usedVariants.has(varName)) continue;
+              const audience = (baseEnvVars[audienceKey] || '').trim();
+              if (!audience) continue;
+              const freshJwt = generateSignedJwtFromEnvVars(currentEnvVars, projectId, audience, varName);
+              const existing = currentEnvContent.values.find(v => v.key === varName);
+              if (existing) existing.value = freshJwt;
+              else currentEnvContent.values.push({ key: varName, value: freshJwt, type: 'string', enabled: true });
+              jwtRefreshed = true;
+            }
+            if (jwtRefreshed) fs.writeFileSync(laneEnvFile, JSON.stringify(currentEnvContent, null, 2));
+          } catch (jwtRefreshError) {
+            console.error(`[testRunner] Rate Limit lane ${laneIndex + 1}: failed to refresh JWT for item ${i + 1}:`, jwtRefreshError.message);
+          }
+        }
+
+        const testOptions = { ...options, delayRequest: 0, environment: laneEnvFile, skipProcessEnvManagement: true };
+        delete testOptions.envVars;
+
+        let execution;
+        try {
+          const parsed = await runNewmanTests(singleCollection, testOptions);
+          execution = (parsed.executions && parsed.executions[0]) || {
+            item: { name: currentTestName, request: item.request || {} },
+            status: 'failed',
+            errorMessage: 'No execution result returned'
+          };
+        } catch (runError) {
+          const fullError = getFullErrorMessage(runError) || runError.message || String(runError);
+          execution = {
+            item: {
+              name: currentTestName,
+              request: { method: item.request?.method || '', url: getRequestRawUrl(item.request?.url), headers: getRequestHeadersArray(item.request), body: item.request?.body || '' },
+              response: null,
+              error: { message: fullError, name: runError.name || 'Error', code: runError.code || runError.errno || null }
+            },
+            assertions: [],
+            status: 'failed',
+            errorMessage: normalizeNetworkError(fullError)
+          };
+        }
+
+        const responseCode = execution.item.response?.code ?? null;
+        const status = execution.status || (execution.item.response ? ((responseCode >= 200 && responseCode < 300) ? 'passed' : 'failed') : 'failed');
+        const errorMessage = execution.errorMessage || (status === 'failed' ? (execution.item.error ? normalizeNetworkError(getFullErrorMessage(execution.item.error) || execution.item.error.message) : 'Request failed') : null);
+
+        // Sync response-derived chained variables (auth_req_id, access_token, etc.) into this
+        // lane's own private environment so the next item in this lane's sequence can use them.
+        const responseBody = execution.item.response?.body;
+        if (responseBody) {
+          try {
+            const responseJson = typeof responseBody === 'string' ? JSON.parse(responseBody) : responseBody;
+            const envContent = JSON.parse(fs.readFileSync(laneEnvFile, 'utf8'));
+            let envUpdated = false;
+            const variablePatterns = ['auth_req_id', 'access_token', 'token', 'bearer_token', 'id', 'request_id', 'validResourceId'];
+            const applyVar = (varName, val) => {
+              if (val === undefined || val === null) return;
+              const strVal = String(val);
+              const existingVar = envContent.values.find(v => v.key === varName);
+              if (existingVar) {
+                if (existingVar.value !== strVal) { existingVar.value = strVal; envUpdated = true; }
+              } else {
+                envContent.values.push({ key: varName, value: strVal, type: 'string', enabled: true });
+                envUpdated = true;
+              }
+            };
+            variablePatterns.forEach((varName) => applyVar(varName, responseJson[varName]));
+            if (responseJson.data) {
+              variablePatterns.forEach((varName) => applyVar(varName, responseJson.data[varName]));
+            }
+            if (envUpdated) fs.writeFileSync(laneEnvFile, JSON.stringify(envContent, null, 2));
+          } catch (parseError) {
+            // Response is not JSON or parsing failed - skip variable extraction (expected for non-JSON responses)
+          }
+        }
+
+        const rawResponseBody = execution.item.response?.body || (execution.item.error ? `No HTTP response received.\nError: ${normalizeNetworkError(getFullErrorMessage(execution.item.error) || execution.item.error.message || '')}` : 'No HTTP response');
+        const formattedResponse = execution.item.response
+          ? `Status: ${execution.item.response.code || ''} ${execution.item.response.status || ''}\n\nHeaders:\n${headersToText(execution.item.response.headers)}\n\nBody:\n${rawResponseBody}`
+          : rawResponseBody;
+        const formattedRequest = [
+          `${execution.item.request?.method || ''} ${execution.item.request?.url || ''}`,
+          '', 'Headers:', headersToText(execution.item.request?.headers), '', 'Body:', execution.item.request?.body || ''
+        ].join('\n');
+
+        const rateLimitEvidence = execution.item.response ? extractRateLimitEvidence(execution.item.response.headers) : null;
+
+        const explicitOrderMeta = orderedExecutionMeta[i] || null;
+        const apiSpecId = explicitOrderMeta?.apiSpecId || findCollectionForExecution(collections, currentTestName).apiSpecId;
+        const testInfo = explicitOrderMeta
+          ? { testId: explicitOrderMeta.testId, executionOrder: explicitOrderMeta.executionOrder }
+          : (testIdMap.get(currentTestName) || { testId: `TEST-${i + 1}`, executionOrder: i + 1 });
+
+        const testResultData = {
+          test_run_id: testRun.id,
+          test_name: execution.item.name,
+          endpoint: execution.item.request?.url || '',
+          method: execution.item.request?.method || '',
+          status,
+          duration_ms: 0,
+          request_body: formattedRequest,
+          response_body: formattedResponse,
+          response_code: responseCode || null,
+          request_headers_sent: execution.item.request?.headers || null,
+          response_headers_received: execution.item.response?.headers || null,
+          assertions: execution.assertions || [],
+          error_message: errorMessage,
+          api_spec_id: apiSpecId,
+          execution_order: testInfo.executionOrder,
+          test_id: testInfo.testId,
+          iteration_number: laneIndex + 1,
+          rate_limit_evidence: rateLimitEvidence
+        };
+
+        let testResult;
+        try {
+          testResult = await TestResult.create(testResultData);
+        } catch (createError) {
+          if (isMissingColumnError(createError)) {
+            testResult = await TestResult.create(stripHeaderEvidenceFields(testResultData));
+          } else {
+            throw createError;
+          }
+        }
+
+        laneResults.push(testResult);
+
+        const projectTest = await updateProjectTestStatsForApiResult(
+          testRun,
+          testResult,
+          explicitOrderMeta ? { sourceId: explicitOrderMeta.collectionId, sourcePath: explicitOrderMeta.pathString } : null
+        );
+        if (projectTest && testResult.project_test_id !== projectTest.id) {
+          await testResult.update({ project_test_id: projectTest.id });
+        }
+
+        if (isTestRunCancelled(testRun.id)) break;
+
+        const delaySec = (typeof item._delaySeconds !== 'undefined' && item._delaySeconds !== null)
+          ? Number(item._delaySeconds)
+          : (hasGlobalDelay ? delayBetweenTestsNum : 0);
+        if (delaySec > 0 && i < items.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+        }
+      }
+    } finally {
+      try { if (fs.existsSync(laneEnvFile)) fs.unlinkSync(laneEnvFile); } catch (_) { /* ignore */ }
+    }
+
+    return laneResults;
+  }
+
+  console.log(`[testRunner] Rate Limit: running ${rateLimitRequestCount} concurrent lanes, ${items.length} test(s) each`);
+
+  const laneResultArrays = await withNewmanProcessEnv(options.proxy, mergedCollection, options, () => {
+    const lanes = Array.from({ length: rateLimitRequestCount }, (_, laneIndex) => runLane(laneIndex));
+    return Promise.all(lanes);
+  });
+
+  const testResults = laneResultArrays.flat();
+
+  const completed = Date.now();
+  const totalTests = testResults.length;
+  const passedTests = testResults.filter(tr => tr.status === 'passed').length;
+  const failedTests = testResults.filter(tr => tr.status === 'failed').length;
+  const duration = completed - started;
+
+  if (isTestRunCancelled(testRun.id)) {
+    await testRun.update({ status: 'cancelled', total_tests: totalTests, passed_tests: passedTests, failed_tests: failedTests, duration_ms: duration });
+    clearCancelTestRun(testRun.id);
+    return { testRun, testResults, summary: { total: totalTests, passed: passedTests, failed: failedTests, duration } };
+  }
+
+  await testRun.update({
+    status: (failedTests > 0 && passedTests > 0) ? 'partial_failed' : (failedTests > 0 ? 'failed' : 'passed'),
+    total_tests: totalTests,
+    passed_tests: passedTests,
+    failed_tests: failedTests,
+    duration_ms: duration
+  });
+
+  clearCancelTestRun(testRun.id);
+  return { testRun, testResults, summary: { total: totalTests, passed: passedTests, failed: failedTests, duration } };
 }
 
 module.exports = {

@@ -3362,7 +3362,7 @@ router.get('/test-runs/count', async(req, res) => {
 
         if (runType === 'api' || runType === 'soap') {
             const where = {...baseWhere };
-            if (runType === 'api') where[Op.or] = [{ run_type: null }, { run_type: 'api' }];
+            if (runType === 'api') where[Op.or] = [{ run_type: null }, { run_type: 'api' }, { run_type: 'iterations' }, { run_type: 'rate_limit' }];
             if (runType === 'soap') where.run_type = 'soap';
             const total = await TestRun.count({ where });
             return res.json({ total });
@@ -3377,7 +3377,7 @@ router.get('/test-runs/count', async(req, res) => {
         }
         // type === 'all'
         const [apiCount, uiCount, fuzzCount] = await Promise.all([
-            TestRun.count({ where: {...baseWhere, [Op.or]: [{ run_type: null }, { run_type: 'api' }, { run_type: 'soap' }] } }),
+            TestRun.count({ where: {...baseWhere, [Op.or]: [{ run_type: null }, { run_type: 'api' }, { run_type: 'soap' }, { run_type: 'iterations' }, { run_type: 'rate_limit' }] } }),
             PlaywrightRun.count({ where: baseWhere }),
             FuzzRun.count({ where: baseWhere })
         ]);
@@ -3481,7 +3481,7 @@ router.get('/test-runs', async(req, res) => {
             const where = {...projectFilter };
             if (projectId) where.project_id = projectId;
             if (runType === 'api') {
-                where[Op.or] = [{ run_type: null }, { run_type: 'api' }];
+                where[Op.or] = [{ run_type: null }, { run_type: 'api' }, { run_type: 'iterations' }, { run_type: 'rate_limit' }];
             }
             if (name) {
                 const lower = name.toLowerCase();
@@ -3744,6 +3744,25 @@ router.post('/test-runs/execute', async(req, res) => {
             testOptions.selectedTestsOrdered = req.body.selectedTestsOrdered;
         }
 
+        // Run mode: 'standard' (default), 'iterations' (loop selected tests N times), or
+        // 'rate_limit' (fire N parallel requests per test to reach the configured rate limit).
+        // Delay (global/per-test) remains combinable with either mode.
+        const mode = ['iterations', 'rate_limit'].includes(req.body.mode) ? req.body.mode : 'standard';
+        testOptions.mode = mode;
+        if (mode === 'iterations') {
+            const iterationCount = parseInt(req.body.iterationCount, 10);
+            if (!Number.isInteger(iterationCount) || iterationCount < 2 || iterationCount > 50) {
+                return res.status(400).json({ error: 'iterationCount must be an integer between 2 and 50' });
+            }
+            testOptions.iterationCount = iterationCount;
+        } else if (mode === 'rate_limit') {
+            const rateLimitRequestCount = parseInt(req.body.rateLimitRequestCount, 10);
+            if (!Number.isInteger(rateLimitRequestCount) || rateLimitRequestCount < 2 || rateLimitRequestCount > 20) {
+                return res.status(400).json({ error: 'rateLimitRequestCount must be an integer between 2 and 20' });
+            }
+            testOptions.rateLimitRequestCount = rateLimitRequestCount;
+        }
+
         // Log testOptions before calling executeTests
         console.log('[api] testOptions before executeTests:', JSON.stringify({
             hasDelayBetweenTests: typeof testOptions.delayBetweenTests !== 'undefined',
@@ -3773,6 +3792,7 @@ router.post('/test-runs/execute', async(req, res) => {
             name: name,
             status: 'running',
             project_id: projectId,
+            run_type: mode === 'standard' ? 'api' : mode,
             total_tests: 0,
             passed_tests: 0,
             failed_tests: 0,
@@ -3787,7 +3807,10 @@ router.post('/test-runs/execute', async(req, res) => {
                 environment: testOptions.environment || null,
                 envVars: testOptions.envVars || null,
                 delayBetweenTests: testOptions.delayBetweenTests ?? null,
-                testDelays: testOptions.testDelays || null
+                testDelays: testOptions.testDelays || null,
+                mode,
+                iterationCount: testOptions.iterationCount ?? null,
+                rateLimitRequestCount: testOptions.rateLimitRequestCount ?? null
             })
         });
 
