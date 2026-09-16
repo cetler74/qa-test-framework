@@ -19,6 +19,9 @@ function captureRunTestsModalState() {
     selectedEnvId: document.getElementById('env-select')?.value || '',
     showEnvVars: !!document.getElementById('show-env-vars')?.checked,
     delayBetweenTests: document.getElementById('delay-between-tests')?.value || '',
+    runMode: document.getElementById('run-mode-select')?.value || 'standard',
+    iterationsCount: document.getElementById('iterations-count')?.value || '',
+    rateLimitCount: document.getElementById('rate-limit-count')?.value || '',
     collectionVars: Array.from(document.querySelectorAll('.collection-var-value')).map((input) => ({
       key: input.getAttribute('data-var-name') || '',
       value: input.value || ''
@@ -401,6 +404,22 @@ function showRunTestsModal(initialState = null) {
             <label for="delay-between-tests">Global delay</label>
             <input type="number" id="delay-between-tests" class="form-control" min="0" placeholder="Delay s">
           </div>
+          <div class="run-tests-field run-tests-mode-field">
+            <label for="run-mode-select">Run mode</label>
+            <select id="run-mode-select" class="form-control">
+              <option value="standard">Standard</option>
+              <option value="iterations">Iterations</option>
+              <option value="rate_limit">Rate Limit</option>
+            </select>
+          </div>
+          <div class="run-tests-field run-tests-iterations-field" id="run-tests-iterations-field" style="display:none;">
+            <label for="iterations-count">Iterations</label>
+            <input type="number" id="iterations-count" class="form-control" min="2" max="50" placeholder="e.g., 5" title="Number of times to loop between selected tests">
+          </div>
+          <div class="run-tests-field run-tests-rate-limit-field" id="run-tests-rate-limit-field" style="display:none;">
+            <label for="rate-limit-count">Rate limit requests</label>
+            <input type="number" id="rate-limit-count" class="form-control" min="2" max="20" placeholder="e.g., 10" title="Number of parallel requests to fire per test to reach the rate limit">
+          </div>
         </div>
 
         <div class="run-tests-workspace">
@@ -510,6 +529,20 @@ function showRunTestsModal(initialState = null) {
       document.getElementById('delay-between-tests').value = initialState.delayBetweenTests;
     }
 
+    if (initialState?.runMode) {
+      const runModeSelectEl = document.getElementById('run-mode-select');
+      if (runModeSelectEl) {
+        runModeSelectEl.value = initialState.runMode;
+        runModeSelectEl.dispatchEvent(new Event('change'));
+      }
+    }
+    if (initialState?.iterationsCount) {
+      document.getElementById('iterations-count').value = initialState.iterationsCount;
+    }
+    if (initialState?.rateLimitCount) {
+      document.getElementById('rate-limit-count').value = initialState.rateLimitCount;
+    }
+
     if (initialState?.selectedEnvId) {
       const envSelect = document.getElementById('env-select');
       if (envSelect) envSelect.value = initialState.selectedEnvId;
@@ -602,6 +635,19 @@ function showRunTestsModal(initialState = null) {
 
       initialState = null;
     }
+
+    // Handle run mode selection: show/hide Iterations vs Rate Limit inputs.
+    // Delay remains visible/usable in all modes since it is combinable with either.
+    const runModeSelect = document.getElementById('run-mode-select');
+    const iterationsField = document.getElementById('run-tests-iterations-field');
+    const rateLimitField = document.getElementById('run-tests-rate-limit-field');
+    const applyRunModeVisibility = () => {
+      const mode = runModeSelect.value;
+      iterationsField.style.display = mode === 'iterations' ? '' : 'none';
+      rateLimitField.style.display = mode === 'rate_limit' ? '' : 'none';
+    };
+    runModeSelect.addEventListener('change', applyRunModeVisibility);
+    applyRunModeVisibility();
 
     // Handle collection selection
     document.getElementById('collection-select').addEventListener('change', (e) => {
@@ -1019,7 +1065,27 @@ function showRunTestsModal(initialState = null) {
       } else {
         console.warn('[frontend] ✗ delay-between-tests input element not found!');
       }
-      
+
+      // Run mode (Standard / Iterations / Rate Limit) - MUST read this BEFORE hiding the modal!
+      const runMode = document.getElementById('run-mode-select')?.value || 'standard';
+      let iterationCount = null;
+      let rateLimitRequestCount = null;
+      if (runMode === 'iterations') {
+        iterationCount = parseInt(document.getElementById('iterations-count')?.value, 10);
+        if (!Number.isInteger(iterationCount) || iterationCount < 2 || iterationCount > 50) {
+          hideModal();
+          alert('Iterations must be a number between 2 and 50.');
+          return;
+        }
+      } else if (runMode === 'rate_limit') {
+        rateLimitRequestCount = parseInt(document.getElementById('rate-limit-count')?.value, 10);
+        if (!Number.isInteger(rateLimitRequestCount) || rateLimitRequestCount < 2 || rateLimitRequestCount > 20) {
+          hideModal();
+          alert('Rate limit requests must be a number between 2 and 20.');
+          return;
+        }
+      }
+
       hideModal();
       
       // Show loading with progress tracking
@@ -1063,7 +1129,13 @@ function showRunTestsModal(initialState = null) {
         // Add global delay if captured
         if (globalDelayValue !== null) {
           requestBody.delayBetweenTests = globalDelayValue;
-          console.log('[frontend] ✓ Added delayBetweenTests to request:', requestBody.delayBetweenTests, 'seconds');
+        }
+
+        // Add run mode and its associated count field
+        if (runMode === 'iterations' || runMode === 'rate_limit') {
+          requestBody.mode = runMode;
+          if (runMode === 'iterations') requestBody.iterationCount = iterationCount;
+          if (runMode === 'rate_limit') requestBody.rateLimitRequestCount = rateLimitRequestCount;
         }
         
         // Log the complete request body for debugging

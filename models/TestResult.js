@@ -107,6 +107,14 @@ const TestResult = sequelize.define('TestResult', {
       key: 'id'
     }
   },
+  iteration_number: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  rate_limit_evidence: {
+    type: DataTypes.JSONB,
+    allowNull: true
+  },
   created_at: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW
