@@ -252,6 +252,14 @@ test.describe('project page workspace', () => {
     await expect(page.locator('#project-overview-area-coverage')).toContainText('Other areas');
     await expect(page.locator('.project-overview-coverage-track .passed')).toHaveCount(5);
     await expect(page.locator('.project-overview-coverage-track .failed')).toHaveCount(5);
+    const firstCoverageRow = page.locator('.project-overview-coverage-row').first();
+    const firstCoverageTooltip = firstCoverageRow.locator('[role="tooltip"]');
+    await expect(firstCoverageTooltip).toContainText('4 passed');
+    await expect(firstCoverageTooltip).toContainText('5 failed');
+    await expect(firstCoverageTooltip).toContainText('39 not run');
+    await expect(firstCoverageTooltip).toHaveCSS('opacity', '0');
+    await firstCoverageRow.hover();
+    await expect(firstCoverageTooltip).toHaveCSS('opacity', '1');
     await expect(page.locator('#project-overview-schedule')).toContainText('Daily regression');
 
     await page.setViewportSize({ width: 390, height: 844 });

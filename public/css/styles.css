@@ -2332,6 +2332,7 @@ p.run-status-in-progress {
 }
 
 .project-overview-coverage-row {
+    position: relative;
     display: grid;
     gap: 6px;
     width: 100%;
@@ -2386,6 +2387,49 @@ p.run-status-in-progress {
 
 .project-overview-coverage-track .passed { background: var(--color-success); }
 .project-overview-coverage-track .failed { background: var(--color-error); }
+
+.project-overview-coverage-tooltip {
+    position: absolute;
+    z-index: 10;
+    right: 0;
+    top: calc(100% - 2px);
+    display: flex;
+    gap: 12px;
+    padding: 7px 10px;
+    border: 1px solid var(--color-gray-300);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-primary);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-md);
+    font-size: 11px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-3px);
+    transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.project-overview-coverage-row:hover .project-overview-coverage-tooltip,
+.project-overview-coverage-row:focus-visible .project-overview-coverage-tooltip {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.project-overview-coverage-tooltip span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.project-overview-coverage-tooltip i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+}
+
+.project-overview-coverage-tooltip .passed i { background: var(--color-success); }
+.project-overview-coverage-tooltip .failed i { background: var(--color-error); }
+.project-overview-coverage-tooltip .not-run i { background: var(--color-gray-400); }
 
 .project-overview-coverage-legend {
     display: flex;

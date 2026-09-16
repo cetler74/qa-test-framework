@@ -1241,13 +1241,16 @@ function renderProjectOverview(projectId) {
   });
 
   const areaRows = getOverviewFolderRows(coverage?.folders || []);
-  areaCoverageEl.innerHTML = areaRows.length ? areaRows.map((folder) => {
+  areaCoverageEl.innerHTML = areaRows.length ? areaRows.map((folder, index) => {
     const covered = folder.passed + folder.failed;
     const coveredPct = folder.total ? Math.round((covered / folder.total) * 100) : 0;
     const passedPct = folder.total ? (folder.passed / folder.total) * 100 : 0;
     const failedPct = folder.total ? (folder.failed / folder.total) * 100 : 0;
+    const notRun = Math.max(0, folder.total - covered);
     const label = folder.label.split('/').filter(Boolean).pop() || folder.label;
-    return `<button type="button" class="project-overview-coverage-row" ${folder.path === null ? 'data-overview-tab="coverage"' : `data-overview-folder-path="${escapeHtml(folder.path)}"`} title="${escapeHtml(folder.label)}"><span class="project-overview-coverage-name"><strong>${escapeHtml(label)}</strong><small>${covered} / ${folder.total} · ${coveredPct}%</small></span><span class="project-overview-coverage-track"><i class="passed" style="width:${passedPct}%"></i><i class="failed" style="width:${failedPct}%"></i></span></button>`;
+    const tooltipId = `project-overview-coverage-tooltip-${index}`;
+    const accessibleLabel = `${folder.label}: ${folder.passed} passed, ${folder.failed} failed, ${notRun} not run`;
+    return `<button type="button" class="project-overview-coverage-row" ${folder.path === null ? 'data-overview-tab="coverage"' : `data-overview-folder-path="${escapeHtml(folder.path)}"`} aria-label="${escapeHtml(accessibleLabel)}" aria-describedby="${tooltipId}"><span class="project-overview-coverage-name"><strong>${escapeHtml(label)}</strong><small>${covered} / ${folder.total} · ${coveredPct}%</small></span><span class="project-overview-coverage-track"><i class="passed" style="width:${passedPct}%"></i><i class="failed" style="width:${failedPct}%"></i></span><span id="${tooltipId}" class="project-overview-coverage-tooltip" role="tooltip"><span class="passed"><i></i><strong>${folder.passed}</strong> passed</span><span class="failed"><i></i><strong>${folder.failed}</strong> failed</span><span class="not-run"><i></i><strong>${notRun}</strong> not run</span></span></button>`;
   }).join('') : '<p class="empty-state-inline">No folder coverage available.</p>';
   areaCoverageEl.querySelectorAll('[data-overview-folder-path]').forEach((button) => button.addEventListener('click', () => {
     setProjectTab('coverage');
