@@ -2295,19 +2295,23 @@ p.run-status-in-progress {
 .project-overview-run-type {
     display: grid;
     flex: 0 0 auto;
-    width: 36px;
+    min-width: 36px;
     height: 34px;
+    padding: 0 6px;
     place-items: center;
     border-radius: var(--radius-sm);
     color: #fff;
     background: #0d9488;
     font-size: 10px;
     font-weight: 700;
+    white-space: nowrap;
 }
 
 .project-overview-run-type.ui { background: #6366f1; }
 .project-overview-run-type.fuzz { background: #ea580c; }
 .project-overview-run-type.soap { background: #8b5cf6; }
+.project-overview-run-type.iterations { background: #2563eb; }
+.project-overview-run-type.rate_limit { background: #dc2626; }
 
 .project-overview-run time,
 .project-overview-run > span:not(.project-overview-run-identity, .status-badge) {
@@ -2596,15 +2600,23 @@ p.run-status-in-progress {
 
 .project-run-type {
     display: grid;
-    width: 34px;
+    min-width: 34px;
     height: 30px;
+    padding: 0 6px;
     place-items: center;
     border-radius: var(--radius-sm);
     color: var(--color-primary-dark);
     background: rgba(20, 184, 166, 0.14);
     font-size: 10px;
     font-weight: 700;
+    white-space: nowrap;
 }
+
+.project-run-type.ui { color: #6366f1; background: rgba(99, 102, 241, 0.14); }
+.project-run-type.fuzz { color: #ea580c; background: rgba(234, 88, 12, 0.14); }
+.project-run-type.soap { color: #8b5cf6; background: rgba(139, 92, 246, 0.14); }
+.project-run-type.iterations { color: #2563eb; background: rgba(37, 99, 235, 0.14); }
+.project-run-type.rate_limit { color: #dc2626; background: rgba(220, 38, 38, 0.14); }
 
 .project-run-actions {
     display: flex;

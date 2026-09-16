@@ -790,6 +790,22 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+// Short label shown in run-type badges (kept compact so longer type names like
+// 'rate_limit'/'iterations' don't wrap or overflow the fixed-size badge).
+const RUN_TYPE_BADGE_LABELS = {
+    api: 'API',
+    ui: 'UI',
+    soap: 'SOAP',
+    fuzz: 'FUZZ',
+    iterations: 'ITER',
+    rate_limit: 'RATE'
+};
+
+function runTypeBadgeLabel(runType) {
+    const key = String(runType || '').toLowerCase();
+    return RUN_TYPE_BADGE_LABELS[key] || key.toUpperCase();
+}
+
 function formatFileSize(bytes) {
     const value = Number(bytes || 0);
     if (!Number.isFinite(value) || value <= 0) return '0 B';
@@ -1062,7 +1078,7 @@ function renderProjectRunsList() {
         return `
           <div class="project-run-row" role="row" data-run-key="${escapeHtml(key)}">
             <span role="cell"><input type="checkbox" class="project-run-check" aria-label="Select ${escapeHtml(run.name || `Run ${run.id}`)}" ${selectedProjectRunKeys.has(key) ? 'checked' : ''} ${running ? 'disabled title="Running runs cannot be deleted"' : ''}></span>
-            <button type="button" class="project-run-identity project-run-open"><span class="project-run-type ${escapeHtml(runType)}">${escapeHtml(runType.toUpperCase())}</span><span><strong>${escapeHtml(run.name || `Run ${run.id}`)}</strong><small>${escapeHtml(run.run_by?.username || run.run_by_username || '')}</small></span></button>
+            <button type="button" class="project-run-identity project-run-open"><span class="project-run-type ${escapeHtml(runType)}">${escapeHtml(runTypeBadgeLabel(runType))}</span><span><strong>${escapeHtml(run.name || `Run ${run.id}`)}</strong><small>${escapeHtml(run.run_by?.username || run.run_by_username || '')}</small></span></button>
             <span role="cell"><span class="status-badge ${escapeHtml(status)}">${escapeHtml(status.replace(/_/g, ' '))}</span></span>
             <span role="cell">${run.created_at ? escapeHtml(formatDateTime(run.created_at)) : '—'}</span>
             <span role="cell">${passed} passed · ${failed} failed</span>
@@ -1214,7 +1230,7 @@ function renderProjectOverview(projectId) {
     const runner = run.run_by?.username || run.run_by_username || 'Unknown runner';
     const status = String(run.status || 'pending');
     return `<button type="button" class="project-overview-run" data-overview-run-id="${run.id}">
-      <span class="project-overview-run-identity"><span class="project-overview-run-type ${escapeHtml(runType)}">${escapeHtml(runType.toUpperCase())}</span><span><strong>${escapeHtml(run.name || `Run ${run.id}`)}</strong><small>${total} test${total === 1 ? '' : 's'} · run by ${escapeHtml(runner)}</small></span></span>
+      <span class="project-overview-run-identity"><span class="project-overview-run-type ${escapeHtml(runType)}">${escapeHtml(runTypeBadgeLabel(runType))}</span><span><strong>${escapeHtml(run.name || `Run ${run.id}`)}</strong><small>${total} test${total === 1 ? '' : 's'} · run by ${escapeHtml(runner)}</small></span></span>
       <span class="status-badge ${escapeHtml(status)}">${escapeHtml(status.replace(/_/g, ' '))}</span>
       <time>${escapeHtml(formatProjectRunDate(run.created_at))}</time><span>${escapeHtml(result)}</span><span>${escapeHtml(formatProjectRunDuration(run))}</span>
     </button>`;
