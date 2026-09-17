@@ -2498,7 +2498,7 @@ p.run-status-in-progress {
     border: 1px solid var(--color-gray-300);
     border-radius: var(--radius-sm);
     color: var(--color-text-primary);
-    background: var(--color-surface);
+    background: var(--color-bg-primary, #ffffff);
     box-shadow: var(--shadow-md);
     font-size: 11px;
     white-space: nowrap;
@@ -2778,6 +2778,11 @@ p.run-status-in-progress {
 .dark-theme .project-overview-kpi-progress,
 .dark-theme .project-overview-coverage-track {
     background: var(--color-bg-tertiary, #334155);
+}
+
+.dark-theme .project-overview-coverage-tooltip {
+    border-color: var(--color-border, #475569);
+    background: var(--color-bg-primary, #0f172a);
 }
 .project-runs-table {
     border: 1px solid var(--color-gray-200);
