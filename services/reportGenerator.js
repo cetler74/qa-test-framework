@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { TestRun, TestResult, Project, ApiSpec } = require('../models');
 const { literal } = require('sequelize');
+const { QA_TEST_HUB_LOGO_DATA_URI } = require('./reportBranding');
 
 // Ensure reports directory exists
 const reportsDir = process.env.REPORTS_DIR || './reports';
@@ -20,6 +21,7 @@ const reportTemplate = `
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Test Report: {{testRun.name}}</title>
+    <link rel="icon" href="{{{qaTestHubLogoDataUri}}}" type="image/svg+xml">
     <style>
         * {
             margin: 0;
@@ -44,15 +46,32 @@ const reportTemplate = `
             gap: 16px;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
         }
-        .report-header img {
+        .report-header > img {
             height: 36px;
             width: auto;
         }
+        .report-brand-copy {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            line-height: 1.1;
+        }
+        .report-brand-org {
+            font-size: 12px;
+            font-weight: 600;
+        }
         .report-header h1 {
-            font-size: 24px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 20px;
             font-weight: 600;
             letter-spacing: -0.025em;
             margin: 0;
+        }
+        .report-header h1 img {
+            width: 28px;
+            height: 28px;
         }
         .container {
             max-width: 1400px;
@@ -402,7 +421,10 @@ const reportTemplate = `
 <body>
     <div class="report-header">
         <img src="https://conteudos.meo.pt/Style%20Library/quantcast/logo-meo.png?qc-size=98,56" alt="MEO logo">
-        <h1>DEO/EPS -- QA Testing Tool</h1>
+        <div class="report-brand-copy">
+            <span class="report-brand-org">DEO/ECP/EPS</span>
+            <h1><span>QA Test Hub</span><img src="{{{qaTestHubLogoDataUri}}}" alt="QA Test Hub logo"></h1>
+        </div>
     </div>
     <div class="container">
         <header>
@@ -461,10 +483,15 @@ const reportTemplate = `
             <div class="test-group">
                 <div class="test-group-header">
                     <h3>{{this.testName}}</h3>
-                    <span>{{this.requestsFired}} request(s) fired{{#if this.limitReached}} &mdash; Limit reached{{/if}}</span>
+                    <span>{{this.requestsFired}} request(s) fired - {{this.classificationLabel}}</span>
                 </div>
                 <div class="detail-section" style="margin: 12px;">
-                    <div class="detail-label">Final Rate Limit Indicators</div>
+                    <div class="detail-label">Route Validation</div>
+                    <div class="detail-value">Second: {{this.secondStatus}} ({{this.secondReason}})
+Minute: {{this.minuteStatus}} ({{this.minuteReason}})</div>
+                </div>
+                <div class="detail-section" style="margin: 12px;">
+                    <div class="detail-label">Final Indicators (global and RateLimit-* are diagnostic only)</div>
                     <div class="detail-value">X-Global-RateLimit-Remaining-minute: {{this.globalRemainingMinute}} / {{this.globalLimitMinute}}
 X-RateLimit-Remaining-Minute: {{this.routeRemainingMinute}} / {{this.routeLimitMinute}}
 X-RateLimit-Remaining-Second: {{this.routeRemainingSecond}} / {{this.routeLimitSecond}}
@@ -474,6 +501,7 @@ RateLimit-Remaining: {{this.ratelimitRemaining}} / {{this.ratelimitLimit}} (Rese
                     <thead>
                         <tr>
                             <th style="text-align:left; padding:6px; border-bottom:1px solid #e5e7eb;">Attempt</th>
+                            <th style="text-align:left; padding:6px; border-bottom:1px solid #e5e7eb;">Phase</th>
                             <th style="text-align:left; padding:6px; border-bottom:1px solid #e5e7eb;">Response Code</th>
                             <th style="text-align:left; padding:6px; border-bottom:1px solid #e5e7eb;">X-Global-RateLimit-Remaining-minute</th>
                             <th style="text-align:left; padding:6px; border-bottom:1px solid #e5e7eb;">X-RateLimit-Remaining-Minute</th>
@@ -486,6 +514,7 @@ RateLimit-Remaining: {{this.ratelimitRemaining}} / {{this.ratelimitLimit}} (Rese
                         {{#each this.attempts}}
                         <tr>
                             <td style="padding:6px; border-bottom:1px solid #f3f4f6;">{{this.attempt}}</td>
+                            <td style="padding:6px; border-bottom:1px solid #f3f4f6;">{{this.phase}}</td>
                             <td style="padding:6px; border-bottom:1px solid #f3f4f6;">{{this.responseCode}}</td>
                             <td style="padding:6px; border-bottom:1px solid #f3f4f6;">{{this.globalRemainingMinute}}</td>
                             <td style="padding:6px; border-bottom:1px solid #f3f4f6;">{{this.routeRemainingMinute}}</td>
@@ -838,24 +867,27 @@ async function generateReport(testRunId, options = {}) {
       Object.values(testResultsBySpec).forEach((list) => {
         list.forEach((result) => {
           if (!result.rate_limit_evidence) return;
-          if (!attemptsByTest.has(result.test_name)) attemptsByTest.set(result.test_name, []);
-          attemptsByTest.get(result.test_name).push(result);
+                    const evidence = result.rate_limit_evidence;
+                    const target = evidence.target || {};
+                    const key = [result.test_id, result.execution_order, target.method, target.origin, target.pathname].join('|');
+                    if (!attemptsByTest.has(key)) attemptsByTest.set(key, []);
+                    attemptsByTest.get(key).push(result);
         });
       });
-      rateLimitSummary = Array.from(attemptsByTest.entries()).map(([testName, attempts]) => {
-        attempts.sort((a, b) => (a.iteration_number || 0) - (b.iteration_number || 0));
+            rateLimitSummary = Array.from(attemptsByTest.values()).map((attempts) => {
+                attempts.sort((a, b) => String(a.rate_limit_evidence?.observed_at || '').localeCompare(String(b.rate_limit_evidence?.observed_at || '')));
         const last = attempts[attempts.length - 1];
-        const limitReached = attempts.some((a) =>
-          a.rate_limit_evidence?.global_remaining_minute === 0 ||
-          a.rate_limit_evidence?.route_remaining_minute === 0 ||
-          a.rate_limit_evidence?.route_remaining_second === 0 ||
-          a.rate_limit_evidence?.ratelimit_remaining === 0 ||
-          a.response_code === 429
-        );
+                const classification = last.rate_limit_evidence?.classification || 'business';
+                const secondValidation = attempts.map(a => a.rate_limit_evidence?.validation?.second).filter(Boolean).pop();
+                const minuteValidation = attempts.map(a => a.rate_limit_evidence?.validation?.minute).filter(Boolean).pop();
         return {
-          testName,
+                    testName: last.test_name,
           requestsFired: attempts.length,
-          limitReached,
+                    classificationLabel: classification === 'setup_auth' ? 'Not Applicable (setup/auth)' : 'Business endpoint',
+                    secondStatus: classification === 'setup_auth' ? 'not_applicable' : (secondValidation?.status || 'inconclusive'),
+                    secondReason: classification === 'setup_auth' ? 'setup_auth_request' : (secondValidation?.reason || 'not_evaluated'),
+                    minuteStatus: classification === 'setup_auth' ? 'not_applicable' : (minuteValidation?.status || 'inconclusive'),
+                    minuteReason: classification === 'setup_auth' ? 'setup_auth_request' : (minuteValidation?.reason || 'not_evaluated'),
           globalLimitMinute: last.rate_limit_evidence?.global_limit_minute ?? null,
           globalRemainingMinute: last.rate_limit_evidence?.global_remaining_minute ?? null,
           routeLimitMinute: last.rate_limit_evidence?.route_limit_minute ?? null,
@@ -867,6 +899,7 @@ async function generateReport(testRunId, options = {}) {
           ratelimitReset: last.rate_limit_evidence?.ratelimit_reset ?? null,
           attempts: attempts.map((a) => ({
             attempt: a.iteration_number,
+                        phase: a.rate_limit_evidence?.phase || '',
             responseCode: a.response_code,
             globalRemainingMinute: a.rate_limit_evidence?.global_remaining_minute ?? null,
             routeRemainingMinute: a.rate_limit_evidence?.route_remaining_minute ?? null,
@@ -883,7 +916,8 @@ async function generateReport(testRunId, options = {}) {
       project: testRun.project.toJSON(),
       testResultsBySpec: testResultsBySpec,
       runByUsername,
-      rateLimitSummary
+            rateLimitSummary,
+            qaTestHubLogoDataUri: QA_TEST_HUB_LOGO_DATA_URI
     };
 
     // Render template (compiled once at load)

@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { parse: parseCsv } = require('csv-parse/sync');
 
-const { sequelize, Project, User, UserEnvironment, ProjectMember, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult, ProjectTest, ProjectTestStat, ProjectTestNote, ProjectTestNoteAttachment, RunCatalogueMembership } = require('../models');
+const { sequelize, Project, User, UserEnvironment, UserOnboardingProgress, ProjectMember, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult, ProjectTest, ProjectTestStat, ProjectTestNote, ProjectTestNoteAttachment, RunCatalogueMembership } = require('../models');
 const { getAccessibleProjectIds, loadProjectAndCheckAccess, userCanAccessProjectId, userCanManageProjectId } = require('../middleware/projectAccess');
 const SequelizeLib = require('sequelize');
 const { Op, literal } = require('sequelize');
@@ -29,6 +29,7 @@ const { applyRecordedSpecTemplate } = require('../services/recordedSpecTemplate'
 const codegenSessionManager = require('../services/codegenSessionManager');
 const { loadProxyConfig, getProxyByName, getProxyForUrl, getProxyForUrlAsync } = require('../lib/proxyConfig');
 const { deriveUrlFromEnvVars } = require('../lib/urlUtils');
+const { getRateLimitMaxRequests } = require('../config/rateLimit');
 const { deleteTestRunArtifacts, deleteFuzzRunArtifacts, deletePlaywrightRunArtifacts } = require('../services/artifactCleanup');
 const { postmanToOpenApiYaml } = require('../services/postmanToOpenApi');
 const { buildArchiveFilename, streamProjectAuditArchive } = require('../services/projectArchiveGenerator');
@@ -527,6 +528,96 @@ router.delete('/user/environments/:id', async(req, res) => {
         if (!env) return res.status(404).json({ error: 'Environment not found' });
         await env.destroy();
         res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ==================== USER ONBOARDING ====================
+
+const ONBOARDING_STATUSES = new Set(['offered', 'skipped', 'completed']);
+const ONBOARDING_KEY_PATTERN = /^[a-z0-9][a-z0-9-]{0,99}$/;
+
+function validateOnboardingParams(tourKey, tourVersion) {
+    if (!ONBOARDING_KEY_PATTERN.test(String(tourKey || ''))) return 'Invalid tour key';
+    if (!tourVersion || String(tourVersion).length > 50) return 'Invalid tour version';
+    return null;
+}
+
+function serializeOnboardingProgress(progress) {
+    return {
+        tour_key: progress.tour_key,
+        tour_version: progress.tour_version,
+        status: progress.status,
+        offered_at: progress.offered_at,
+        skipped_at: progress.skipped_at,
+        completed_at: progress.completed_at,
+        replay_count: progress.replay_count,
+        last_replayed_at: progress.last_replayed_at
+    };
+}
+
+router.get('/user/onboarding', async(req, res) => {
+    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+    try {
+        const progress = await UserOnboardingProgress.findAll({
+            where: { user_id: req.user.id },
+            order: [['updated_at', 'DESC']]
+        });
+        res.json({ tours: progress.map(serializeOnboardingProgress) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.put('/user/onboarding/:tourKey', async(req, res) => {
+    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+    const tourKey = String(req.params.tourKey || '');
+    const tourVersion = String(req.body?.tour_version || '');
+    const status = String(req.body?.status || '');
+    const validationError = validateOnboardingParams(tourKey, tourVersion);
+    if (validationError) return res.status(400).json({ error: validationError });
+    if (!ONBOARDING_STATUSES.has(status)) return res.status(400).json({ error: 'Invalid onboarding status' });
+
+    const now = new Date();
+    const timestamps = {
+        offered_at: status === 'offered' ? now : undefined,
+        skipped_at: status === 'skipped' ? now : null,
+        completed_at: status === 'completed' ? now : null
+    };
+    try {
+        const [progress, created] = await UserOnboardingProgress.findOrCreate({
+            where: { user_id: req.user.id, tour_key: tourKey, tour_version: tourVersion },
+            defaults: { status, ...timestamps }
+        });
+        if (!created) await progress.update({ status, ...timestamps });
+        res.json(serializeOnboardingProgress(progress));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/user/onboarding/:tourKey/replay', async(req, res) => {
+    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+    const tourKey = String(req.params.tourKey || '');
+    const tourVersion = String(req.body?.tour_version || '');
+    const validationError = validateOnboardingParams(tourKey, tourVersion);
+    if (validationError) return res.status(400).json({ error: validationError });
+
+    try {
+        const [progress, created] = await UserOnboardingProgress.findOrCreate({
+            where: { user_id: req.user.id, tour_key: tourKey, tour_version: tourVersion },
+            defaults: { status: 'offered', replay_count: 1, last_replayed_at: new Date() }
+        });
+        if (!created) {
+            await progress.update({
+                status: 'offered',
+                offered_at: new Date(),
+                replay_count: Number(progress.replay_count || 0) + 1,
+                last_replayed_at: new Date()
+            });
+        }
+        res.json(serializeOnboardingProgress(progress));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -3102,14 +3193,14 @@ function toUnifiedRun(row, runType) {
 }
 
 function getRerunModel(runType) {
-    if (runType === 'api' || runType === 'soap') return TestRun;
+    if (['api', 'iterations', 'rate_limit', 'soap'].includes(runType)) return TestRun;
     if (runType === 'ui') return PlaywrightRun;
     if (runType === 'fuzz') return FuzzRun;
     return null;
 }
 
 async function launchSnapshotRerun(runType, run, snapshot, runByUserId) {
-    if (runType === 'api') {
+    if (['api', 'iterations', 'rate_limit'].includes(runType)) {
         const options = {
             collectionIds: snapshot.collectionIds,
             selectedTests: snapshot.selectedTests,
@@ -3118,11 +3209,14 @@ async function launchSnapshotRerun(runType, run, snapshot, runByUserId) {
             envVars: snapshot.envVars,
             delayBetweenTests: snapshot.delayBetweenTests,
             testDelays: snapshot.testDelays,
+            mode: snapshot.mode || (runType === 'api' ? 'standard' : runType),
+            iterationCount: snapshot.iterationCount,
+            rateLimitRequestCount: snapshot.rateLimitRequestCount,
             testRunId: run.id
         };
         options.proxy = await getProxyForUrlAsync(deriveUrlFromEnvVars(options.envVars));
         await executeTests(run.project_id, run.name, options);
-        await captureRunCatalogueMemberships(runType, run.id, run.project_id);
+        await captureRunCatalogueMemberships('api', run.id, run.project_id);
         setImmediate(() => {
             generateReport(run.id, { skipCache: true, writeToStablePath: true })
                 .catch((error) => console.error('[api] Pre-generate rerun report failed:', error));
@@ -3180,7 +3274,7 @@ async function launchSnapshotRerun(runType, run, snapshot, runByUserId) {
 async function markSnapshotRerunFailed(runType, runId, error) {
     const model = getRerunModel(runType);
     const values = { status: 'failed' };
-    if (runType === 'api' || runType === 'soap') values.error_message = error.message || String(error);
+    if (['api', 'iterations', 'rate_limit', 'soap'].includes(runType)) values.error_message = error.message || String(error);
     if (runType === 'fuzz') values.progress_message = (error.message || String(error)).slice(0, 2000);
     await model.update(values, { where: { id: runId } });
 }
@@ -3201,7 +3295,9 @@ router.post('/runs/:runType/:id/rerun', async(req, res) => {
 
         const availability = getRerunAvailability(sourceRun);
         if (!availability.canRerun) return res.status(409).json({ error: availability.reason });
-        if (sourceRun.execution_snapshot.runType !== runType) {
+        const snapshotRunType = sourceRun.execution_snapshot.runType;
+        const expectedSnapshotRunType = ['iterations', 'rate_limit'].includes(runType) ? 'api' : runType;
+        if (snapshotRunType !== expectedSnapshotRunType) {
             return res.status(409).json({ error: 'Stored replay settings do not match this run type.' });
         }
 
@@ -3216,7 +3312,7 @@ router.post('/runs/:runType/:id/rerun', async(req, res) => {
                 failed_tests: 0,
                 duration_ms: 0
             };
-            if (runType === 'api' || runType === 'soap') {
+            if (['api', 'iterations', 'rate_limit', 'soap'].includes(runType)) {
                 return model.create({
                     ...commonValues,
                     run_type: runType,
@@ -3757,8 +3853,9 @@ router.post('/test-runs/execute', async(req, res) => {
             testOptions.iterationCount = iterationCount;
         } else if (mode === 'rate_limit') {
             const rateLimitRequestCount = parseInt(req.body.rateLimitRequestCount, 10);
-            if (!Number.isInteger(rateLimitRequestCount) || rateLimitRequestCount < 2 || rateLimitRequestCount > 20) {
-                return res.status(400).json({ error: 'rateLimitRequestCount must be an integer between 2 and 20' });
+            const rateLimitMaxRequests = getRateLimitMaxRequests();
+            if (!Number.isInteger(rateLimitRequestCount) || rateLimitRequestCount < 2 || rateLimitRequestCount > rateLimitMaxRequests) {
+                return res.status(400).json({ error: `rateLimitRequestCount must be an integer between 2 and ${rateLimitMaxRequests}` });
             }
             testOptions.rateLimitRequestCount = rateLimitRequestCount;
         }

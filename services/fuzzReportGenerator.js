@@ -2,6 +2,7 @@ const handlebars = require('handlebars');
 const fs = require('fs');
 const path = require('path');
 const { FuzzRun, FuzzResult, ApiSpec, Project } = require('../models');
+const { QA_TEST_HUB_LOGO_DATA_URI } = require('./reportBranding');
 
 const reportsDir = process.env.REPORTS_DIR || './reports';
 if (!fs.existsSync(reportsDir)) {
@@ -18,11 +19,16 @@ const reportTemplate = `
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fuzz Report: {{run.name}}</title>
+    <link rel="icon" href="{{{qaTestHubLogoDataUri}}}" type="image/svg+xml">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1f2937; background: #f9fafb; }
         .report-header { background: #111827; color: white; padding: 24px 32px; display: flex; align-items: center; gap: 16px; }
-        .report-header h1 { font-size: 24px; font-weight: 600; margin: 0; }
+        .report-header > img { height: 36px; width: auto; }
+        .report-brand-copy { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+        .report-brand-org { font-size: 12px; font-weight: 600; }
+        .report-header h1 { display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 600; margin: 0; }
+        .report-header h1 img { width: 28px; height: 28px; }
         .container { max-width: 1400px; margin: 0 auto; background: white; padding: 32px; min-height: calc(100vh - 80px); }
         header { border-bottom: 1px solid #e5e7eb; padding-bottom: 24px; margin-bottom: 32px; }
         .report-title { color: #1f2937; margin-bottom: 16px; font-size: 28px; font-weight: 700; }
@@ -64,7 +70,11 @@ const reportTemplate = `
 </head>
 <body>
     <div class="report-header">
-        <h1>Fuzz Report: {{run.name}}</h1>
+      <img src="https://conteudos.meo.pt/Style%20Library/quantcast/logo-meo.png?qc-size=98,56" alt="MEO logo">
+      <div class="report-brand-copy">
+        <span class="report-brand-org">DEO/ECP/EPS</span>
+        <h1><span>QA Test Hub</span><img src="{{{qaTestHubLogoDataUri}}}" alt="QA Test Hub logo"></h1>
+      </div>
     </div>
     <div class="container">
         <header>
@@ -226,7 +236,8 @@ async function generateFuzzReport(fuzzRunId, options = {}) {
     apiSpecName: run.apiSpec ? run.apiSpec.name : '—',
     projectName: run.project ? run.project.name : '—',
     durationSec,
-    results: resultsWithFullUrl
+    results: resultsWithFullUrl,
+    qaTestHubLogoDataUri: QA_TEST_HUB_LOGO_DATA_URI
   };
 
   const html = compiledTemplate(templateData);

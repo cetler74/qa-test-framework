@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const { Collection, TestRun, TestResult, ApiSpec, ProjectTest, ProjectTestStat } = require('../models');
 const { isInternalUrl } = require('../lib/urlUtils');
+const { getRateLimitMaxRequests } = require('../config/rateLimit');
+const { isSetupAuthRequest, normalizeRequestIdentity, validateRouteLimitPhase } = require('./rateLimitValidation');
 const { buildApiOperationKey } = require('./testCatalogue');
 
 // In-memory set of test run IDs that have been requested to cancel (API runs only).
@@ -388,7 +390,11 @@ function extractRateLimitEvidence(responseHeaders) {
   }
   if (Object.keys(found).length === 0) return null;
 
-  const toNum = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
+  const toNum = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : String(value);
+  };
   return {
     global_limit_minute: toNum(found['x-global-ratelimit-limit-minute']),
     global_remaining_minute: toNum(found['x-global-ratelimit-remaining-minute']),
@@ -1280,7 +1286,7 @@ async function executeTests(projectId, testRunName, options = {}) {
       ? Math.max(2, Math.min(50, parseInt(options.iterationCount, 10) || 2))
       : 1;
     const rateLimitRequestCount = mode === 'rate_limit'
-      ? Math.max(2, Math.min(20, parseInt(options.rateLimitRequestCount, 10) || 2))
+      ? Math.max(2, Math.min(getRateLimitMaxRequests(), parseInt(options.rateLimitRequestCount, 10) || 2))
       : 1;
 
     let collectionIds;
@@ -2311,13 +2317,10 @@ async function executeTests(projectId, testRunName, options = {}) {
 }
 
 /**
- * Rate Limit run mode: run `rateLimitRequestCount` independent, concurrent "lanes" through the
- * whole selected-test sequence simultaneously (like N parallel copies of the same API test run),
- * to fire enough near-simultaneous requests to reach the configured rate limit. Each lane has its
- * own private environment so chained variables (e.g. an OAuth auth_req_id/access_token produced by
- * an earlier request in the sequence) stay correctly paired within that lane instead of being
- * shared/reused across lanes (which would break single-use auth flows). Each response is scanned
- * for Kong rate-limit headers and stored on TestResult.rate_limit_evidence for reporting.
+ * Rate Limit run mode: validate each selected business endpoint independently. Setup/auth requests
+ * run only to establish each probe environment and are never treated as route-limit evidence.
+ * Per-second probes use a bounded concurrent burst; per-minute probes are paced below the advertised
+ * second limit. Global and generic RateLimit headers are retained as diagnostics only.
  * @param {object} params
  * @returns {Promise<{testRun: object, testResults: Array, summary: object}>}
  */
@@ -2352,14 +2355,15 @@ async function executeRateLimitMode({
   // Execute one full pass through the selected-test sequence for a single lane. Runs sequentially
   // within the lane (so chained variables and JWT refresh behave exactly like the standard path),
   // while all lanes execute concurrently with the others.
-  async function runLane(laneIndex) {
+  async function runLane(laneIndex, targetIndex, phase, laneOptions = {}) {
     const laneResults = [];
+    let finalEnvVars = { ...(laneOptions.envVars || baseEnvVars) };
     const laneEnvId = generateId();
     const laneEnvFile = path.join(tempDir, `rate-limit-lane-${runId}-${laneIndex}.json`);
     const laneEnvObject = {
       id: laneEnvId,
       name: `Rate Limit Lane ${laneIndex + 1} Environment ${testRunName}`,
-      values: Object.entries(baseEnvVars).map(([key, value]) => ({
+      values: Object.entries(finalEnvVars).map(([key, value]) => ({
         key, value: normalizeBaseUrl(String(value)), type: 'string', enabled: true
       })),
       _postman_variable_scope: 'environment',
@@ -2373,6 +2377,10 @@ async function executeRateLimitMode({
         if (isTestRunCancelled(testRun.id)) break;
 
         const item = items[i];
+        const itemUrl = getRequestRawUrl(item.request?.url);
+        const setupAuth = isSetupAuthRequest(item.request?.method, itemUrl);
+        if (setupAuth && laneOptions.runSetup === false) continue;
+        if (i !== targetIndex && (!setupAuth || i > targetIndex)) continue;
         const currentTestName = item.name || item.request?.method || 'Unnamed';
         const singleCollection = {
           info: mergedCollection.info || { name: testRunName },
@@ -2474,7 +2482,23 @@ async function executeRateLimitMode({
           '', 'Headers:', headersToText(execution.item.request?.headers), '', 'Body:', execution.item.request?.body || ''
         ].join('\n');
 
-        const rateLimitEvidence = execution.item.response ? extractRateLimitEvidence(execution.item.response.headers) : null;
+        const responseRateLimitEvidence = execution.item.response ? extractRateLimitEvidence(execution.item.response.headers) : null;
+        const requestIdentity = normalizeRequestIdentity(
+          execution.item.request?.method || item.request?.method,
+          execution.item.request?.url || itemUrl
+        );
+        const rateLimitEvidence = {
+          ...(responseRateLimitEvidence || {}),
+          classification: setupAuth ? 'setup_auth' : 'business',
+          phase: setupAuth ? 'setup' : phase,
+          attempt_sequence: laneIndex + 1,
+          observed_at: new Date().toISOString(),
+          target: requestIdentity,
+          diagnostic_only: {
+            global: true,
+            generic: true
+          }
+        };
 
         const explicitOrderMeta = orderedExecutionMeta[i] || null;
         const apiSpecId = explicitOrderMeta?.apiSpecId || findCollectionForExecution(collections, currentTestName).apiSpecId;
@@ -2535,20 +2559,169 @@ async function executeRateLimitMode({
         }
       }
     } finally {
+      try {
+        const finalEnvContent = JSON.parse(fs.readFileSync(laneEnvFile, 'utf8'));
+        finalEnvVars = Object.fromEntries((finalEnvContent.values || []).map((value) => [value.key, value.value]));
+      } catch (_) { /* retain the input environment */ }
       try { if (fs.existsSync(laneEnvFile)) fs.unlinkSync(laneEnvFile); } catch (_) { /* ignore */ }
     }
 
-    return laneResults;
+    return { results: laneResults, envVars: finalEnvVars };
   }
 
-  console.log(`[testRunner] Rate Limit: running ${rateLimitRequestCount} concurrent lanes, ${items.length} test(s) each`);
+  const businessTargetIndexes = items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => !isSetupAuthRequest(item.request?.method, getRequestRawUrl(item.request?.url)))
+    .map(({ index }) => index);
 
-  const laneResultArrays = await withNewmanProcessEnv(options.proxy, mergedCollection, options, () => {
-    const lanes = Array.from({ length: rateLimitRequestCount }, (_, laneIndex) => runLane(laneIndex));
-    return Promise.all(lanes);
+  async function annotateValidation(results, window, validation) {
+    const businessResults = results.filter((result) => result.rate_limit_evidence?.classification === 'business');
+    for (const result of businessResults) {
+      const evidence = {
+        ...result.rate_limit_evidence,
+        validation: {
+          ...(result.rate_limit_evidence.validation || {}),
+          [window]: validation
+        }
+      };
+      const updates = { rate_limit_evidence: evidence };
+      if (validation.status === 'failed' && result.status !== 'failed') {
+        updates.status = 'failed';
+        updates.error_message = `Rate limit ${window} validation failed: ${validation.reason}`;
+      }
+      await result.update(updates);
+    }
+  }
+
+  function phaseAttempts(results) {
+    return results
+      .filter((result) => result.rate_limit_evidence?.classification === 'business')
+      .map((result) => ({
+        identity: result.rate_limit_evidence.target,
+        responseCode: result.response_code,
+        evidence: result.rate_limit_evidence,
+        observedAt: result.rate_limit_evidence.observed_at
+      }))
+      .sort((left, right) => String(left.observedAt).localeCompare(String(right.observedAt)));
+  }
+
+  console.log(`[testRunner] Rate Limit: validating ${businessTargetIndexes.length} business endpoint(s), ceiling ${rateLimitRequestCount} request(s) per phase`);
+
+  const testResults = await withNewmanProcessEnv(options.proxy, mergedCollection, options, async () => {
+    const collected = [];
+    for (const targetIndex of businessTargetIndexes) {
+      if (isTestRunCancelled(testRun.id)) break;
+
+      const baselineExecution = await runLane(0, targetIndex, 'baseline');
+      const baselineResults = baselineExecution.results;
+      collected.push(...baselineResults);
+      const baselineTarget = baselineResults.find((result) => result.rate_limit_evidence?.classification === 'business');
+      if (!baselineTarget) continue;
+
+      const targetIdentity = baselineTarget.rate_limit_evidence.target;
+      const baselineEvidence = baselineTarget.rate_limit_evidence;
+
+      let secondResults = [];
+      if (baselineEvidence.route_limit_second == null || baselineEvidence.route_remaining_second == null) {
+        await annotateValidation(baselineResults, 'second', {
+          status: 'inconclusive',
+          reason: 'missing_route_second_headers'
+        });
+      } else if (baselineEvidence.route_limit_second + 1 > rateLimitRequestCount) {
+        const validation = validateRouteLimitPhase({
+          attempts: phaseAttempts(baselineResults),
+          window: 'second',
+          target: targetIdentity,
+          requestCeiling: rateLimitRequestCount
+        });
+        await annotateValidation(baselineResults, 'second', validation);
+      } else {
+        const lanes = Array.from(
+          { length: Math.min(rateLimitRequestCount, baselineEvidence.route_limit_second + 1) },
+          (_, laneIndex) => runLane(laneIndex, targetIndex, 'second', {
+            runSetup: false,
+            envVars: baselineExecution.envVars
+          })
+        );
+        secondResults = (await Promise.all(lanes)).flatMap((execution) => execution.results);
+        collected.push(...secondResults);
+        const validation = validateRouteLimitPhase({
+          attempts: phaseAttempts(secondResults),
+          window: 'second',
+          target: targetIdentity,
+          requestCeiling: rateLimitRequestCount
+        });
+        await annotateValidation(secondResults, 'second', validation);
+      }
+
+      if (isTestRunCancelled(testRun.id)) break;
+      if (baselineEvidence.route_limit_minute == null || baselineEvidence.route_remaining_minute == null) {
+        await annotateValidation(baselineResults, 'minute', {
+          status: 'inconclusive',
+          reason: 'missing_route_minute_headers'
+        });
+        continue;
+      }
+
+      if (secondResults.length > 0) {
+        const resetSeconds = Number.isFinite(baselineEvidence.retry_after)
+          ? baselineEvidence.retry_after
+          : (Number.isFinite(baselineEvidence.ratelimit_reset) ? baselineEvidence.ratelimit_reset : 1);
+        await new Promise(resolve => setTimeout(resolve, Math.max(1100, resetSeconds * 1000 + 100)));
+      }
+
+      const safeSecondRate = Number.isFinite(baselineEvidence.route_limit_second)
+        ? Math.max(1, baselineEvidence.route_limit_second - 1)
+        : 1;
+      const minuteIntervalMs = Math.ceil(1000 / safeSecondRate);
+      const minuteBootstrap = await runLane(0, targetIndex, 'minute');
+      const minuteResults = minuteBootstrap.results;
+      let minuteEnvVars = minuteBootstrap.envVars;
+      collected.push(...minuteResults);
+      const minuteTarget = minuteResults.find((result) => result.rate_limit_evidence?.classification === 'business');
+      if (!minuteTarget) continue;
+      const requiredMinuteRequests = minuteTarget.rate_limit_evidence.route_remaining_minute + 2;
+      if (requiredMinuteRequests > rateLimitRequestCount) {
+        const validation = validateRouteLimitPhase({
+          attempts: phaseAttempts(minuteResults),
+          window: 'minute',
+          target: targetIdentity,
+          requestCeiling: rateLimitRequestCount
+        });
+        await annotateValidation(minuteResults, 'minute', validation);
+        continue;
+      }
+
+      for (let attemptIndex = 1; attemptIndex < requiredMinuteRequests; attemptIndex++) {
+        if (isTestRunCancelled(testRun.id)) break;
+        const execution = await runLane(attemptIndex, targetIndex, 'minute', {
+          runSetup: false,
+          envVars: minuteEnvVars
+        });
+        minuteEnvVars = execution.envVars;
+        minuteResults.push(...execution.results);
+        collected.push(...execution.results);
+        const validation = validateRouteLimitPhase({
+          attempts: phaseAttempts(minuteResults),
+          window: 'minute',
+          target: targetIdentity,
+          requestCeiling: rateLimitRequestCount
+        });
+        if (validation.status === 'passed') break;
+        if (attemptIndex < requiredMinuteRequests - 1) {
+          await new Promise(resolve => setTimeout(resolve, minuteIntervalMs));
+        }
+      }
+      const minuteValidation = validateRouteLimitPhase({
+        attempts: phaseAttempts(minuteResults),
+        window: 'minute',
+        target: targetIdentity,
+        requestCeiling: rateLimitRequestCount
+      });
+      await annotateValidation(minuteResults.length > 0 ? minuteResults : baselineResults, 'minute', minuteValidation);
+    }
+    return collected;
   });
-
-  const testResults = laneResultArrays.flat();
 
   const completed = Date.now();
   const totalTests = testResults.length;

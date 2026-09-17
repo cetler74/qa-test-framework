@@ -4,7 +4,7 @@
 window.projectTestsEditMode = false;
 window.currentProject = null;
 window.projectTestSelection = window.projectTestSelection || { projectId: null, ids: new Set() };
-window.projectTestsViewMode = window.projectTestsViewMode || 'tree';
+window.projectTestsFoldersCollapsed = window.projectTestsFoldersCollapsed || false;
 
 const PROJECT_TABS = ['overview', 'tests', 'runs', 'coverage', 'assets', 'automation'];
 const PROJECT_RUN_ACTIONS = [
@@ -191,18 +191,6 @@ function initializeProjectTabs() {
       headingRow.className = 'project-tests-heading-row';
       testHeading.before(headingRow);
       headingRow.append(testHeading);
-      const viewToggle = document.createElement('div');
-      viewToggle.className = 'project-tests-view-toggle';
-      viewToggle.setAttribute('role', 'group');
-      viewToggle.setAttribute('aria-label', 'Test list view');
-      viewToggle.innerHTML = `
-        <button type="button" class="active" data-project-tests-view="tree">Folder tree</button>
-        <button type="button" data-project-tests-view="grouped">Grouped table</button>
-      `;
-      headingRow.append(viewToggle);
-      viewToggle.querySelectorAll('[data-project-tests-view]').forEach((button) => {
-        button.addEventListener('click', () => setProjectTestsViewMode(button.dataset.projectTestsView));
-      });
     }
 
     const selectionSummary = document.createElement('div');
@@ -636,13 +624,23 @@ function showCreateProjectModal() {
         const status = document.getElementById('project-status').value;
 
         try {
-            await apiRequest('/projects', {
+            const createdProject = await apiRequest('/projects', {
                 method: 'POST',
                 body: { name, description, status }
             });
 
             hideModal();
-            loadProjects();
+            await loadProjects();
+            if (createdProject?.id) {
+              await window.viewProject(createdProject.id);
+              if (typeof window.showProjectTutorialOffer === 'function') {
+                await apiRequest('/user/onboarding/project-setup', {
+                  method: 'PUT',
+                  body: { tour_version: '1', status: 'offered' }
+                }).catch(() => {});
+                window.showProjectTutorialOffer();
+              }
+            }
         } catch (error) {
             alert('Error creating project: ' + error.message);
         }
@@ -1065,7 +1063,7 @@ function renderProjectRunsList() {
   list.innerHTML = `
     <div class="project-runs-table" role="table" aria-label="Project test runs">
       <div class="project-run-row project-run-row-header" role="row">
-        <span role="columnheader"><input type="checkbox" id="project-runs-select-all" aria-label="Select all visible runs"></span><span role="columnheader">Run</span><span role="columnheader">Status</span><span role="columnheader">Date</span><span role="columnheader">Results</span><span role="columnheader">Duration</span><span role="columnheader">Actions</span>
+        <span role="columnheader"><input type="checkbox" id="project-runs-select-all" aria-label="Select all visible runs"></span><span role="columnheader">Run</span><span role="columnheader" class="project-run-status">Status</span><span role="columnheader" class="project-run-date">Date</span><span role="columnheader" class="project-run-results">Results</span><span role="columnheader" class="project-run-duration">Duration</span><span role="columnheader">Actions</span>
       </div>
       ${runs.map((run) => {
         const runType = run.runType || 'api';
@@ -1079,10 +1077,10 @@ function renderProjectRunsList() {
           <div class="project-run-row" role="row" data-run-key="${escapeHtml(key)}">
             <span role="cell"><input type="checkbox" class="project-run-check" aria-label="Select ${escapeHtml(run.name || `Run ${run.id}`)}" ${selectedProjectRunKeys.has(key) ? 'checked' : ''} ${running ? 'disabled title="Running runs cannot be deleted"' : ''}></span>
             <button type="button" class="project-run-identity project-run-open"><span class="project-run-type ${escapeHtml(runType)}">${escapeHtml(runTypeBadgeLabel(runType))}</span><span><strong>${escapeHtml(run.name || `Run ${run.id}`)}</strong><small>${escapeHtml(run.run_by?.username || run.run_by_username || '')}</small></span></button>
-            <span role="cell"><span class="status-badge ${escapeHtml(status)}">${escapeHtml(status.replace(/_/g, ' '))}</span></span>
-            <span role="cell">${run.created_at ? escapeHtml(formatDateTime(run.created_at)) : '—'}</span>
-            <span role="cell">${passed} passed · ${failed} failed</span>
-            <span role="cell">${duration}</span>
+            <span role="cell" class="project-run-status"><span class="status-badge ${escapeHtml(status)}">${escapeHtml(status.replace(/_/g, ' '))}</span></span>
+            <span role="cell" class="project-run-date">${run.created_at ? escapeHtml(formatDateTime(run.created_at)) : '—'}</span>
+            <span role="cell" class="project-run-results">${passed} passed · ${failed} failed</span>
+            <span role="cell" class="project-run-duration">${duration}</span>
             <span role="cell" class="project-run-actions"><button type="button" class="link-button project-run-rerun" ${run.can_rerun ? '' : `disabled title="${escapeHtml(run.rerun_unavailable_reason || 'Quick Resubmit unavailable')}"`}>Quick Resubmit</button><button type="button" class="link-button danger project-run-delete" ${running ? 'disabled title="Running runs cannot be deleted"' : ''}>Delete</button></span>
           </div>`;
       }).join('')}
@@ -1232,7 +1230,7 @@ function renderProjectOverview(projectId) {
     return `<button type="button" class="project-overview-run" data-overview-run-id="${run.id}">
       <span class="project-overview-run-identity"><span class="project-overview-run-type ${escapeHtml(runType)}">${escapeHtml(runTypeBadgeLabel(runType))}</span><span><strong>${escapeHtml(run.name || `Run ${run.id}`)}</strong><small>${total} test${total === 1 ? '' : 's'} · run by ${escapeHtml(runner)}</small></span></span>
       <span class="status-badge ${escapeHtml(status)}">${escapeHtml(status.replace(/_/g, ' '))}</span>
-      <time>${escapeHtml(formatProjectRunDate(run.created_at))}</time><span>${escapeHtml(result)}</span><span>${escapeHtml(formatProjectRunDuration(run))}</span>
+      <time class="project-overview-run-date">${escapeHtml(formatProjectRunDate(run.created_at))}</time><span class="project-overview-run-result">${escapeHtml(result)}</span><span class="project-overview-run-duration">${escapeHtml(formatProjectRunDuration(run))}</span>
     </button>`;
   }).join('') : '<p class="empty-state-inline">No project runs yet.</p>';
   runsEl.querySelectorAll('[data-overview-run-id]').forEach((button) => {
@@ -1874,17 +1872,13 @@ function updateProjectTestSelectionSummary(projectId) {
   });
 }
 
-function setProjectTestsViewMode(mode) {
-  window.projectTestsViewMode = mode === 'grouped' ? 'grouped' : 'tree';
+function setProjectTestsFoldersCollapsed(collapsed) {
+  window.projectTestsFoldersCollapsed = !!collapsed;
   const workspace = document.getElementById('project-tests-workspace');
-  workspace?.classList.toggle('tree-view', window.projectTestsViewMode === 'tree');
-  workspace?.classList.toggle('grouped-view', window.projectTestsViewMode === 'grouped');
-  document.querySelectorAll('[data-project-tests-view]').forEach((button) => {
-    button.classList.toggle('active', button.dataset.projectTestsView === window.projectTestsViewMode);
-  });
+  workspace?.classList.toggle('folders-collapsed', window.projectTestsFoldersCollapsed);
   const folderFilter = document.getElementById('project-tests-folder-filter');
-  folderFilter?.classList.toggle('project-tests-folder-filter-hidden', window.projectTestsViewMode === 'tree');
-  if (window.currentProject?.id) renderProjectTestsTable(window.currentProject.id);
+  folderFilter?.classList.toggle('project-tests-folder-filter-hidden', !window.projectTestsFoldersCollapsed);
+  renderProjectTestsFolderTree(window.currentProject?.id, window.currentProjectTests || []);
 }
 
 function renderProjectTestsFolderTree(projectId, tests) {
@@ -1907,12 +1901,18 @@ function renderProjectTestsFolderTree(projectId, tests) {
   });
   const items = Array.from(folders.values()).sort((a, b) => a.label.localeCompare(b.label));
   tree.innerHTML = `
-    <div class="project-tests-folder-tree-heading"><span>Folders</span><strong>${items.length}</strong></div>
-    <label class="project-tests-folder-search-wrap" for="project-tests-folder-search">
+    <div class="project-tests-folder-tree-heading">
+      <span>Folders</span><strong>${items.length}</strong>
+      <button type="button" class="icon-btn project-tests-folder-collapse" aria-expanded="${window.projectTestsFoldersCollapsed ? 'false' : 'true'}" aria-controls="project-tests-folder-items" title="${window.projectTestsFoldersCollapsed ? 'Expand folders' : 'Minimize folders'}">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${window.projectTestsFoldersCollapsed ? 'M9 5l7 7-7 7' : 'M15 19l-7-7 7-7'}" /></svg>
+        <span class="sr-only">${window.projectTestsFoldersCollapsed ? 'Expand folders' : 'Minimize folders'}</span>
+      </button>
+    </div>
+    <label class="project-tests-folder-search-wrap search-field" for="project-tests-folder-search">
       <span class="sr-only">Find a folder</span>
       <input type="search" id="project-tests-folder-search" placeholder="Find a folder" autocomplete="off" value="${escapeHtml(previousSearch)}">
     </label>
-    <div class="project-tests-folder-items">
+    <div class="project-tests-folder-items" id="project-tests-folder-items">
     <button type="button" class="project-tests-folder-item project-tests-folder-all ${selectedFolder === '' ? 'active' : ''}" data-folder-path="" aria-pressed="${selectedFolder === ''}">
       <span class="project-tests-folder-name">All tests</span><strong class="project-tests-folder-total">${visibleTests.length}</strong>
     </button>
@@ -1937,6 +1937,9 @@ function renderProjectTestsFolderTree(projectId, tests) {
     <p class="project-tests-folder-no-results" hidden>No matching folders.</p>
     </div>
   `;
+  tree.querySelector('.project-tests-folder-collapse')?.addEventListener('click', () => {
+    setProjectTestsFoldersCollapsed(!window.projectTestsFoldersCollapsed);
+  });
   tree.querySelectorAll('[data-folder-path]').forEach((button) => {
     button.addEventListener('click', () => {
       if (folderFilter) folderFilter.value = button.dataset.folderPath || '';
@@ -2033,10 +2036,9 @@ function renderProjectTestsTable(projectId) {
   const inEditMode = !!window.projectTestsEditMode;
   renderProjectTestsFolderTree(projectId, allTests);
   const workspace = document.getElementById('project-tests-workspace');
-  workspace?.classList.toggle('tree-view', window.projectTestsViewMode === 'tree');
-  workspace?.classList.toggle('grouped-view', window.projectTestsViewMode === 'grouped');
+  workspace?.classList.toggle('folders-collapsed', window.projectTestsFoldersCollapsed);
   const folderFilter = document.getElementById('project-tests-folder-filter');
-  folderFilter?.classList.toggle('project-tests-folder-filter-hidden', window.projectTestsViewMode === 'tree');
+  folderFilter?.classList.toggle('project-tests-folder-filter-hidden', !window.projectTestsFoldersCollapsed);
   const tests = applyProjectTestsFilters(allTests, inEditMode);
 
   if (!tests || tests.length === 0) {
@@ -2719,7 +2721,7 @@ window.runBatchProjectCatalogueTests = async (projectId) => {
 };
 
 // Download Tests & Coverage report (HTML file with interactive filtering, no edit)
-window.downloadProjectTestsReport = () => {
+window.downloadProjectTestsReport = async () => {
   const editModeBtn = document.getElementById('toggle-project-tests-edit-mode-btn');
   const projectId = editModeBtn?.getAttribute('data-project-id');
   if (!projectId) {
@@ -2729,6 +2731,15 @@ window.downloadProjectTestsReport = () => {
 
   const projectNameEl = document.getElementById('project-detail-name');
   const projectName = (projectNameEl?.textContent || '').trim() || `Project ${projectId}`;
+  let qaTestHubLogoDataUri = '/favicon.svg';
+  try {
+    const logoResponse = await fetch('/favicon.svg');
+    if (!logoResponse.ok) throw new Error(`Logo request failed with ${logoResponse.status}`);
+    const logoSvg = await logoResponse.text();
+    qaTestHubLogoDataUri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(logoSvg)}`;
+  } catch (error) {
+    console.warn('Could not embed the QA Test Hub logo in the report:', error);
+  }
 
   const inEditMode = !!window.projectTestsEditMode;
   const allTests = window.currentProjectTests || [];
@@ -2850,6 +2861,7 @@ window.downloadProjectTestsReport = () => {
   <meta charset="UTF-8">
   <title>Tests &amp; Coverage report – ${safeHtml(projectName)}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="${qaTestHubLogoDataUri}" type="image/svg+xml">
   <style>
     :root {
       --color-primary: #14b8a6;
@@ -2897,6 +2909,24 @@ window.downloadProjectTestsReport = () => {
       background: #00474F;
       color: #ffffff;
       padding: 20px 24px;
+    }
+    .page-header-brand {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 8px;
+    }
+    .page-header-brand img {
+      width: 40px;
+      height: 40px;
+      flex: none;
+    }
+    .page-header-product {
+      color: #5eead4;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
     }
     .page-header h1 {
       font-size: 22px;
@@ -3202,7 +3232,13 @@ window.downloadProjectTestsReport = () => {
 <body>
   <div class="page">
     <div class="page-header">
-      <h1>Tests &amp; Coverage report</h1>
+      <div class="page-header-brand">
+        <div>
+          <div class="page-header-product">QA Test Hub</div>
+          <h1>Tests &amp; Coverage report</h1>
+        </div>
+        <img src="${qaTestHubLogoDataUri}" alt="QA Test Hub logo">
+      </div>
       <div class="meta">
         Project: <strong>${safeHtml(projectName)}</strong> (ID: ${safeHtml(projectId)})<br>
         Generated at: ${safeHtml(iso)}

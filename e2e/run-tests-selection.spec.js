@@ -37,6 +37,12 @@ test('Run Tests bulk selection is scoped to the active modal', async ({ page }) 
   });
 
   await expect(page.locator('#run-tests-form')).toBeVisible();
+  await page.locator('#run-mode-select').selectOption('rate_limit');
+  const rateLimitCount = page.locator('#rate-limit-count');
+  await rateLimitCount.fill('60');
+  await expect(rateLimitCount).toHaveValue('60');
+  await expect(rateLimitCount).not.toHaveAttribute('max');
+
   await page.locator('#run-tests-form #collection-select').selectOption('3');
   const modalTests = page.locator('#run-tests-form #test-selection-container .test-checkbox');
   await expect(modalTests).toHaveCount(2);
