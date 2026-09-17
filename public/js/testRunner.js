@@ -418,7 +418,7 @@ function showRunTestsModal(initialState = null) {
           </div>
           <div class="run-tests-field run-tests-rate-limit-field" id="run-tests-rate-limit-field" style="display:none;">
             <label for="rate-limit-count">Rate limit requests</label>
-            <input type="number" id="rate-limit-count" class="form-control" min="2" max="20" placeholder="e.g., 10" title="Number of parallel requests to fire per test to reach the rate limit">
+            <input type="number" id="rate-limit-count" class="form-control" min="2" placeholder="e.g., 60" title="Maximum requests per endpoint and rate-limit window">
           </div>
         </div>
 
@@ -1079,9 +1079,9 @@ function showRunTestsModal(initialState = null) {
         }
       } else if (runMode === 'rate_limit') {
         rateLimitRequestCount = parseInt(document.getElementById('rate-limit-count')?.value, 10);
-        if (!Number.isInteger(rateLimitRequestCount) || rateLimitRequestCount < 2 || rateLimitRequestCount > 20) {
+        if (!Number.isInteger(rateLimitRequestCount) || rateLimitRequestCount < 2) {
           hideModal();
-          alert('Rate limit requests must be a number between 2 and 20.');
+          alert('Rate limit requests must be an integer of at least 2.');
           return;
         }
       }

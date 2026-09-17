@@ -22,6 +22,7 @@ const { projectTestNoteEvidenceDir } = require('./fileUpload');
 const { generateReport, getStableReportPath: getTestRunStableReportPath } = require('./reportGenerator');
 const { generatePlaywrightReport } = require('./playwrightReportGenerator');
 const { generateFuzzReport } = require('./fuzzReportGenerator');
+const { QA_TEST_HUB_LOGO_DATA_URI } = require('./reportBranding');
 const { normalizeTicketUrlsList, ticketUrlsToCsvCell } = require('../lib/ticketUrls');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -610,11 +611,15 @@ function buildIndexHtml({ project, generatedAt, manifest, archiveMap }) {
     <meta charset="UTF-8">
     <title>Tests &amp; Coverage report - ${escapeHtml(project.name)}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="${QA_TEST_HUB_LOGO_DATA_URI}" type="image/svg+xml">
     <style>
         :root { --color-primary: #14b8a6; --color-primary-dark: #0d9488; --color-gray-50: #f9fafb; --color-gray-100: #f3f4f6; --color-gray-200: #e5e7eb; --color-gray-300: #d1d5db; --color-gray-500: #6b7280; --color-white: #ffffff; --color-success: #10b981; --color-error: #ef4444; --color-warning: #f59e0b; --color-text-primary: #111827; --color-text-secondary: #6b7280; --shadow-sm: 0 1px 2px rgba(0,0,0,.05); --shadow-md: 0 1px 3px rgba(0,0,0,.1), 0 1px 2px rgba(0,0,0,.06); --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -2px rgba(0,0,0,.05); }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; background: var(--color-gray-100); color: var(--color-text-primary); }
         .page { max-width: 1200px; margin: 0 auto; background: var(--color-white); min-height: 100vh; box-shadow: var(--shadow-lg); }
         .page-header { background: #00474F; color: #ffffff; padding: 20px 24px; }
+        .page-header-brand { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+        .page-header-brand img { width: 40px; height: 40px; flex: none; }
+        .page-header-product { font-size: 12px; font-weight: 700; text-transform: uppercase; color: #5eead4; }
         .page-header h1 { font-size: 22px; margin: 0 0 4px 0; font-weight: 600; }
         .page-header .meta { font-size: 13px; color: rgba(249,250,251,.8); }
         .page-body { padding: 24px; background: var(--color-gray-100); }
@@ -705,7 +710,7 @@ function buildIndexHtml({ project, generatedAt, manifest, archiveMap }) {
 </head>
 <body>
     <div class="page">
-        <div class="page-header"><h1>Tests &amp; Coverage report</h1><div class="meta">Project: <strong>${escapeHtml(project.name)}</strong> (ID: ${escapeHtml(project.id)})<br>Generated at: ${escapeHtml(toIso(generatedAt))}</div></div>
+        <div class="page-header"><div class="page-header-brand"><div><div class="page-header-product">QA Test Hub</div><h1>Tests &amp; Coverage report</h1></div><img src="${QA_TEST_HUB_LOGO_DATA_URI}" alt="QA Test Hub logo"></div><div class="meta">Project: <strong>${escapeHtml(project.name)}</strong> (ID: ${escapeHtml(project.id)})<br>Generated at: ${escapeHtml(toIso(generatedAt))}</div></div>
         <div class="page-body">
             <div class="section"><h2>Coverage summary</h2>${coverageSection}</div>
             <div class="section"><h2>Tests (filtered snapshot)</h2><div class="filters"><input type="text" id="filter-search" placeholder="Search by name or ticket..."><select id="filter-type"><option value="">All Types</option><option value="api">API</option><option value="soap">SOAP</option><option value="ui_builtin">UI (built-in)</option><option value="ui_recorded">UI (recorded)</option><option value="manual">Manual Test</option><option value="other">Other</option></select><select id="filter-folder"><option value="">All Folders</option>${folderOptions.map((folder) => `<option value="${escapeHtml(folder)}">${escapeHtml(folder)}</option>`).join('')}</select><select id="filter-status"><option value="">All statuses</option><option value="passed">Passed</option><option value="failed">Failed</option><option value="partial_failed">Partial Failed</option><option value="running">Running</option><option value="cancelled">Cancelled</option><option value="not_run">Not run</option></select><button class="btn-primary" id="filter-apply">Apply</button><button class="btn-secondary" id="filter-clear">Clear</button></div><div class="count" id="filtered-count"></div><table id="tests-table"><thead><tr><th>Name</th><th>Folder</th><th>Type</th><th>Last status</th><th>Last run</th><th>Total runs</th><th>Last run by</th><th>Evidence package</th><th>Tickets</th></tr></thead><tbody>${testRows}</tbody></table></div>

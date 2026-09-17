@@ -106,8 +106,18 @@ test.describe('project page workspace', () => {
     await expect(folderTree.getByText('1 not run')).toBeVisible();
 
     await folderTree.getByRole('searchbox', { name: 'Find a folder' }).fill('authentication');
+    await expect(folderTree.getByRole('searchbox', { name: 'Find a folder' })).toHaveCSS('height', '40px');
     await expect(folderTree.getByRole('button', { name: /Authentication/ })).toBeVisible();
     await expect(folderTree.getByRole('button', { name: /Very Long Reachability/ })).toBeHidden();
+
+    await expect(page.locator('.project-tests-view-toggle')).toHaveCount(0);
+    const expandedFolderWidth = await folderTree.evaluate((element) => element.getBoundingClientRect().width);
+    await page.getByRole('button', { name: 'Minimize folders' }).click();
+    await expect(page.locator('#project-tests-workspace')).toHaveClass(/folders-collapsed/);
+    await expect(page.getByRole('button', { name: 'Expand folders' })).toBeVisible();
+    const collapsedFolderWidth = await folderTree.evaluate((element) => element.getBoundingClientRect().width);
+    expect(expandedFolderWidth).toBeGreaterThanOrEqual(320);
+    expect(collapsedFolderWidth).toBeLessThanOrEqual(44);
 
     await page.setViewportSize({ width: 390, height: 844 });
     const dimensions = await page.evaluate(() => ({
@@ -248,10 +258,27 @@ test.describe('project page workspace', () => {
     await expect(page.locator('.project-overview-run').first()).toContainText('48 tests · run by admin');
     await expect(page.locator('.project-overview-run').first()).toContainText('4 failed');
     await expect(page.locator('.project-overview-run').first()).toContainText('3m 08s');
+    await expect(page.locator('.project-overview-run-type').first()).toHaveCSS('width', '48px');
+    await expect(page.locator('.project-overview-run-type').first()).toHaveCSS('height', '28px');
+    const overviewRunSpacing = await page.locator('.project-overview-run').first().evaluate((row) => {
+      const status = row.querySelector('.status-badge').getBoundingClientRect();
+      const date = row.querySelector('.project-overview-run-date').getBoundingClientRect();
+      return { statusWidth: status.width, gapAfterStatus: date.left - status.right };
+    });
+    expect(overviewRunSpacing.statusWidth).toBe(120);
+    expect(overviewRunSpacing.gapAfterStatus).toBeGreaterThanOrEqual(8);
     await expect(page.locator('.project-overview-coverage-row')).toHaveCount(5);
     await expect(page.locator('#project-overview-area-coverage')).toContainText('Other areas');
     await expect(page.locator('.project-overview-coverage-track .passed')).toHaveCount(5);
     await expect(page.locator('.project-overview-coverage-track .failed')).toHaveCount(5);
+    const firstCoverageRow = page.locator('.project-overview-coverage-row').first();
+    const firstCoverageTooltip = firstCoverageRow.locator('[role="tooltip"]');
+    await expect(firstCoverageTooltip).toContainText('4 passed');
+    await expect(firstCoverageTooltip).toContainText('5 failed');
+    await expect(firstCoverageTooltip).toContainText('39 not run');
+    await expect(firstCoverageTooltip).toHaveCSS('opacity', '0');
+    await firstCoverageRow.hover();
+    await expect(firstCoverageTooltip).toHaveCSS('opacity', '1');
     await expect(page.locator('#project-overview-schedule')).toContainText('Daily regression');
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -263,7 +290,8 @@ test.describe('project page workspace', () => {
     const runs = [
       { id: 11, runType: 'api', name: 'Release smoke', status: 'passed', passed_tests: 5, failed_tests: 0, can_rerun: true, created_at: '2026-08-13T09:10:00Z' },
       { id: 12, runType: 'ui', name: 'Legacy checkout', status: 'failed', passed_tests: 2, failed_tests: 1, can_rerun: false, rerun_unavailable_reason: 'Quick Resubmit is unavailable for legacy runs.', created_at: '2026-08-12T09:10:00Z' },
-      { id: 13, runType: 'fuzz', name: 'Active fuzz', status: 'running', passed_tests: 0, failed_tests: 0, can_rerun: false, rerun_unavailable_reason: 'Running tests cannot be rerun.', created_at: '2026-08-11T09:10:00Z' }
+      { id: 13, runType: 'fuzz', name: 'Active fuzz', status: 'running', passed_tests: 0, failed_tests: 0, can_rerun: false, rerun_unavailable_reason: 'Running tests cannot be rerun.', created_at: '2026-08-11T09:10:00Z' },
+      { id: 14, runType: 'rate_limit', name: 'Rate limit verification', status: 'partial_failed', passed_tests: 7, failed_tests: 2, can_rerun: true, created_at: '2026-08-10T09:10:00Z' }
     ];
     let rerunRequested = false;
     let deletePayload = null;
@@ -285,10 +313,16 @@ test.describe('project page workspace', () => {
     });
 
     const table = page.getByRole('table', { name: 'Project test runs' });
-    await expect(table.locator('.project-run-row:not(.project-run-row-header)')).toHaveCount(3);
-    await expect(table.getByRole('button', { name: 'Quick Resubmit' })).toHaveCount(3);
+    await expect(table.locator('.project-run-row:not(.project-run-row-header)')).toHaveCount(4);
+    await expect(table.getByRole('button', { name: 'Quick Resubmit' })).toHaveCount(4);
     await expect(table.getByRole('button', { name: 'Quick Resubmit' }).nth(1)).toBeDisabled();
     await expect(table.getByRole('checkbox', { name: 'Select Active fuzz' })).toBeDisabled();
+    const partialStatus = table.locator('.status-badge.partial_failed');
+    await expect(partialStatus).toHaveCSS('width', '120px');
+    await expect(partialStatus).toHaveCSS('height', '28px');
+    await expect(partialStatus).toHaveCSS('white-space', 'nowrap');
+    await expect(table.locator('.project-run-type.rate_limit')).toHaveCSS('width', '48px');
+    await expect(page.getByRole('searchbox', { name: 'Search project runs' })).toHaveCSS('height', '40px');
 
     await page.getByRole('searchbox', { name: 'Search project runs' }).fill('legacy');
     await expect(table.locator('.project-run-row:not(.project-run-row-header)')).toHaveCount(1);
@@ -303,5 +337,9 @@ test.describe('project page workspace', () => {
     await table.getByRole('button', { name: 'Quick Resubmit' }).click();
     await expect.poll(() => rerunRequested).toBe(true);
     await expect(page.locator('#project-runs-feedback')).toContainText('Release smoke re-run: 1 started.');
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const dimensions = await page.evaluate(() => ({ clientWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth }));
+    expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
   });
 });

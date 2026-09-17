@@ -30,6 +30,26 @@ function traceEvidenceHtml(traceEvidence) {
   return `<pre class="header-evidence-block">${items.map((item) => `${escapeHtmlLite(item.source || 'header')} ${escapeHtmlLite(item.name)}: ${escapeHtmlLite(item.value)}`).join('\n')}</pre>`;
 }
 
+function rateLimitEvidenceHtml(evidence) {
+  if (!evidence || !evidence.classification) return '';
+  if (evidence.classification === 'setup_auth') {
+    return '<p><strong>Rate Limit Validation:</strong> Not Applicable (setup/auth request)</p>';
+  }
+  const validation = evidence.validation || {};
+  const formatVerdict = (windowName) => {
+    const verdict = validation[windowName];
+    return verdict
+      ? `${escapeHtmlLite(verdict.status)} (${escapeHtmlLite(verdict.reason)})`
+      : 'inconclusive (not_evaluated)';
+  };
+  return `<div><strong>Route Rate Limit Validation:</strong>
+    <p>Phase: ${escapeHtmlLite(evidence.phase || 'unknown')}</p>
+    <p>Second: ${formatVerdict('second')}</p>
+    <p>Minute: ${formatVerdict('minute')}</p>
+    <p>Global and generic RateLimit headers are diagnostic only.</p>
+  </div>`;
+}
+
 function showLoginView() {
   document.getElementById('login-view').style.display = 'flex';
   document.getElementById('app-container').style.display = 'none';
@@ -63,6 +83,9 @@ async function checkAuth() {
       // Load user-scoped environments into the in-memory cache
       if (typeof window.loadUserEnvironments === 'function') {
         window.loadUserEnvironments().catch(() => {});
+      }
+      if (typeof window.loadOnboardingProgress === 'function') {
+        window.loadOnboardingProgress().catch(() => {});
       }
       return true;
     }
@@ -2062,7 +2085,6 @@ function renderProjectsList() {
         <div class="projects-row-main">
           <div class="projects-row-title-line">
             <h3>${escapeHtmlLite(project.name || 'Untitled project')}</h3>
-            <span class="status-badge ${statusClass}">${escapeHtmlLite(statusLabel)}</span>
           </div>
           <p>${escapeHtmlLite(project.description || 'No description')}</p>
         </div>
@@ -2081,6 +2103,7 @@ function renderProjectsList() {
             <span class="projects-asset-chip">${uiTestCount} UI test${uiTestCount === 1 ? '' : 's'}</span>
           </span>
         </div>
+        <div class="projects-row-status"><span class="status-badge ${statusClass}">${escapeHtmlLite(statusLabel)}</span></div>
         <div class="list-item-actions projects-row-actions">
           <button type="button" class="btn btn-primary" onclick="window.viewProject(${projectId})">Open</button>
           <button type="button" class="btn btn-secondary" onclick="window.openProjectApiTests(${projectId})">API tests</button>
@@ -2202,16 +2225,11 @@ function formatDateTime(dateInput) {
   return `${dd}/${mm}/${yyyy}, ${time}`;
 }
 
-// Run type badge HTML: icon + color label for API vs UI vs SOAP vs Fuzz
+// Compact run type badge shared by project and global run lists.
 function getRunTypeBadgeHtml(runType) {
-  const type = runType === 'ui' ? 'ui' : runType === 'soap' ? 'soap' : runType === 'fuzz' ? 'fuzz' : 'api';
-  const label = type === 'ui' ? 'UI' : type === 'soap' ? 'SOAP' : type === 'fuzz' ? 'Fuzz' : 'API';
-  const apiIcon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>';
-  const uiIcon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>';
-  const soapIcon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>';
-  const fuzzIcon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>';
-  const icon = type === 'ui' ? uiIcon : type === 'soap' ? soapIcon : type === 'fuzz' ? fuzzIcon : apiIcon;
-  return `<span class="run-type-badge run-type-${type}">${icon}${label}</span>`;
+  const type = ['ui', 'soap', 'fuzz', 'iterations', 'rate_limit'].includes(runType) ? runType : 'api';
+  const labels = { api: 'API', ui: 'UI', soap: 'SOAP', fuzz: 'FUZZ', iterations: 'ITER', rate_limit: 'RATE' };
+  return `<span class="run-type-badge run-type-${type}">${labels[type]}</span>`;
 }
 
 // When true, Test Runs list shows per-row Delete for removing runs and artifacts.
@@ -2278,17 +2296,17 @@ function renderTestRunsList(allRuns) {
     const runByLine = runBy ? `<p style="font-size: 12px; color: #666; margin-top: 4px;">Run by: ${runBy}</p>` : '';
     const isHighlighted = highlightedRunId && String(run.id) === highlightedRunId && runType === 'api';
     return `
-    <div class="list-item" onclick="${onClick}" style="cursor: pointer; ${isHighlighted ? 'border-color: var(--color-primary, #14b8a6); box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.18);' : ''}">
-      <div class="list-item-info">
+    <div class="list-item test-run-list-item${isHighlighted ? ' highlighted' : ''}" onclick="${onClick}">
+      <div class="list-item-info test-run-list-identity">
         <h3>${typeBadge} ${run.name}${isHighlighted ? ' <span style="font-size: 12px; color: var(--color-primary, #14b8a6);">Latest run</span>' : ''}</h3>
         <p>Project: ${projectName}${flowLabel} • ${formatDateTime(run.created_at)}</p>
-        <p style="font-size: 12px; color: #666; margin-top: 5px;">
+        <p class="test-run-list-results">
           ${run.passed_tests != null ? run.passed_tests : 0} passed, ${run.failed_tests != null ? run.failed_tests : 0} failed of ${run.total_tests != null ? run.total_tests : 0} total
         </p>
         ${runByLine}
         ${runningLine}
       </div>
-      <div style="display: flex; align-items: center; gap: 8px;">
+      <div class="test-run-list-actions">
         ${cancelBtn}
         ${deleteBtn}
         <span class="status-badge ${run.status || 'pending'}">${run.status === 'partial_failed' ? 'Partial Failed' : (run.status || 'pending')}</span>
@@ -2453,6 +2471,7 @@ async function viewTestRun(testRunId) {
         const requestHeaders = headerEvidenceHtml(result.request_headers_sent);
         const responseHeaders = headerEvidenceHtml(result.response_headers_received);
         const traceEvidence = traceEvidenceHtml(result.trace_evidence);
+        const rateLimitEvidence = rateLimitEvidenceHtml(result.rate_limit_evidence);
         return `
         <div class="test-result-item">
           <div class="test-result-header">
@@ -2466,6 +2485,7 @@ async function viewTestRun(testRunId) {
           <div class="test-result-details">
             <p><strong>Endpoint:</strong> ${escapeHtmlLite(result.endpoint)}</p>
             ${result.response_code ? `<p><strong>Response Code:</strong> ${result.response_code}</p>` : ''}
+            ${rateLimitEvidence}
             ${traceEvidence ? `<div><strong>Trace Evidence:</strong>${traceEvidence}</div>` : ''}
             ${requestHeaders ? `<div><strong>Requested Headers Sent:</strong>${requestHeaders}</div>` : ''}
             ${responseHeaders ? `<div><strong>Headers Received:</strong>${responseHeaders}</div>` : ''}
@@ -2680,18 +2700,22 @@ window.cancelApiTestRun = async (testRunId) => {
 };
 
 window.cancelTestRun = async (runType, id) => {
-  const msg = runType === 'api' || runType === 'soap'
-    ? 'Cancel this test run? It will stop after the current request.'
-    : runType === 'ui'
-      ? 'Cancel this UI test run?'
-      : 'Cancel this fuzz run?';
+  const cancellationMessages = {
+    api: 'Cancel this API test run? It will stop after the current request.',
+    soap: 'Cancel this SOAP test run? It will stop after the current request.',
+    iterations: 'Cancel this iteration test run? It will stop after the current request.',
+    rate_limit: 'Cancel this rate-limit test run? It will stop after the current request.',
+    ui: 'Cancel this UI test run?',
+    fuzz: 'Cancel this fuzz run?'
+  };
+  const msg = cancellationMessages[runType] || 'Cancel this test run?';
   if (!confirm(msg)) return;
   try {
-    const path = (runType === 'api' || runType === 'soap')
-      ? `/test-runs/${id}/cancel`
-      : runType === 'ui'
-        ? `/playwright-runs/${id}/cancel`
-        : `/fuzz-runs/${id}/cancel`;
+    const path = runType === 'ui'
+      ? `/playwright-runs/${id}/cancel`
+      : runType === 'fuzz'
+        ? `/fuzz-runs/${id}/cancel`
+        : `/test-runs/${id}/cancel`;
     await apiRequest(path, { method: 'POST' });
     loadTestRuns();
   } catch (err) {

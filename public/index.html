@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DEO/ECP/EPS - QA Test Hub</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/css/styles.css">
     <!-- CodeMirror 5 for the Playwright spec editor -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" crossorigin="anonymous">
@@ -16,8 +17,11 @@
             <div class="login-card-brand">
                 <img src="https://conteudos.meo.pt/Style%20Library/quantcast/logo-meo.png?qc-size=98,56" alt="MEO logo" class="login-card-logo">
                 <div class="login-card-title-wrap">
-                    <span class="login-card-title-line login-card-title-main">QA Test Hub</span>
-                    <span class="login-card-title-line">-- DEO/ECP/EPS --</span>
+                    <span class="login-card-title-line">DEO/ECP/EPS</span>
+                    <div class="login-card-product-title">
+                        <img src="/favicon.svg" alt="" class="login-card-product-logo">
+                        <span class="login-card-title-line login-card-title-main">QA Test Hub</span>
+                    </div>
                 </div>
             </div>
             <h2>Sign in</h2>
@@ -54,8 +58,14 @@
     <div class="app-container" id="app-container">
         <header>
             <div class="brand">
-                <img src="https://conteudos.meo.pt/Style%20Library/quantcast/logo-meo.png?qc-size=98,56" alt="MEO logo" class="brand-logo">
-                <h1>DEO/ECP/EPS - QA Test Hub</h1>
+                <img src="https://conteudos.meo.pt/Style%20Library/quantcast/logo-meo.png?qc-size=98,56" alt="MEO logo" class="brand-meo-logo">
+                <h1>
+                    <span class="brand-org">DEO/ECP/EPS</span>
+                    <span class="brand-product">
+                        <span>QA Test Hub</span>
+                        <img src="/favicon.svg" alt="" class="brand-logo">
+                    </span>
+                </h1>
             </div>
             <nav class="main-nav">
                 <button class="nav-btn active" data-view="dashboard">
@@ -123,6 +133,12 @@
                         </button>
                     </div>
                 </div>
+                <button type="button" class="nav-btn nav-icon-btn" id="global-help-btn" title="Help" aria-label="Open help">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9" stroke-width="2"></circle>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 9a2.5 2.5 0 014.83.9c0 1.85-2.58 2.1-2.58 3.85M12 17h.01"></path>
+                    </svg>
+                </button>
                 <!-- Theme toggle (before user dropdown) -->
                 <button id="theme-toggle" class="nav-btn" title="Toggle theme">
                     <svg id="theme-toggle-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -282,7 +298,7 @@
                     </div>
                 </div>
                 <div class="projects-toolbar" aria-label="Project filters">
-                    <label class="projects-search-wrap" for="projects-search-input">
+                    <label class="projects-search-wrap search-field" for="projects-search-input">
                         <span class="sr-only">Search projects</span>
                         <input type="search" id="projects-search-input" placeholder="Search projects by name, owner, description, or URL..." autocomplete="off">
                     </label>
@@ -324,7 +340,12 @@
                             </div>
                             <p id="project-detail-heading-meta" class="project-detail-heading-meta"></p>
                         </div>
-                        <button type="button" class="btn btn-secondary" id="project-detail-edit-btn" title="Edit project name, description, and access" style="display: none;">Edit project</button>
+                        <div class="project-detail-heading-actions">
+                            <button type="button" class="icon-btn" id="project-help-btn" title="Help for this section" aria-label="Open help for this project section">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke-width="2"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 9a2.5 2.5 0 014.83.9c0 1.85-2.58 2.1-2.58 3.85M12 17h.01"></path></svg>
+                            </button>
+                            <button type="button" class="btn btn-secondary" id="project-detail-edit-btn" title="Edit project name, description, and access" style="display: none;">Edit project</button>
+                        </div>
                     </div>
                 </div>
                 <div class="project-tabs" role="tablist" aria-label="Project sections">
@@ -345,7 +366,7 @@
                                 <button type="button" class="btn btn-secondary" id="project-runs-refresh">Refresh</button>
                             </div>
                             <div class="project-runs-toolbar">
-                                <label class="project-runs-search"><span class="sr-only">Search project runs</span><input type="search" id="project-runs-search" placeholder="Search runs" autocomplete="off"></label>
+                                <label class="project-runs-search search-field"><span class="sr-only">Search project runs</span><input type="search" id="project-runs-search" placeholder="Search runs" autocomplete="off"></label>
                                 <span id="project-runs-selection-count" class="muted">0 selected</span>
                                 <button type="button" class="btn btn-danger" id="project-runs-delete-selected" disabled>Delete selected</button>
                             </div>
@@ -367,19 +388,19 @@
                 </div>
                 <div class="project-detail-content">
                     <div class="project-actions">
-                        <button class="btn btn-primary" id="add-api-spec-btn">
+                        <button class="btn btn-primary" id="add-api-spec-btn" data-tour-target="upload-asset">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                             </svg>
                             Add API Spec
                         </button>
-                        <button class="btn btn-primary" id="upload-postman-collection-btn">
+                        <button class="btn btn-primary" id="upload-postman-collection-btn" data-tour-target="upload-postman">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                             </svg>
                             Upload Postman Collection
                         </button>
-                        <button class="btn btn-run-type-api" id="run-tests-btn">
+                        <button class="btn btn-run-type-api" id="run-tests-btn" data-tour-target="run-api">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
                             Run API tests
                         </button>
@@ -395,8 +416,8 @@
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>
                             Run SOAP
                         </button>
-                        <button class="btn btn-secondary" id="manage-project-recorded-tests-btn">Manage recorded tests</button>
-                        <button class="btn btn-secondary" id="generate-jwks-btn">
+                        <button class="btn btn-secondary" id="manage-project-recorded-tests-btn" data-tour-target="recorded-tests">Manage recorded tests</button>
+                        <button class="btn btn-secondary" id="generate-jwks-btn" data-tour-target="generate-jwks">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
                             Generate JWKS
                         </button>
@@ -453,10 +474,10 @@
                             <div id="project-schedules-list"></div>
                         </div>
                     </div>
-                    <div class="project-tests project-section-box project-section-3d">
+                    <div class="project-tests project-section-box project-section-3d" id="project-tests-section">
                         <h3>Tests &amp; Coverage</h3>
                         <div class="project-tests-actions">
-                            <button class="btn btn-secondary" id="toggle-project-tests-edit-mode-btn">
+                            <button class="btn btn-secondary" id="toggle-project-tests-edit-mode-btn" data-tour-target="tests-edit-mode">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                                 </svg>
@@ -507,7 +528,7 @@
                         </div>
                         <div class="project-tests-filters-toolbar">
                             <div class="filters project-tests-filters project-tests-filters-left">
-                                <input type="text" id="project-tests-search" placeholder="Search by name or ticket..." />
+                                <label class="search-field"><span class="sr-only">Search project tests</span><input type="search" id="project-tests-search" placeholder="Search by name or ticket..." /></label>
                                 <select id="project-tests-type-filter" title="Filter by test type">
                                     <option value="">All Types</option>
                                     <option value="api">API</option>
@@ -661,7 +682,7 @@
                 <div class="view-header">
                     <h2>Test Runs</h2>
                     <div class="filters">
-                        <input type="text" id="test-run-search" placeholder="Search by name..." />
+                        <label class="search-field"><span class="sr-only">Search test runs</span><input type="search" id="test-run-search" placeholder="Search by name..." /></label>
                         <input type="date" id="start-date" title="Start date" />
                         <input type="date" id="end-date" title="End date" />
                         <select id="project-filter">
@@ -1079,7 +1100,7 @@ test('test', async ({ page }) => {
                                 <h3>Tests that will run</h3>
                                 <p>Use selection mode to choose tests and control execution order.</p>
                             </div>
-                            <div class="run-ui-tests-search-wrap">
+                            <div class="run-ui-tests-search-wrap search-field">
                                 <label for="run-ui-tests-search" class="sr-only">Search tests that will run</label>
                                 <input type="search" id="run-ui-tests-search" placeholder="Search tests..." autocomplete="off" />
                             </div>
@@ -1108,7 +1129,10 @@ test('test', async ({ page }) => {
                         </svg>
                         Back
                     </button>
-                    <h2 id="ui-test-detail-name"></h2>
+                    <div class="result-detail-brand">
+                        <h2 id="ui-test-detail-name"></h2>
+                        <img src="/favicon.svg" alt="QA Test Hub logo" class="result-detail-logo">
+                    </div>
                 </div>
                 <div class="test-run-detail-content">
                     <div class="test-run-info" id="ui-test-info"></div>
@@ -1161,7 +1185,10 @@ test('test', async ({ page }) => {
                         </svg>
                         Back to Test Runs
                     </button>
-                    <h2 id="test-run-detail-name"></h2>
+                    <div class="result-detail-brand">
+                        <h2 id="test-run-detail-name"></h2>
+                        <img src="/favicon.svg" alt="QA Test Hub logo" class="result-detail-logo">
+                    </div>
                 </div>
                 <div class="test-run-detail-content">
                     <div class="test-run-info" id="test-run-info"></div>
@@ -1219,6 +1246,37 @@ test('test', async ({ page }) => {
         </div>
     </div>
 
+    <div id="help-drawer-backdrop" class="help-drawer-backdrop"></div>
+    <aside id="help-drawer" class="help-drawer" aria-hidden="true" aria-labelledby="help-drawer-title">
+        <div class="help-drawer-header">
+            <div>
+                <div class="help-drawer-brand">
+                    <img src="/favicon.svg" alt="" class="help-drawer-logo">
+                    <span class="help-drawer-eyebrow">QA Test Hub</span>
+                </div>
+                <h2 id="help-drawer-title">Help</h2>
+            </div>
+            <button type="button" class="icon-btn" id="help-drawer-close" aria-label="Close help">&times;</button>
+        </div>
+        <ol id="help-drawer-points" class="help-drawer-points"></ol>
+        <div class="help-drawer-actions">
+            <button type="button" class="btn btn-primary" id="help-start-tutorial" hidden>Start project setup tutorial</button>
+        </div>
+    </aside>
+
+    <div id="tour-layer" class="tour-layer" aria-hidden="true">
+        <div id="tour-spotlight" class="tour-spotlight" aria-hidden="true"></div>
+        <section id="tour-coachmark" class="tour-coachmark" role="dialog" aria-modal="true" aria-labelledby="tour-title" aria-describedby="tour-body">
+            <div class="tour-coachmark-meta"><span id="tour-progress"></span><button type="button" id="tour-skip" class="link-button">Skip</button></div>
+            <h2 id="tour-title"></h2>
+            <p id="tour-body"></p>
+            <div class="tour-coachmark-actions">
+                <button type="button" class="btn btn-secondary" id="tour-back">Back</button>
+                <button type="button" class="btn btn-primary" id="tour-next">Next</button>
+            </div>
+        </section>
+    </div>
+
     <script src="/js/app.js"></script>
     <script src="/js/testRunner.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js" crossorigin="anonymous"></script>
@@ -1227,6 +1285,7 @@ test('test', async ({ page }) => {
     <script src="/js/projectManager.js"></script>
     <script src="/js/reportViewer.js"></script>
     <script src="/js/uiTests.js"></script>
+    <script src="/js/help.js"></script>
 </body>
 </html>
 
