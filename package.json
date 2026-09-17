@@ -15,6 +15,7 @@
     "test:run-tests-selection": "set PLAYWRIGHT_BASE_URL=http://localhost:3001&& playwright test e2e/run-tests-selection.spec.js --reporter=line",
     "test:rate-limit": "node --test test/rateLimitValidation.test.js",
     "test:run-cancellation": "node scripts/validate-run-cancellation.js",
+    "test:theme-toggle": "node scripts/validate-theme-toggle.js",
     "test:schedule-timezone": "node scripts/validate-schedule-timezone.js",
     "postman-to-swagger": "node scripts/postman-to-swagger.js",
     "test:recorded-spec-template": "node scripts/validate-recorded-spec-template.js"

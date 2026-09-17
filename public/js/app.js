@@ -658,10 +658,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (themeToggle) {
     themeToggle.addEventListener('click', () => {
       const newTheme = document.body.classList.contains('dark-theme') ? 'light' : 'dark';
-      // Persist the choice first so the theme is applied on reload
       localStorage.setItem('theme', newTheme);
-      // Reload the page so all UI is redrawn using the new theme (ensures inline-styled components pick it up)
-      location.reload();
+      applyTheme(newTheme);
     });
   }
 

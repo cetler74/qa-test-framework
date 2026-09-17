@@ -167,15 +167,15 @@ header h1 {
 
 .brand-product {
     display: grid;
-    grid-template-columns: 26px auto 26px;
+    grid-template-columns: 22px auto 22px;
     align-items: center;
     gap: var(--spacing-sm);
     font-size: 20px;
 }
 
 .brand-product::before {
-    width: 26px;
-    height: 26px;
+    width: 22px;
+    height: 22px;
     content: "";
 }
 
@@ -192,8 +192,8 @@ header h1 {
 }
 
 .brand-logo {
-    height: 26px;
-    width: 26px;
+    height: 22px;
+    width: 22px;
     display: block;
 }
 
@@ -447,8 +447,8 @@ header h1 {
     flex-shrink: 0;
 }
 .login-card-product-logo {
-    width: 32px;
-    height: 32px;
+    width: 23px;
+    height: 23px;
     flex-shrink: 0;
 }
 .login-card-title-wrap {
