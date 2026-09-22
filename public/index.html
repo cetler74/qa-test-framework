@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,6 +11,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/tomorrow-night-eighties.min.css" crossorigin="anonymous">
 </head>
+
 <body>
     <!-- Login view (shown when not authenticated) -->
     <div id="login-view" class="login-view" style="display: none;">
@@ -63,7 +65,7 @@
                     <span class="brand-org">DEO/ECP/EPS</span>
                     <span class="brand-product">
                         <span>QA Test Hub</span>
-                        <img src="/favicon.svg" alt="" class="brand-logo">
+                    <img src="/favicon.svg" alt="" class="brand-logo">
                     </span>
                 </h1>
             </div>
@@ -362,7 +364,10 @@
                     <section id="project-panel-runs" class="project-tab-panel" role="tabpanel" aria-labelledby="project-tab-runs" data-project-panel="runs" hidden>
                         <div class="project-section-box project-section-3d">
                             <div class="project-runs-heading">
-                                <div><h3>Project runs</h3><p class="muted">Search, rerun, or remove execution history.</p></div>
+                                <div>
+                                    <h3>Project runs</h3>
+                                    <p class="muted">Search, rerun, or remove execution history.</p>
+                                </div>
                                 <button type="button" class="btn btn-secondary" id="project-runs-refresh">Refresh</button>
                             </div>
                             <div class="project-runs-toolbar">
@@ -371,7 +376,9 @@
                                 <button type="button" class="btn btn-danger" id="project-runs-delete-selected" disabled>Delete selected</button>
                             </div>
                             <p id="project-runs-feedback" class="project-runs-feedback" role="status" aria-live="polite"></p>
-                            <div id="project-runs-list" class="empty-state"><p>Project run history will appear here.</p></div>
+                            <div id="project-runs-list" class="empty-state">
+                                <p>Project run history will appear here.</p>
+                            </div>
                         </div>
                     </section>
                     <section id="project-panel-coverage" class="project-tab-panel" role="tabpanel" aria-labelledby="project-tab-coverage" data-project-panel="coverage" hidden></section>
@@ -858,7 +865,8 @@ test('test', async ({ page }) => {
                             <span class="form-hint">Placeholders such as ${suffix} can be edited here and are resolved at run time from the selected UI Test Variable group.</span>
                         </div>
 
-                    </div><!-- /left panel -->
+                    </div>
+                    <!-- /left panel -->
 
                     <!-- ── RIGHT PANEL: URL + VNC + spec editor ── -->
                     <div class="recorded-test-right-panel">
@@ -903,7 +911,8 @@ test('test', async ({ page }) => {
                             </div>
                             <div class="codegen-vnc-info-box" id="codegen-vnc-connecting-msg">
                                 <p><strong>Status:</strong> Connecting to remote desktop…</p>
-                                <p class="codegen-vnc-info-detail">The viewer below shows the remote browser. A black screen is normal at first — the browser often takes <strong>20–30 seconds</strong> to start. Check the status bar inside the viewer (above the black area) for connection state and hints.</p>
+                                <p class="codegen-vnc-info-detail">The viewer below shows the remote browser. A black screen is normal at first — the browser often takes <strong>20–30 seconds</strong> to start. Check the status bar inside the viewer (above the black area) for connection
+                                    state and hints.</p>
                             </div>
                             <div class="codegen-vnc-frame-wrap" id="codegen-vnc-frame-wrap">
                                 <iframe id="codegen-vnc-iframe" class="codegen-vnc-iframe" src="" allow="clipboard-read; clipboard-write" title="Remote Codegen browser"></iframe>
@@ -946,9 +955,7 @@ test('test', async ({ page }) => {
 
                         <!-- CodeMirror attaches to the textarea on init -->
                         <div class="recorded-spec-editor-wrap">
-                            <textarea id="recorded-test-spec"
-                                placeholder="Paste the test code from Playwright Inspector here, or click 'Launch Codegen' and then 'Load generated code' to automatically load it (test(..., async ({ page }) => { ... }))"
-                                spellcheck="false"></textarea>
+                            <textarea id="recorded-test-spec" placeholder="Paste the test code from Playwright Inspector here, or click 'Launch Codegen' and then 'Load generated code' to automatically load it (test(..., async ({ page }) => { ... }))" spellcheck="false"></textarea>
                         </div>
 
                         <!-- Hint + validation results -->
@@ -957,7 +964,8 @@ test('test', async ({ page }) => {
                             <div id="recorded-test-validation-results" style="display:none; margin-top: 12px;"></div>
                         </div>
 
-                    </div><!-- /right panel -->
+                    </div>
+                    <!-- /right panel -->
                 </form>
             </div>
             <!-- Project recorded tests (manage which recorded tests are in this project) -->
@@ -971,6 +979,10 @@ test('test', async ({ page }) => {
                     </button>
                     <h2 id="project-recorded-tests-title">Recorded tests in project</h2>
                     <button class="btn btn-primary" id="add-recorded-test-to-project-btn">Add recorded test to project</button>
+                </div>
+                <div class="recorded-tests-search" role="search">
+                    <label for="project-recorded-tests-search-input">Search recorded tests</label>
+                    <input type="search" id="project-recorded-tests-search-input" placeholder="Search by test name..." autocomplete="off">
                 </div>
                 <div id="project-recorded-tests-list" class="recorded-tests-list"></div>
             </div>
@@ -986,6 +998,10 @@ test('test', async ({ page }) => {
                     </button>
                     <h2>Recorded tests</h2>
                     <button class="btn btn-primary" id="recorded-tests-list-add-new">Add recorded test</button>
+                </div>
+                <div class="recorded-tests-search" role="search">
+                    <label for="recorded-tests-search-input">Search recorded tests</label>
+                    <input type="search" id="recorded-tests-search-input" placeholder="Search by test name..." autocomplete="off">
                 </div>
                 <div id="recorded-tests-list-container" class="recorded-tests-list"></div>
             </div>
@@ -1050,48 +1066,48 @@ test('test', async ({ page }) => {
                                 <h3>Variables and execution options</h3>
                                 <p>Provide required values and choose recording/debug settings.</p>
                             </div>
-                        <div class="form-group" id="run-ui-tests-variables-section" style="display:none;">
-                            <label>Variables used by selected tests</label>
-                            <div id="run-ui-tests-variables-list" class="single-test-vars-list"></div>
-                        </div>
-                        <div class="form-group">
-                            <label for="run-ui-tests-video">Record video of the test run</label>
-                            <select id="run-ui-tests-video">
+                            <div class="form-group" id="run-ui-tests-variables-section" style="display:none;">
+                                <label>Variables used by selected tests</label>
+                                <div id="run-ui-tests-variables-list" class="single-test-vars-list"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="run-ui-tests-video">Record video of the test run</label>
+                                <select id="run-ui-tests-video">
                                 <option value="off">Off</option>
                                 <option value="on">Always</option>
                                 <option value="retain-on-failure">On failure only</option>
                             </select>
-                            <span class="form-hint">WebM video of the run. Turn on (Always or On failure only) to get a video for each test.</span>
-                        </div>
-                        <div class="form-group">
-                            <label for="run-ui-tests-trace">Record trace of the test run</label>
-                            <select id="run-ui-tests-trace">
+                                <span class="form-hint">WebM video of the run. Turn on (Always or On failure only) to get a video for each test.</span>
+                            </div>
+                            <div class="form-group">
+                                <label for="run-ui-tests-trace">Record trace of the test run</label>
+                                <select id="run-ui-tests-trace">
                                 <option value="off">Off</option>
                                 <option value="on">Always</option>
                                 <option value="retain-on-failure">On failure only</option>
                             </select>
-                            <span class="form-hint">Trace for time-travel debugging. View: open trace.playwright.dev and drag the .zip there, or use View Trace on the run result.</span>
-                        </div>
-                        <div class="form-group">
-                            <label for="run-ui-tests-slow-mo">Slow motion (ms)</label>
-                            <input type="number" id="run-ui-tests-slow-mo" min="0" max="2000" step="50" placeholder="0 = off" value="0" />
-                            <span class="form-hint">Optional. Delay between actions in ms (e.g. 250 for debugging).</span>
-                        </div>
-                        <div class="form-group run-ui-tests-show-browser-wrap">
-                            <div class="run-ui-tests-show-browser-options">
-                                <label class="checkbox-label">
+                                <span class="form-hint">Trace for time-travel debugging. View: open trace.playwright.dev and drag the .zip there, or use View Trace on the run result.</span>
+                            </div>
+                            <div class="form-group">
+                                <label for="run-ui-tests-slow-mo">Slow motion (ms)</label>
+                                <input type="number" id="run-ui-tests-slow-mo" min="0" max="2000" step="50" placeholder="0 = off" value="0" />
+                                <span class="form-hint">Optional. Delay between actions in ms (e.g. 250 for debugging).</span>
+                            </div>
+                            <div class="form-group run-ui-tests-show-browser-wrap">
+                                <div class="run-ui-tests-show-browser-options">
+                                    <label class="checkbox-label">
                                     <input type="checkbox" id="run-ui-tests-show-browser" />
                                     Show browser during run
                                 </label>
-                                <span class="form-hint">When checked, the browser window will be visible while tests run; when unchecked, tests run headless.</span>
+                                    <span class="form-hint">When checked, the browser window will be visible while tests run; when unchecked, tests run headless.</span>
+                                </div>
+                                <p id="run-ui-tests-no-display-msg" class="form-hint run-ui-tests-no-display-hint" style="display: none;">Show browser is not available on this server (no display). UI tests will run headless.</p>
                             </div>
-                            <p id="run-ui-tests-no-display-msg" class="form-hint run-ui-tests-no-display-hint" style="display: none;">Show browser is not available on this server (no display). UI tests will run headless.</p>
-                        </div>
-                        <div class="form-group">
-                            <label for="run-ui-tests-timeout">Test timeout (seconds)</label>
-                            <input type="number" id="run-ui-tests-timeout" min="10" max="300" step="10" placeholder="e.g. 60 (default from server)" />
-                            <span class="form-hint">Optional. Max time per test (default 60s). Increase if recorded tests time out (e.g. 90 or 120).</span>
-                        </div>
+                            <div class="form-group">
+                                <label for="run-ui-tests-timeout">Test timeout (seconds)</label>
+                                <input type="number" id="run-ui-tests-timeout" min="10" max="300" step="10" placeholder="e.g. 60 (default from server)" />
+                                <span class="form-hint">Optional. Max time per test (default 60s). Increase if recorded tests time out (e.g. 90 or 120).</span>
+                            </div>
                         </section>
                     </aside>
                     <main class="run-ui-tests-center-panel">
@@ -1287,5 +1303,5 @@ test('test', async ({ page }) => {
     <script src="/js/uiTests.js"></script>
     <script src="/js/help.js"></script>
 </body>
-</html>
 
+</html>
