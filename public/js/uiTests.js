@@ -37,8 +37,8 @@
                 window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
                 document.documentElement.scrollTop = 0;
                 document.body.scrollTop = 0;
-                const appContainer = document.getElementById('app-container');
-                if (appContainer) appContainer.scrollTop = 0;
+                const main = document.querySelector('main');
+                if (main) main.scrollTop = 0;
                 const activeView = document.querySelector('.view.active');
                 if (activeView) activeView.scrollTop = 0;
             });
@@ -64,13 +64,11 @@
         }
 
         function showModal(title, content) {
-            document.getElementById('modal-title').textContent = title;
-            document.getElementById('modal-body').innerHTML = content;
-            document.getElementById('modal-overlay').classList.add('active');
+            window.showModal(title, content);
         }
 
         function hideModal() {
-            document.getElementById('modal-overlay').classList.remove('active');
+            window.hideModal();
         }
 
         async function loadPlaywrightRuns() {
@@ -538,7 +536,7 @@
                     const summaryEl = document.getElementById('ui-variable-test-selection-summary');
                     if (!listEl) return;
                     const query = String(document.getElementById('ui-variable-test-search')?.value || '').trim().toLowerCase();
-                    const filteredTests = availableTests.filter((test) => !query || String(test.name || '').toLowerCase().includes(query));
+                    const filteredTests = availableTests.filter((test) => recordedTestMatchesQuery(test, query));
                     if (summaryEl) summaryEl.textContent = `${selectedTestIds.size} selected`;
                     if (availableTests.length === 0) {
                         listEl.innerHTML = '<div class="empty-state"><p>No UI tests are available from this context.</p></div>';
@@ -555,7 +553,7 @@
           <label class="ui-variable-test-option ${selectedTestIds.has(testId) ? 'selected' : ''}">
             <input type="checkbox" class="ui-variable-test-check" data-test-id="${escapeHtml(testId)}" ${selectedTestIds.has(testId) ? 'checked' : ''}>
             <span>
-              <strong>${escapeHtml(test.name || 'Unnamed UI test')}</strong>
+              <strong>${escapeHtml(test.name || 'Unnamed UI test')}${recordedTestLabelHtml(test.label)}</strong>
               <small>${variableNames.length ? `${variableNames.length} variable${variableNames.length === 1 ? '' : 's'}` : 'No variables detected'}</small>
             </span>
           </label>
@@ -663,9 +661,9 @@
         });
       });
       listEl.querySelectorAll('.ui-variable-group-delete').forEach((button) => {
-        button.addEventListener('click', () => {
+        button.addEventListener('click', async () => {
           const groupId = button.closest('[data-ui-variable-group-id]')?.getAttribute('data-ui-variable-group-id');
-          if (!groupId || !confirm('Delete this UI Test Variable group?')) return;
+          if (!groupId || !(await confirmDialog({ title: 'Delete variable group', message: 'Delete this UI Test Variable group?', confirmLabel: 'Delete variable group' }))) return;
           const nextGroups = loadSavedUiTestVariableGroups().filter((item) => item.id !== groupId);
           saveUiTestVariableGroups(nextGroups);
           if (activeGroupId === groupId) activeGroupId = '';
@@ -862,7 +860,7 @@
     const testById = new Map(filtered.map((test) => [String(test.id), test]));
     const selectedIds = new Set(selectedRunUiTestOrder.map(String));
     const searchText = String(document.getElementById('run-ui-tests-search')?.value || '').trim().toLowerCase();
-    const renderOrder = filtered.filter((test) => !searchText || String(test.name || '').toLowerCase().includes(searchText));
+    const renderOrder = filtered.filter((test) => recordedTestMatchesQuery(test, searchText));
     if (!filtered.length) {
       container.innerHTML = `
         <p class="test-list-empty">No recorded tests in this project. Add recorded tests and link them to the project first.</p>
@@ -896,7 +894,7 @@
           <li class="playwright-test-item ordered-ui-test-item ${isSelected ? 'selected' : 'not-selected'}" data-test-id="${escapeHtml(testId)}">
             ${showCheckboxes ? `<input type="checkbox" class="playwright-test-cb" data-test-id="${escapeHtml(testId)}" id="pt-${escapeHtml(testId)}" ${isSelected ? 'checked' : ''} />` : ''}
             <span class="ordered-ui-test-number">${isSelected ? selectedIndex + 1 : '—'}</span>
-            <span class="playwright-test-name">${escapeHtml(t.name || '')}</span>
+            <span class="playwright-test-name">${escapeHtml(t.name || '')}${recordedTestLabelHtml(t.label)}</span>
           </li>
         `;
         }).join('')}
@@ -1126,6 +1124,7 @@
         });
         const res = await apiRequest('/playwright-runs/execute', { method: 'POST', body });
         const runId = res.playwrightRun && res.playwrightRun.id;
+        window.trackUsage?.('run_ui_tests');
         if (!runId) {
           hideModal();
           alert('Error: No run id returned.');
@@ -1601,6 +1600,7 @@
     const idInput = document.getElementById('recorded-test-id');
     const titleEl = document.getElementById('recorded-test-form-title');
     const nameInput = document.getElementById('recorded-test-name');
+    const labelInput = document.getElementById('recorded-test-label');
     const specInput = document.getElementById('recorded-test-spec');
     const codegenUrlInput = document.getElementById('recorded-test-codegen-url');
     const loadBtn = document.getElementById('load-codegen-output-btn');
@@ -1631,6 +1631,7 @@
     idInput.value = editId || '';
     titleEl.textContent = editId ? 'Edit recorded test' : 'Add recorded test';
     nameInput.value = '';
+    if (labelInput) labelInput.value = '';
     setSpecValue('');
     clearRecordedTestValidationResults();
     populateUiVariableGroupSelect(variableGroupSelect, variableGroupSelect?.value || '');
@@ -1657,6 +1658,7 @@
       apiRequest(`/playwright-recorded-tests/${editId}`)
         .then(t => {
           nameInput.value = t.name || '';
+          if (labelInput) labelInput.value = t.label || '';
           setSpecValue(t.spec_content || '');
           updateRecordedTestDetectedVariablesPreview();
           clearRecordedTestValidationResults();
@@ -1727,6 +1729,7 @@
         body: { baseUrl: url, projectId: projectId ? Number(projectId) : undefined }
       });
       currentCodegenSlug = res.slug;
+      window.trackUsage?.('record_ui_test');
       currentCodegenMode = res.mode || 'local';
 
       if (currentCodegenMode === 'remote') {
@@ -1817,9 +1820,9 @@
   });
 
   // Clear the spec textarea and reset related UI state
-  document.getElementById('clear-spec-btn')?.addEventListener('click', () => {
+  document.getElementById('clear-spec-btn')?.addEventListener('click', async () => {
     if (!getSpecValue().trim()) return;
-    if (!confirm('Clear the generated spec? This cannot be undone.')) return;
+    if (!(await confirmDialog({ title: 'Clear spec', message: 'Clear the generated spec? This cannot be undone.', confirmLabel: 'Clear spec' }))) return;
     setSpecValue('');
     updateRecordedTestDetectedVariablesPreview();
     clearRecordedTestValidationResults();
@@ -1832,6 +1835,7 @@
     stopAutoRefresh();
     const idInput = document.getElementById('recorded-test-id');
     const name = document.getElementById('recorded-test-name')?.value?.trim();
+    const label = document.getElementById('recorded-test-label')?.value?.trim() || null;
     const spec = getSpecValue().trim();
     const addToProjectEl = document.getElementById('recorded-test-add-to-project');
     const addToProjectId = addToProjectEl?.value?.trim() || null;
@@ -1856,12 +1860,12 @@
     };
     try {
       if (editId) {
-        const body = { name, spec_content: spec, base_url: null };
+        const body = { name, label, spec_content: spec, base_url: null };
         body.projectIds = [Number(addToProjectId)];
         const response = await apiRequest(`/playwright-recorded-tests/${editId}`, { method: 'PUT', body });
         alert(buildRecordedTestSavedMessage('updated', response));
       } else {
-        const body = { name, spec_content: spec, base_url: null };
+        const body = { name, label, spec_content: spec, base_url: null };
         body.addToProjectIds = [Number(addToProjectId)];
         const response = await apiRequest('/playwright-recorded-tests', { method: 'POST', body });
         alert(buildRecordedTestSavedMessage('saved', response));
@@ -1879,13 +1883,36 @@
 
   let recordedTestsList = [];
 
+  function recordedTestLabelHtml(label) {
+    const text = String(label || '').trim();
+    if (!text) return '';
+    return `<span class="recorded-test-label">${escapeHtml(text)}</span>`;
+  }
+
+  function recordedTestMatchesQuery(test, query) {
+    if (!query) return true;
+    return [test.name, test.label, test.base_url].filter(Boolean).join(' ').toLowerCase().includes(query);
+  }
+
+  function fillRecordedLabelFilter(select, tests) {
+    if (!select) return;
+    const current = select.value;
+    const labels = [...new Set((tests || []).map((test) => String(test.label || '').trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b));
+    select.innerHTML = `<option value="">All labels</option>${labels.map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`).join('')}`;
+    if ([...select.options].some((option) => option.value === current)) select.value = current;
+  }
+
   function renderRecordedTestsList() {
     const container = document.getElementById('recorded-tests-list-container');
     if (!container) return;
     const searchInput = document.getElementById('recorded-tests-search-input');
+    const labelFilterEl = document.getElementById('recorded-tests-label-filter');
+    fillRecordedLabelFilter(labelFilterEl, recordedTestsList);
     const searchTerm = (searchInput?.value || '').trim().toLowerCase();
+    const selectedLabel = labelFilterEl?.value || '';
     const filteredTests = recordedTestsList.filter(test =>
-      (test.name || '').toLowerCase().includes(searchTerm)
+      recordedTestMatchesQuery(test, searchTerm) && (!selectedLabel || String(test.label || '') === selectedLabel)
     );
 
     if (recordedTestsList.length === 0) {
@@ -1902,7 +1929,7 @@
       container.innerHTML = filteredTests.map(t => `
           <div class="list-item" data-id="${t.id}">
             <div class="list-item-info">
-              <h3>${escapeHtml(t.name)}</h3>
+              <h3>${escapeHtml(t.name)}${recordedTestLabelHtml(t.label)}</h3>
               <p style="font-size: 12px; color: #6b7280;">${escapeHtml(t.base_url || '')} • ${formatDateTime(t.created_at)}</p>
             </div>
             <div class="list-item-actions">
@@ -1916,7 +1943,7 @@
       });
       container.querySelectorAll('.delete-recorded-test-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
-          if (!confirm('Delete this recorded test?')) return;
+          if (!(await confirmDialog({ title: 'Delete recorded test', message: 'Delete this recorded test?', confirmLabel: 'Delete recorded test' }))) return;
           try {
             await apiRequest(`/playwright-recorded-tests/${btn.getAttribute('data-id')}`, { method: 'DELETE' });
             loadRecordedTestsList();
@@ -1958,6 +1985,7 @@
   });
   document.getElementById('recorded-tests-list-add-new')?.addEventListener('click', () => showAddRecordedTestView());
   document.getElementById('recorded-tests-search-input')?.addEventListener('input', renderRecordedTestsList);
+  document.getElementById('recorded-tests-label-filter')?.addEventListener('change', renderRecordedTestsList);
 
   // Project recorded tests (Option B: list linked to project, add from pool, remove link)
   let projectRecordedTestsList = [];
@@ -1966,9 +1994,12 @@
     const listEl = document.getElementById('project-recorded-tests-list');
     if (!listEl) return;
     const searchInput = document.getElementById('project-recorded-tests-search-input');
+    const labelFilterEl = document.getElementById('project-recorded-tests-label-filter');
+    fillRecordedLabelFilter(labelFilterEl, projectRecordedTestsList);
     const searchTerm = (searchInput?.value || '').trim().toLowerCase();
+    const selectedLabel = labelFilterEl?.value || '';
     const filteredTests = projectRecordedTestsList.filter(test =>
-      (test.name || '').toLowerCase().includes(searchTerm)
+      recordedTestMatchesQuery(test, searchTerm) && (!selectedLabel || String(test.label || '') === selectedLabel)
     );
 
     if (projectRecordedTestsList.length === 0) {
@@ -1987,7 +2018,7 @@
       listEl.innerHTML = filteredTests.map(t => `
           <div class="list-item">
             <div class="list-item-info">
-              <h3>${escapeHtml(t.name)}</h3>
+              <h3>${escapeHtml(t.name)}${recordedTestLabelHtml(t.label)}</h3>
               <p>${t.base_url ? escapeHtml(t.base_url) : ''} • ${formatDateTime(t.created_at)}</p>
             </div>
             <div class="list-item-actions">
@@ -2003,7 +2034,7 @@
       });
       listEl.querySelectorAll('.remove-from-project-recorded').forEach(btn => {
         btn.addEventListener('click', async () => {
-          if (!confirm('Remove this recorded test from the project? (The test stays in the global pool.)')) return;
+          if (!(await confirmDialog({ title: 'Remove recorded test', message: 'Remove this recorded test from the project? (The test stays in the global pool.)', confirmLabel: 'Remove recorded test' }))) return;
           try {
             await apiRequest(`/projects/${projectId}/recorded-tests/${btn.getAttribute('data-recorded-id')}`, { method: 'DELETE' });
             loadProjectRecordedTestsView(projectId);
@@ -2050,6 +2081,9 @@
   document.getElementById('project-recorded-tests-search-input')?.addEventListener('input', () => {
     renderProjectRecordedTestsList(window._projectRecordedTestsProjectId);
   });
+  document.getElementById('project-recorded-tests-label-filter')?.addEventListener('change', () => {
+    renderProjectRecordedTestsList(window._projectRecordedTestsProjectId);
+  });
 
   document.getElementById('add-recorded-test-to-project-btn')?.addEventListener('click', async () => {
     const projectId = window._projectRecordedTestsProjectId;
@@ -2080,15 +2114,15 @@
         const projectsHtml = projectNames.length > 0
           ? `<div class="recorded-bulk-project-chips">${projectNames.slice(0, 4).map((name) => `<span class="recorded-bulk-project-chip">${escapeHtml(name)}</span>`).join('')}${projectNames.length > 4 ? `<span class="recorded-bulk-project-chip">+${projectNames.length - 4}</span>` : ''}</div>`
           : '<div class="recorded-bulk-project-chips"><span class="recorded-bulk-project-chip recorded-bulk-project-chip-empty">No project links</span></div>';
-        const searchText = [test.name || '', test.base_url || '', projectNames.join(' '), formatDateTime(test.created_at) || ''].join(' ').toLowerCase();
+        const searchText = [test.name || '', test.label || '', test.base_url || '', projectNames.join(' '), formatDateTime(test.created_at) || ''].join(' ').toLowerCase();
         return `
-          <label class="recorded-bulk-test-item" data-search="${escapeHtml(searchText)}" data-project-ids="${escapeHtml(projectIds.join(','))}">
+          <label class="recorded-bulk-test-item" data-search="${escapeHtml(searchText)}" data-label="${escapeHtml(String(test.label || ''))}" data-project-ids="${escapeHtml(projectIds.join(','))}">
             <span class="recorded-bulk-test-check-wrap">
               <input type="checkbox" class="recorded-bulk-test-cb" value="${escapeHtml(String(test.id))}">
             </span>
             <span class="recorded-bulk-test-body">
               <span class="recorded-bulk-test-title-row">
-                <span class="recorded-bulk-test-name">${escapeHtml(test.name || '')}</span>
+                <span class="recorded-bulk-test-name">${escapeHtml(test.name || '')}${recordedTestLabelHtml(test.label)}</span>
                 <span class="recorded-bulk-test-meta">${escapeHtml(formatDateTime(test.created_at) || '')}</span>
               </span>
               ${baseUrl}
@@ -2103,7 +2137,7 @@
           <div class="recorded-bulk-intro">
             <div>
               <p class="recorded-bulk-intro-title">Select reusable recorded tests from the global pool.</p>
-              <p class="recorded-bulk-intro-copy">Search by name, URL, linked project, or date. Filter by an existing project association when you need to find related tests quickly.</p>
+              <p class="recorded-bulk-intro-copy">Search by name, label, URL, linked project, or date. Filter by label or an existing project when you need to find related tests quickly.</p>
             </div>
             <div class="recorded-bulk-summary-card">
               <strong>${escapeHtml(String(available.length))}</strong>
@@ -2113,7 +2147,14 @@
           <div class="recorded-bulk-controls">
             <label class="recorded-bulk-control recorded-bulk-search-control">
               <span>Search recorded tests</span>
-              <input type="search" id="recorded-bulk-search" placeholder="Search by name, URL, project, date..." autocomplete="off">
+              <input type="search" id="recorded-bulk-search" placeholder="Search by name, label, URL, project, date..." autocomplete="off">
+            </label>
+            <label class="recorded-bulk-control">
+              <span>Filter by label</span>
+              <select id="recorded-bulk-label-filter">
+                <option value="">All labels</option>
+                ${[...new Set(available.map((test) => String(test.label || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)).map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`).join('')}
+              </select>
             </label>
             <label class="recorded-bulk-control recorded-bulk-project-filter-control">
               <span>Filter by linked project</span>
@@ -2137,7 +2178,7 @@
           </div>
           <div class="recorded-bulk-list" role="group" aria-label="Recorded tests available to add">
             ${checklist}
-            <div class="recorded-bulk-empty" id="recorded-bulk-empty" style="display:none;">No recorded tests match the current search and project filter.</div>
+            <div class="recorded-bulk-empty" id="recorded-bulk-empty" style="display:none;">No recorded tests match the current search, label, and project filter.</div>
           </div>
           <div class="recorded-bulk-footer">
             <button type="button" class="btn btn-secondary" id="recorded-bulk-cancel">Cancel</button>
@@ -2152,6 +2193,7 @@
       const visibleCountEl = document.getElementById('recorded-bulk-visible-count');
       const emptyEl = document.getElementById('recorded-bulk-empty');
       const searchInput = document.getElementById('recorded-bulk-search');
+      const labelFilter = document.getElementById('recorded-bulk-label-filter');
       const projectFilter = document.getElementById('recorded-bulk-project-filter');
       const visibleItems = () => items.filter((item) => item.style.display !== 'none');
       const updateSelectedCount = () => {
@@ -2161,14 +2203,16 @@
       };
       const applyFilters = () => {
         const query = String(searchInput?.value || '').trim().toLowerCase();
+        const selectedLabel = String(labelFilter?.value || '');
         const selectedProjectId = String(projectFilter?.value || '');
         let visibleCount = 0;
         items.forEach((item) => {
           const matchesSearch = !query || String(item.dataset.search || '').includes(query);
+          const matchesLabel = !selectedLabel || String(item.dataset.label || '') === selectedLabel;
           const ids = String(item.dataset.projectIds || '').split(',').filter(Boolean);
           const matchesProject = !selectedProjectId
             || (selectedProjectId === '__unlinked' ? ids.length === 0 : ids.includes(selectedProjectId));
-          const visible = matchesSearch && matchesProject;
+          const visible = matchesSearch && matchesLabel && matchesProject;
           item.style.display = visible ? '' : 'none';
           if (visible) visibleCount += 1;
         });
@@ -2178,6 +2222,7 @@
       };
       checkboxes.forEach((cb) => cb.addEventListener('change', updateSelectedCount));
       searchInput?.addEventListener('input', applyFilters);
+      labelFilter?.addEventListener('change', applyFilters);
       projectFilter?.addEventListener('change', applyFilters);
       document.getElementById('recorded-bulk-select-all')?.addEventListener('click', () => {
         visibleItems().forEach((item) => {
@@ -2242,7 +2287,7 @@ async function viewPlaywrightRun(id) {
     const resultsEl = document.getElementById('playwright-results-list');
     const results = (run.results || []).slice().sort((a, b) => (a.execution_order || 0) - (b.execution_order || 0));
     if (results.length > 0) {
-      resultsEl.innerHTML = results.map(r => {
+      window.mountRunDetailSplit(resultsEl, results.map(r => {
         const validationsHtml = (r.assertions && Array.isArray(r.assertions.validations))
           ? `<div style="margin-top: 8px;"><strong style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Validations</strong><ul style="list-style: none; padding: 0; margin: 4px 0 0 0;">${r.assertions.validations.map(v => `
             <li class="light-surface" style="display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; margin-bottom: 4px; border-radius: 6px; background: #fff; border: 1px solid #e5e7eb; border-left: 4px solid ${v.passed ? '#10b981' : '#ef4444'};">
@@ -2261,23 +2306,25 @@ async function viewPlaywrightRun(id) {
             ${hasResultVideo ? `<button type="button" class="btn btn-secondary result-video-link" data-run-id="${runId}" data-result-id="${resultId}">${videoIcon}View video</button>` : ''}
             ${hasResultTrace ? `<button type="button" class="btn btn-secondary result-trace-link" data-run-id="${runId}" data-result-id="${resultId}">${traceIcon}View trace</button>` : ''}
           </div>` : '';
-        return `
-        <div class="test-result-item">
-          <div class="test-result-header">
-            <div><strong>${r.test_name}</strong>${r.endpoint ? ` <span style="font-size: 12px; color: #6b7280;">${r.endpoint}</span>` : ''}</div>
-            <span class="status-badge ${r.status}">${r.status}</span>
-          </div>
-          <div class="test-result-details">
-            ${r.duration_ms != null ? `<p><strong>Duration:</strong> ${r.duration_ms} ms</p>` : ''}
-            ${r.error_message ? `<p style="color: #dc2626;"><strong>Error:</strong> ${r.error_message}</p>` : ''}
-            ${artifactLinks}
-            ${validationsHtml}
-          </div>
-        </div>
-      `;
-      }).join('');
+        return {
+          labelHtml: `
+            <span class="test-result-header">
+              <span><strong>${r.test_name}</strong>${r.endpoint ? ` <span style="font-size: 12px; color: #6b7280;">${r.endpoint}</span>` : ''}</span>
+              <span class="status-badge ${r.status}">${r.status}</span>
+            </span>
+          `,
+          evidenceHtml: `
+            <div class="test-result-details">
+              ${r.duration_ms != null ? `<p><strong>Duration:</strong> ${r.duration_ms} ms</p>` : ''}
+              ${r.error_message ? `<p style="color: #dc2626;"><strong>Error:</strong> ${r.error_message}</p>` : ''}
+              ${artifactLinks}
+              ${validationsHtml}
+            </div>
+          `
+        };
+      }), '', `ui-${id}`);
     } else {
-      resultsEl.innerHTML = `<div class="empty-state"><p>${run.status === 'running' ? 'Test run in progress...' : 'No results'}</p></div>`;
+      window.mountRunDetailSplit?.(resultsEl, [], `<div class="empty-state"><p>${run.status === 'running' ? 'This run is still going. Results appear here when each test finishes.' : 'No results for this UI run. Run the recorded tests again from the project.'}</p></div>`, `ui-${id}`);
     }
     document.getElementById('view-ui-report-btn').setAttribute('data-playwright-run-id', id);
     document.getElementById('download-ui-report-btn').setAttribute('data-playwright-run-id', id);
@@ -2344,7 +2391,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('download-ui-report-btn')?.addEventListener('click', () => {
     const id = document.getElementById('download-ui-report-btn').getAttribute('data-playwright-run-id');
-    if (id) window.location.href = `${API_BASE}/playwright-runs/${id}/report/download`;
+    if (id) {
+      window.trackUsage?.('download_report');
+      window.location.href = `${API_BASE}/playwright-runs/${id}/report/download`;
+    }
   });
   document.getElementById('view-ui-video-btn')?.addEventListener('click', () => {
     const id = document.getElementById('view-ui-video-btn').getAttribute('data-playwright-run-id');
@@ -2374,7 +2424,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('delete-ui-run-btn');
     const id = btn?.getAttribute('data-playwright-run-id');
     if (!id) return;
-    if (!confirm('Delete this run and all its artifacts (reports, videos, traces)? This cannot be undone.')) return;
+    if (!(await confirmDialog({ title: 'Delete run', message: 'Delete this run and all its artifacts (reports, videos, traces)? This cannot be undone.', confirmLabel: 'Delete run' }))) return;
     try {
       await apiRequest(`/playwright-runs/${id}`, { method: 'DELETE' });
       showView('test-runs');

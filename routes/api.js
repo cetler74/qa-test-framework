@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { parse: parseCsv } = require('csv-parse/sync');
 
-const { sequelize, Project, User, UserEnvironment, UserOnboardingProgress, ProjectMember, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult, ProjectTest, ProjectTestStat, ProjectTestNote, ProjectTestNoteAttachment, RunCatalogueMembership } = require('../models');
+const { sequelize, Project, User, UserEnvironment, UserOnboardingProgress, UsageEvent, ProjectMember, ApiSpec, Collection, TestRun, TestResult, ProjectApiSpec, PlaywrightRun, PlaywrightResult, PlaywrightRecordedTest, ProjectRecordedTest, Flow, FlowTask, Schedule, SoapOperation, FuzzRun, FuzzResult, ProjectTest, ProjectTestStat, ProjectTestNote, ProjectTestNoteAttachment, RunCatalogueMembership } = require('../models');
 const { getAccessibleProjectIds, loadProjectAndCheckAccess, userCanAccessProjectId, userCanManageProjectId } = require('../middleware/projectAccess');
 const SequelizeLib = require('sequelize');
 const { Op, literal } = require('sequelize');
@@ -620,6 +620,130 @@ router.post('/user/onboarding/:tourKey/replay', async(req, res) => {
         res.json(serializeOnboardingProgress(progress));
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ==================== USAGE ANALYTICS ====================
+// Additive only. A missing event never blocks the action that recorded it.
+
+const USAGE_ACTIONS = {
+    open_dashboard: 'Dashboard',
+    open_projects: 'Projects',
+    open_test_runs: 'Test Runs',
+    open_tests_catalogue: 'Test Catalogue',
+    create_project: 'Create project',
+    run_api_tests: 'Run API tests',
+    run_ui_tests: 'Run UI tests',
+    run_flow: 'Run flow',
+    record_ui_test: 'Record UI test',
+    upload_api_spec: 'Upload API spec',
+    download_report: 'Download report'
+};
+
+const USAGE_RUN_LABELS = {
+    api: 'API runs',
+    ui: 'UI runs',
+    soap: 'SOAP runs',
+    fuzz: 'Fuzz runs',
+    iterations: 'Iteration runs',
+    rate_limit: 'Rate-limit runs'
+};
+
+router.post('/usage-events', async(req, res) => {
+    try {
+        const action = typeof req.body?.action === 'string' ? req.body.action : '';
+        if (!USAGE_ACTIONS[action] || !req.user?.id) return res.status(204).end();
+        await UsageEvent.create({ user_id: req.user.id, action });
+    } catch (error) {
+        // Tracking must not change the caller's workflow if the table is missing or the write fails.
+    }
+    res.status(204).end();
+});
+
+router.get('/usage-analytics', async(req, res) => {
+    try {
+        if (!req.user?.is_admin) return res.status(403).json({ error: 'Admin only' });
+
+        const users = await User.findAll({
+            attributes: ['id', 'username', 'display_name'],
+            order: [['username', 'ASC']]
+        });
+
+        let eventRows = [];
+        try {
+            eventRows = await UsageEvent.findAll({
+                attributes: [
+                    'user_id',
+                    'action',
+                    [SequelizeLib.fn('COUNT', SequelizeLib.col('id')), 'count']
+                ],
+                group: ['user_id', 'action'],
+                raw: true
+            });
+        } catch (error) {
+            eventRows = [];
+        }
+
+        const testRunRows = await TestRun.findAll({
+            attributes: [
+                'run_by_user_id',
+                'run_type',
+                [SequelizeLib.fn('COUNT', SequelizeLib.col('id')), 'count']
+            ],
+            group: ['run_by_user_id', 'run_type'],
+            raw: true
+        });
+        const uiRunRows = await PlaywrightRun.findAll({
+            attributes: [
+                'run_by_user_id',
+                [SequelizeLib.fn('COUNT', SequelizeLib.col('id')), 'count']
+            ],
+            group: ['run_by_user_id'],
+            raw: true
+        });
+
+        const byUser = new Map();
+        const ensure = (userId, name, username) => {
+            const key = userId == null ? 'unknown' : String(userId);
+            if (!byUser.has(key)) {
+                byUser.set(key, {
+                    id: userId == null ? null : Number(userId),
+                    name: name || 'Unknown',
+                    username: username || '',
+                    runs: {},
+                    actions: {}
+                });
+            }
+            return byUser.get(key);
+        };
+
+        users.forEach((user) => {
+            ensure(user.id, user.display_name || user.username, user.username);
+        });
+
+        eventRows.forEach((row) => {
+            if (!USAGE_ACTIONS[row.action]) return;
+            const entry = ensure(row.user_id, null, '');
+            entry.actions[row.action] = Number(row.count) || 0;
+        });
+        testRunRows.forEach((row) => {
+            const type = USAGE_RUN_LABELS[row.run_type] ? row.run_type : 'api';
+            const entry = ensure(row.run_by_user_id, row.run_by_user_id == null ? 'Unknown' : null, '');
+            entry.runs[type] = (entry.runs[type] || 0) + (Number(row.count) || 0);
+        });
+        uiRunRows.forEach((row) => {
+            const entry = ensure(row.run_by_user_id, row.run_by_user_id == null ? 'Unknown' : null, '');
+            entry.runs.ui = (entry.runs.ui || 0) + (Number(row.count) || 0);
+        });
+
+        const rows = [...byUser.values()].sort((a, b) => a.name.localeCompare(b.name));
+        res.json({
+            actions: Object.entries(USAGE_ACTIONS).map(([key, label]) => ({ key, label })),
+            runTypes: Object.entries(USAGE_RUN_LABELS).map(([key, label]) => ({ key, label })),
+            users: rows
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -2271,11 +2395,12 @@ router.get('/projects/:id/recorded-tests', (req, res, next) => {
     loadProjectAndCheckAccess(req, res, async() => {
         try {
             const project = await Project.findByPk(req.project.id, {
-                include: [{ model: PlaywrightRecordedTest, as: 'recordedTests', through: { attributes: [] }, attributes: ['id', 'name', 'base_url', 'spec_content', 'created_at'] }]
+                include: [{ model: PlaywrightRecordedTest, as: 'recordedTests', through: { attributes: [] }, attributes: ['id', 'name', 'label', 'base_url', 'spec_content', 'created_at'] }]
             });
             res.json((project.recordedTests || []).map((test) => ({
                 id: test.id,
                 name: test.name,
+                label: test.label || null,
                 base_url: test.base_url,
                 created_at: test.created_at,
                 variable_names: detectUiVariableNamesFromSpec(test.spec_content || '')
@@ -4630,6 +4755,15 @@ router.delete('/playwright-runs/:id', async(req, res) => {
     }
 });
 
+function readRecordedTestLabel(value) {
+    if (value == null || value === '') return { ok: true, label: null };
+    if (typeof value !== 'string') return { ok: false, error: 'label must be text' };
+    const trimmed = value.trim();
+    if (!trimmed) return { ok: true, label: null };
+    if (trimmed.length > 120) return { ok: false, error: 'label must be 120 characters or fewer' };
+    return { ok: true, label: trimmed };
+}
+
 // ==================== PLAYWRIGHT RECORDED TESTS (Codegen paste-and-save) ====================
 
 // List recorded tests (only those in projects the user can access)
@@ -4653,7 +4787,7 @@ router.get('/playwright-recorded-tests', async(req, res) => {
             order: [
                 ['created_at', 'DESC']
             ],
-            attributes: ['id', 'name', 'base_url', 'created_at', 'spec_content']
+            attributes: ['id', 'name', 'label', 'base_url', 'created_at', 'spec_content']
         });
         const links = testIds === null ?
             await ProjectRecordedTest.findAll({ attributes: ['recorded_test_id', 'project_id'] }) :
@@ -4683,7 +4817,7 @@ router.get('/playwright-recorded-tests', async(req, res) => {
 // Create recorded test (addToProjectIds: user must manage those projects)
 router.post('/playwright-recorded-tests', async(req, res) => {
     try {
-        const { name, spec_content, base_url, addToProjectIds } = req.body;
+        const { name, spec_content, base_url, addToProjectIds, label } = req.body;
         if (!name || typeof name !== 'string' || !name.trim()) {
             return res.status(400).json({ error: 'name is required' });
         }
@@ -4699,12 +4833,15 @@ router.post('/playwright-recorded-tests', async(req, res) => {
             const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, projectId);
             if (!canManage) return res.status(403).json({ error: 'Forbidden: cannot add to one or more projects' });
         }
+        const parsedLabel = readRecordedTestLabel(label);
+        if (!parsedLabel.ok) return res.status(400).json({ error: parsedLabel.error });
         const normalizedSpec = normalizeRecordedSpec(
             typeof spec_content === 'string' ? spec_content.trim() : '',
             name
         );
         const test = await PlaywrightRecordedTest.create({
             name: name.trim(),
+            label: parsedLabel.label,
             spec_content: normalizedSpec,
             base_url: base_url && typeof base_url === 'string' ? base_url.trim() || null : null
         });
@@ -5079,7 +5216,7 @@ router.put('/playwright-recorded-tests/:id', async(req, res) => {
                 if (await userCanAccessProjectId(req.user.id, false, pid)) { allowed = true; break; }
             }
         if (!allowed) return res.status(403).json({ error: 'Forbidden' });
-        const { name, spec_content, base_url, projectIds: requestedProjectIds } = req.body;
+        const { name, spec_content, base_url, label, projectIds: requestedProjectIds } = req.body;
         if (name !== undefined) {
             if (typeof name !== 'string' || !name.trim()) {
                 return res.status(400).json({ error: 'name must be a non-empty string' });
@@ -5099,6 +5236,11 @@ router.put('/playwright-recorded-tests/:id', async(req, res) => {
         }
         if (base_url !== undefined) {
             test.base_url = base_url && typeof base_url === 'string' ? base_url.trim() || null : null;
+        }
+        if (label !== undefined) {
+            const parsedLabel = readRecordedTestLabel(label);
+            if (!parsedLabel.ok) return res.status(400).json({ error: parsedLabel.error });
+            test.label = parsedLabel.label;
         }
         await test.save();
 

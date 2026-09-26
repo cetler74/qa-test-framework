@@ -60,6 +60,7 @@ async function downloadReport() {
     a.click();
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
+    window.trackUsage?.('download_report');
   } catch (error) {
     console.error('Error downloading report:', error);
     alert('Error downloading report: ' + error.message);

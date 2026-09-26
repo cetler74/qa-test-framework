@@ -461,7 +461,7 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('Please select a project first.');
             return;
         }
-        if (!confirm('Clear active tests from coverage? This hides them from active coverage but preserves last status, run counts, history links, notes, and tickets. Sync from specs can reactivate matching tests.')) {
+        if (!(await confirmDialog({ title: 'Clear tests', message: 'Clear active tests from coverage? This hides them from active coverage but preserves last status, run counts, history links, notes, and tickets. Sync from specs can reactivate matching tests.', confirmLabel: 'Clear tests' }))) {
             return;
         }
         btn.disabled = true;
@@ -630,6 +630,7 @@ function showCreateProjectModal() {
             });
 
             hideModal();
+            window.trackUsage?.('create_project');
             await loadProjects();
             if (createdProject?.id) {
               await window.viewProject(createdProject.id);
@@ -763,7 +764,7 @@ window.editProject = async(projectId) => {
         const delBtn = document.getElementById('edit-project-delete-btn');
         if (delBtn) {
             delBtn.addEventListener('click', async() => {
-                if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) return;
+                if (!(await confirmDialog({ title: 'Delete project', message: 'Are you sure you want to delete this project? This cannot be undone.', confirmLabel: 'Delete project' }))) return;
                 try {
                     await apiRequest(`/projects/${projectId}`, { method: 'DELETE' });
                     hideModal();
@@ -1036,7 +1037,7 @@ async function deleteProjectRuns(runs) {
   const deletable = runs.filter((run) => String(run.status || '').toLowerCase() !== 'running');
   if (!deletable.length) return;
   const label = deletable.length === 1 ? `“${deletable[0].name || `Run ${deletable[0].id}`}”` : `${deletable.length} selected runs`;
-  if (!confirm(`Delete ${label}? This removes their results and artifacts and cannot be undone.`)) return;
+  if (!(await confirmDialog({ title: 'Delete runs', message: `Delete ${label}? This removes their results and artifacts and cannot be undone.`, confirmLabel: 'Delete runs' }))) return;
   setProjectRunsFeedback(`Deleting ${deletable.length} run${deletable.length === 1 ? '' : 's'}…`);
   try {
     const result = await apiRequest('/runs', {
@@ -1424,7 +1425,7 @@ window.viewProject = async (projectId) => {
           <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
-          <p>No API specs in this project</p>
+          <p>Upload an OpenAPI file for API and fuzz tests, or a WSDL file for SOAP.</p>
         </div>
       `;
     }
@@ -1439,7 +1440,7 @@ window.viewProject = async (projectId) => {
           <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
           </svg>
-          <p>No collections available</p>
+          <p>Upload a Postman collection to keep its folders, requests, and tests.</p>
         </div>
       `;
     } else {
@@ -1612,12 +1613,12 @@ window.loadProjectCoverageSummary = async (projectId) => {
     </div>
     <div class="stat-card">
       <div class="stat-label">Total tests failed</div>
-      <div class="stat-value" style="color:#dc2626;">${failed + partial}</div>
+      <div class="stat-value stat-value-failed">${failed + partial}</div>
       <div class="stat-subtext">${coveragePct}% coverage (passed / failed / partial)</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Not yet run</div>
-      <div class="stat-value">${notRun}</div>
+      <div class="stat-value stat-value-muted">${notRun}</div>
       <div class="stat-subtext">Active tests with no successful or failed runs yet</div>
     </div>
   `;
@@ -2864,8 +2865,8 @@ window.downloadProjectTestsReport = async () => {
   <link rel="icon" href="${qaTestHubLogoDataUri}" type="image/svg+xml">
   <style>
     :root {
-      --color-primary: #14b8a6;
-      --color-primary-dark: #0d9488;
+      --color-primary: #3b2fe8;
+      --color-primary-dark: #2a1fd0;
       --color-gray-50: #f9fafb;
       --color-gray-100: #f3f4f6;
       --color-gray-200: #e5e7eb;
@@ -3670,7 +3671,7 @@ window.toggleProjectTestActive = async (projectId, projectTestId, isActive) => {
 
 // Delete a single project test (with confirmation)
 window.deleteProjectTest = async (projectId, projectTestId) => {
-  if (!confirm('Delete this test from the Tests & Coverage list? This does not delete historical runs, only the catalogue entry.')) {
+  if (!(await confirmDialog({ title: 'Delete test', message: 'Delete this test from the Tests & Coverage list? This does not delete historical runs, only the catalogue entry.', confirmLabel: 'Delete test' }))) {
     return;
   }
   try {
@@ -3984,7 +3985,7 @@ window.viewProjectTestDetails = async (projectId, projectTestId) => {
           return;
         }
         if (action === 'delete-note') {
-          if (!confirm('Delete this note and all attached images?')) return;
+          if (!(await confirmDialog({ title: 'Delete note', message: 'Delete this note and all attached images?', confirmLabel: 'Delete note' }))) return;
           try {
             await deleteProjectTestNote(projectId, projectTestId, noteId);
             window.viewProjectTestDetails(projectId, projectTestId);
@@ -3996,7 +3997,7 @@ window.viewProjectTestDetails = async (projectId, projectTestId) => {
         if (action === 'delete-attachment') {
           const attachmentId = Number(button.dataset.attachmentId);
           if (!Number.isFinite(attachmentId)) return;
-          if (!confirm('Delete this image from the note evidence?')) return;
+          if (!(await confirmDialog({ title: 'Delete image', message: 'Delete this image from the note evidence?', confirmLabel: 'Delete image' }))) return;
           try {
             await deleteProjectTestNoteAttachment(projectId, projectTestId, noteId, attachmentId);
             window.viewProjectTestDetails(projectId, projectTestId);
@@ -4025,7 +4026,7 @@ window.openLastRunForTest = (lastRunId, lastRunType) => {
 
 // Remove API spec from project
 window.removeApiSpecFromProject = async (projectId, apiSpecId) => {
-  if (!confirm('Remove this API spec from the project?')) return;
+  if (!(await confirmDialog({ title: 'Remove API spec', message: 'Remove this API spec from the project?', confirmLabel: 'Remove API spec' }))) return;
   
   try {
     await apiRequest(`/projects/${projectId}/api-specs/${apiSpecId}`, {
@@ -4040,7 +4041,7 @@ window.removeApiSpecFromProject = async (projectId, apiSpecId) => {
 
 // Delete collection
 window.deleteCollection = async (collectionId, projectId) => {
-  if (!confirm('Are you sure you want to delete this collection? This action cannot be undone.')) return;
+  if (!(await confirmDialog({ title: 'Delete collection', message: 'Are you sure you want to delete this collection? This action cannot be undone.', confirmLabel: 'Delete collection' }))) return;
   
   try {
     await apiRequest(`/collections/${collectionId}`, {
@@ -4255,6 +4256,7 @@ function showUploadApiSpecModal() {
       }
       
       hideModal();
+      window.trackUsage?.('upload_api_spec');
       loadApiSpecs();
       alert('API specification uploaded successfully');
     } catch (error) {
@@ -4981,7 +4983,7 @@ window.editFlow = async (flowId, projectId) => {
                   <p id="flow-task-config-help">Select tests and arrange their execution order.</p>
                 </div>
                 <div class="flow-editor-test-tools">
-                  <input type="search" id="flow-task-search" placeholder="Search tests..." aria-label="Search flow tests">
+                  <input type="search" id="flow-task-search" placeholder="Search by name or label..." aria-label="Search flow tests">
                   <button type="button" class="btn btn-sm btn-secondary" id="flow-select-all-tests">Select All</button>
                   <button type="button" class="btn btn-sm btn-secondary" id="flow-deselect-all-tests">Deselect All</button>
                 </div>
@@ -5088,11 +5090,11 @@ window.editFlow = async (flowId, projectId) => {
       } else {
         const selectedIds = new Set(configuredSelection.map(Number));
         const testsById = new Map(recordedTests.map((test) => [Number(test.id), test]));
-        const visibleTests = recordedTests.filter((test) => String(test.name || '').toLowerCase().includes(configuredSearch));
+        const visibleTests = recordedTests.filter((test) => `${test.name || ''} ${test.label || ''}`.toLowerCase().includes(configuredSearch));
         candidates.innerHTML = visibleTests.map((test) => `<label class="flow-editor-candidate flow-editor-ui-candidate">
           <input type="checkbox" class="flow-config-test" data-key="${test.id}" ${selectedIds.has(Number(test.id)) ? 'checked' : ''}>
           <span class="ordered-ui-test-number">${configuredSelection.indexOf(Number(test.id)) + 1 || '–'}</span>
-          <span class="flow-editor-candidate-copy"><strong>${escapeHtml(test.name || 'Unnamed UI test')}</strong><span>Recorded UI test</span></span>
+          <span class="flow-editor-candidate-copy"><strong>${escapeHtml(test.name || 'Unnamed UI test')}</strong><span>${test.label ? escapeHtml(test.label) : 'Recorded UI test'}</span></span>
         </label>`).join('') || '<p class="flow-editor-no-results">No UI tests match this search.</p>';
         selectedOrder.innerHTML = configuredSelection.map((id, index) => `
           <div class="run-ui-selected-order-item">
@@ -5337,7 +5339,7 @@ window.editFlow = async (flowId, projectId) => {
 };
 
 window.deleteFlow = async (flowId, projectId) => {
-  if (!confirm('Delete this flow? This cannot be undone.')) return;
+  if (!(await confirmDialog({ title: 'Delete flow', message: 'Delete this flow? This cannot be undone.', confirmLabel: 'Delete flow' }))) return;
   try {
     await apiRequest(`/flows/${flowId}`, { method: 'DELETE' });
     viewProject(projectId);
@@ -5376,6 +5378,7 @@ window.runFlow = async (flowId, flowName) => {
         body: { runNamePrefix }
       });
       hideModal();
+      window.trackUsage?.('run_flow');
       const outcomes = result.outcomes || [];
       const failed = outcomes.filter((outcome) => outcome.status === 'failed' || outcome.status === 'invalid').length;
       alert(`Flow completed: ${outcomes.length} run(s), ${failed} failed.`);
@@ -5716,7 +5719,7 @@ window.editSchedule = async (scheduleId, projectId) => {
 };
 
 window.deleteSchedule = async (scheduleId, projectId) => {
-  if (!confirm('Delete this schedule?')) return;
+  if (!(await confirmDialog({ title: 'Delete schedule', message: 'Delete this schedule?', confirmLabel: 'Delete schedule' }))) return;
   try {
     await apiRequest(`/schedules/${scheduleId}`, { method: 'DELETE' });
     viewProject(projectId);

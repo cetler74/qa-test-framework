@@ -80,6 +80,8 @@ async function checkAuth() {
       }
       const userMgmtItem = document.getElementById('settings-item-user-management');
       if (userMgmtItem) userMgmtItem.style.display = currentUser.is_admin ? 'flex' : 'none';
+      const usageItem = document.getElementById('settings-item-usage-analytics');
+      if (usageItem) usageItem.style.display = currentUser.is_admin ? 'flex' : 'none';
       // Load user-scoped environments into the in-memory cache
       if (typeof window.loadUserEnvironments === 'function') {
         window.loadUserEnvironments().catch(() => {});
@@ -97,6 +99,17 @@ async function checkAuth() {
 }
 
 // Utility functions
+window.trackUsage = function trackUsage(action) {
+  try {
+    fetch(`${API_BASE}/usage-events`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action })
+    }).catch(() => {});
+  } catch (err) {}
+};
+
 async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
   const config = {
@@ -145,8 +158,8 @@ function scrollAppToTop() {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
-    const appContainer = document.getElementById('app-container');
-    if (appContainer) appContainer.scrollTop = 0;
+    const main = document.querySelector('main');
+    if (main) main.scrollTop = 0;
     const activeView = document.querySelector('.view.active');
     if (activeView) activeView.scrollTop = 0;
   });
@@ -191,7 +204,7 @@ function showView(viewId) {
   const navBtn = document.querySelector(`.main-nav .nav-btn[data-view="${viewId}"]`);
   if (navBtn) navBtn.classList.add('active');
   const settingsNavBtn = document.getElementById('settings-nav-btn');
-  if (settingsNavBtn && (viewId === 'api-specs' || viewId === 'ui-tests' || viewId === 'project-access' || viewId === 'postman-to-openapi' || viewId === 'user-management')) {
+  if (settingsNavBtn && (viewId === 'api-specs' || viewId === 'ui-tests' || viewId === 'project-access' || viewId === 'postman-to-openapi' || viewId === 'user-management' || viewId === 'usage-analytics')) {
     settingsNavBtn.classList.add('active');
   }
   closeSettingsDropdown();
@@ -215,21 +228,110 @@ function closeUserDropdown() {
 }
 
 // Modal management
-function showModal(title, content) {
+let modalReturnFocus = null;
+
+function showModal(title, content, purpose) {
   const modal = document.querySelector('#modal-overlay .modal');
   if (modal) modal.className = 'modal';
   document.querySelector('.modal-header-actions')?.remove();
   document.getElementById('modal-title').textContent = title;
-  document.getElementById('modal-body').innerHTML = content;
+  let purposeEl = document.getElementById('modal-purpose');
+  if (!purposeEl) {
+    purposeEl = document.createElement('p');
+    purposeEl.id = 'modal-purpose';
+    purposeEl.className = 'modal-purpose';
+    document.getElementById('modal-title').insertAdjacentElement('afterend', purposeEl);
+  }
+  purposeEl.textContent = purpose || '';
+  purposeEl.hidden = !purpose;
+  const body = document.getElementById('modal-body');
+  body.innerHTML = content;
+  body.querySelectorAll('.modal-actions, .form-actions').forEach((el) => el.classList.add('action-bar'));
+  modalReturnFocus = document.activeElement;
   document.getElementById('modal-overlay').classList.add('active');
+  const focusable = body.querySelector('input, select, textarea, button');
+  (focusable || document.querySelector('#modal-overlay .modal-close'))?.focus();
 }
 
 function hideModal() {
   document.getElementById('modal-overlay').classList.remove('active');
+  const back = modalReturnFocus;
+  modalReturnFocus = null;
+  if (back && typeof back.focus === 'function') back.focus();
 }
+
+function confirmDialog({ title, message, confirmLabel = 'Confirm', danger = true } = {}) {
+  const overlay = document.getElementById('confirm-overlay');
+  const titleEl = document.getElementById('confirm-title');
+  const messageEl = document.getElementById('confirm-message');
+  const cancelBtn = document.getElementById('confirm-cancel');
+  const okBtn = document.getElementById('confirm-ok');
+  if (!overlay || !okBtn || !cancelBtn) return Promise.resolve(false);
+  titleEl.textContent = title || 'Confirm';
+  messageEl.textContent = message || '';
+  okBtn.textContent = confirmLabel;
+  okBtn.classList.toggle('btn-danger', !!danger);
+  okBtn.classList.toggle('btn-primary', !danger);
+  const previous = document.activeElement;
+  overlay.classList.add('active');
+  cancelBtn.focus();
+  return new Promise((resolve) => {
+    const finish = (value) => {
+      overlay.classList.remove('active');
+      overlay.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
+      cancelBtn.removeEventListener('click', onCancel);
+      okBtn.removeEventListener('click', onOk);
+      okBtn.removeEventListener('keydown', onOkKey);
+      if (previous && typeof previous.focus === 'function') previous.focus();
+      resolve(value);
+    };
+    const onCancel = () => finish(false);
+    const onOk = () => finish(true);
+    const onBackdrop = (event) => {
+      if (event.target === overlay) finish(false);
+    };
+    const onKey = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        finish(false);
+      } else if (event.key === 'Enter' && danger) {
+        event.preventDefault();
+      }
+    };
+    const onOkKey = (event) => {
+      if (danger && event.key === 'Enter') event.preventDefault();
+    };
+    cancelBtn.addEventListener('click', onCancel);
+    okBtn.addEventListener('click', onOk);
+    okBtn.addEventListener('keydown', onOkKey);
+    overlay.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+window.confirmDialog = confirmDialog;
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', async () => {
+  const navCollapseBtn = document.getElementById('nav-collapse-btn');
+  const appFrame = document.querySelector('.app-frame');
+  function setNavCollapsed(collapsed) {
+    if (!appFrame || !navCollapseBtn) return;
+    appFrame.classList.toggle('nav-collapsed', collapsed);
+    navCollapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    const label = collapsed ? 'Show navigation' : 'Hide navigation';
+    navCollapseBtn.setAttribute('aria-label', label);
+    navCollapseBtn.title = label;
+    try { localStorage.setItem('qa-nav-collapsed', collapsed ? '1' : '0'); } catch (err) {}
+  }
+  try {
+    if (localStorage.getItem('qa-nav-collapsed') === '1') setNavCollapsed(true);
+  } catch (err) {}
+  navCollapseBtn?.addEventListener('click', () => {
+    setNavCollapsed(!appFrame.classList.contains('nav-collapsed'));
+  });
+
   // Auth: check session first
   await checkAuth();
 
@@ -547,7 +649,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     } else if (btn.getAttribute('data-action') === 'delete-user') {
       const username = btn.getAttribute('data-username') || 'this user';
-      if (!confirm('Delete user “‘ + username + ’”? This cannot be undone.')) return;
+      if (!(await confirmDialog({ title: 'Delete user', message: `Delete user “${username}”? This cannot be undone.`, confirmLabel: 'Delete user' }))) return;
       try {
         await apiRequest('/users/' + userId, { method: 'DELETE' });
         loadUserManagement();
@@ -634,6 +736,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.target.id === 'modal-overlay') {
       hideModal();
     }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (document.getElementById('confirm-overlay')?.classList.contains('active')) return;
+    if (document.getElementById('modal-overlay')?.classList.contains('active')) hideModal();
   });
 
   // Theme toggle: load and apply saved preference (or follow system) and wire toggle button
@@ -755,6 +862,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       loadGlobalTestsCatalogue();
     });
   }
+  document.getElementById('dashboard-open-projects')?.addEventListener('click', () => {
+    showView('projects');
+    loadViewData('projects');
+  });
+  document.getElementById('dashboard-focus-run')?.addEventListener('click', () => {
+    const projectSelect = document.getElementById('run-hub-project');
+    document.querySelector('.run-hub-card')?.scrollIntoView({ block: 'nearest' });
+    projectSelect?.focus();
+  });
 
   // Project Tests & Coverage filters
   const projectTestsApply = document.getElementById('project-tests-apply-btn');
@@ -945,10 +1061,20 @@ async function loadViewData(view) {
     case 'user-management':
       loadUserManagement();
       break;
+    case 'usage-analytics':
+      loadUsageAnalytics();
+      break;
     case 'tests-catalogue':
       loadGlobalTestsCatalogue();
       break;
   }
+  const usageByView = {
+    dashboard: 'open_dashboard',
+    projects: 'open_projects',
+    'test-runs': 'open_test_runs',
+    'tests-catalogue': 'open_tests_catalogue'
+  };
+  if (usageByView[view]) window.trackUsage(usageByView[view]);
 }
 
 // Global Test Catalogue / Coverage view
@@ -1025,7 +1151,7 @@ async function loadGlobalTestsCatalogue() {
           <div class=\"stat-subtext\">${coveragePct}% coverage (passed / failed)</div>
         </div>
         <div class=\"stat-card\">
-          <div class=\"stat-value\">${neverRun}</div>
+          <div class=\"stat-value stat-value-muted\">${neverRun}</div>
           <div class=\"stat-label\">Not yet run</div>
           <div class=\"stat-subtext\">Active tests with no covered runs yet</div>
         </div>
@@ -1177,6 +1303,63 @@ async function loadProjectAccess() {
     });
   } catch (err) {
     listEl.innerHTML = '<p class="empty-state">Failed to load projects.</p>';
+  }
+}
+
+function usageCountCell(value) {
+  const count = Number(value) || 0;
+  return `<td>${count}</td>`;
+}
+
+function renderUsageTable(title, columns, rows, valueFor) {
+  const head = columns.map((column) => `<th>${escapeHtmlLite(column.label)}</th>`).join('');
+  const body = rows.map((row) => {
+    const cells = columns.map((column) => usageCountCell(valueFor(row, column.key))).join('');
+    const name = escapeHtmlLite(row.name || row.username || 'Unknown');
+    const username = row.username && row.username !== row.name
+      ? `<span class="usage-analytics-username">${escapeHtmlLite(row.username)}</span>`
+      : '';
+    return `<tr><th scope="row">${name}${username}</th>${cells}</tr>`;
+  }).join('');
+  return `
+    <h3 class="usage-analytics-heading">${escapeHtmlLite(title)}</h3>
+    <div class="table-responsive">
+      <table class="table usage-analytics-table">
+        <thead><tr><th>User</th>${head}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function loadUsageAnalytics() {
+  const adminOnly = document.getElementById('usage-analytics-admin-only');
+  const content = document.getElementById('usage-analytics-content');
+  const runsEl = document.getElementById('usage-analytics-runs');
+  const actionsEl = document.getElementById('usage-analytics-actions');
+  if (!currentUser || !currentUser.is_admin) {
+    if (adminOnly) adminOnly.style.display = 'block';
+    if (content) content.style.display = 'none';
+    return;
+  }
+  if (adminOnly) adminOnly.style.display = 'none';
+  if (content) content.style.display = 'block';
+  if (runsEl) runsEl.innerHTML = '<p class="projects-view-subtitle">Loading usage…</p>';
+  if (actionsEl) actionsEl.innerHTML = '';
+  try {
+    const report = await apiRequest('/usage-analytics');
+    const users = Array.isArray(report.users) ? report.users : [];
+    const runTypes = Array.isArray(report.runTypes) ? report.runTypes : [];
+    const actions = Array.isArray(report.actions) ? report.actions : [];
+    if (runsEl) {
+      runsEl.innerHTML = renderUsageTable('Tests run', runTypes, users, (row, key) => row.runs?.[key]);
+    }
+    if (actionsEl) {
+      actionsEl.innerHTML = renderUsageTable('Operations used', actions, users, (row, key) => row.actions?.[key]);
+    }
+  } catch (error) {
+    if (runsEl) runsEl.innerHTML = `<p class="empty-state">Could not load usage analytics.</p>`;
+    if (actionsEl) actionsEl.innerHTML = '';
   }
 }
 
@@ -1489,7 +1672,7 @@ function showUserEnvironmentsModal() {
     document.querySelector('.user-env-delete')?.addEventListener('click', async () => {
       const env = findEnvironmentItem(selectedEnvId);
       if (!env) return;
-      if (!confirm(`Delete "${env.name}" with ${variableLabel(envEntries(env).length)}?`)) return;
+      if (!(await confirmDialog({ title: 'Delete environment', message: `Delete "${env.name}" with ${variableLabel(envEntries(env).length)}?`, confirmLabel: 'Delete environment' }))) return;
       if (env.kind === 'ui') { deleteUiEnvironment(env.rawId); selectedEnvId = null; updateSidebar(); updateDetail(); return; }
       try {
         if (typeof deleteSavedEnv === 'function') await deleteSavedEnv(env.rawId);
@@ -1908,7 +2091,7 @@ async function loadDashboard() {
           <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
           </svg>
-          <p>No test runs yet</p>
+          <p>No runs yet. Open a project and run tests to see them here.</p>
         </div>
       `;
     } else {
@@ -2182,7 +2365,7 @@ async function loadApiSpecs() {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
           <h3>No API specs yet</h3>
-          <p>Upload your first API specification file</p>
+          <p>Upload an OpenAPI or WSDL file, then link it to a project.</p>
         </div>
       `;
     } else {
@@ -2370,6 +2553,44 @@ async function loadTestRuns() {
 
 
 // View test run
+function mountRunDetailSplit(container, entries, emptyHtml, runKey) {
+  if (!container) return;
+  if (!entries.length) {
+    container.classList.remove('run-detail-split');
+    delete container.dataset.selectedIndex;
+    delete container.dataset.runKey;
+    container.innerHTML = emptyHtml;
+    return;
+  }
+  if (container.dataset.runKey !== String(runKey)) {
+    container.dataset.runKey = String(runKey);
+    container.dataset.selectedIndex = '0';
+  }
+  const index = Math.min(
+    Math.max(Number(container.dataset.selectedIndex) || 0, 0),
+    entries.length - 1
+  );
+  container.classList.add('run-detail-split');
+  container.innerHTML = `
+    <div class="run-detail-steps" role="listbox" aria-label="Run results">
+      ${entries.map((entry, entryIndex) => `
+        <button type="button" class="run-step${entryIndex === index ? ' active' : ''}" role="option" aria-selected="${entryIndex === index}" data-result-index="${entryIndex}">
+          ${entry.labelHtml}
+        </button>
+      `).join('')}
+    </div>
+    <div class="run-detail-evidence">${entries[index].evidenceHtml}</div>
+  `;
+  container.querySelectorAll('.run-step').forEach((button) => {
+    button.addEventListener('click', () => {
+      container.dataset.selectedIndex = button.getAttribute('data-result-index');
+      mountRunDetailSplit(container, entries, emptyHtml, runKey);
+    });
+  });
+}
+
+window.mountRunDetailSplit = mountRunDetailSplit;
+
 async function viewTestRun(testRunId) {
   clearDetailPolling();
   try {
@@ -2465,33 +2686,35 @@ async function viewTestRun(testRunId) {
         `;
       }
       
-      resultsList.innerHTML = orderedResults.map(result => {
+      mountRunDetailSplit(resultsList, orderedResults.map(result => {
         const requestHeaders = headerEvidenceHtml(result.request_headers_sent);
         const responseHeaders = headerEvidenceHtml(result.response_headers_received);
         const traceEvidence = traceEvidenceHtml(result.trace_evidence);
         const rateLimitEvidence = rateLimitEvidenceHtml(result.rate_limit_evidence);
-        return `
-        <div class="test-result-item">
-          <div class="test-result-header">
-            <div>
-              ${result.test_id ? `<span style="margin-right: 8px; font-weight: bold; color: #14b8a6;">${escapeHtmlLite(result.test_id)}</span>` : ''}
-              <span class="method-badge ${escapeHtmlLite(result.method)}">${escapeHtmlLite(result.method)}</span>
-              <strong>${escapeHtmlLite(result.test_name)}</strong>
+        return {
+          labelHtml: `
+            <span class="test-result-header">
+              <span>
+                ${result.test_id ? `<span style="margin-right: 8px; font-weight: bold; color: var(--color-primary);">${escapeHtmlLite(result.test_id)}</span>` : ''}
+                <span class="method-badge ${escapeHtmlLite(result.method)}">${escapeHtmlLite(result.method)}</span>
+                <strong>${escapeHtmlLite(result.test_name)}</strong>
+              </span>
+              <span class="status-badge ${escapeHtmlLite(result.status)}">${escapeHtmlLite(result.status)}</span>
+            </span>
+          `,
+          evidenceHtml: `
+            <div class="test-result-details">
+              <p><strong>Endpoint:</strong> ${escapeHtmlLite(result.endpoint)}</p>
+              ${result.response_code ? `<p><strong>Response Code:</strong> ${result.response_code}</p>` : ''}
+              ${rateLimitEvidence}
+              ${traceEvidence ? `<div><strong>Trace Evidence:</strong>${traceEvidence}</div>` : ''}
+              ${requestHeaders ? `<div><strong>Requested Headers Sent:</strong>${requestHeaders}</div>` : ''}
+              ${responseHeaders ? `<div><strong>Headers Received:</strong>${responseHeaders}</div>` : ''}
+              ${result.error_message ? `<p style="color: #f44336;"><strong>Error:</strong> ${escapeHtmlLite(result.error_message)}</p>` : ''}
             </div>
-            <span class="status-badge ${escapeHtmlLite(result.status)}">${escapeHtmlLite(result.status)}</span>
-          </div>
-          <div class="test-result-details">
-            <p><strong>Endpoint:</strong> ${escapeHtmlLite(result.endpoint)}</p>
-            ${result.response_code ? `<p><strong>Response Code:</strong> ${result.response_code}</p>` : ''}
-            ${rateLimitEvidence}
-            ${traceEvidence ? `<div><strong>Trace Evidence:</strong>${traceEvidence}</div>` : ''}
-            ${requestHeaders ? `<div><strong>Requested Headers Sent:</strong>${requestHeaders}</div>` : ''}
-            ${responseHeaders ? `<div><strong>Headers Received:</strong>${responseHeaders}</div>` : ''}
-            ${result.error_message ? `<p style="color: #f44336;"><strong>Error:</strong> ${escapeHtmlLite(result.error_message)}</p>` : ''}
-          </div>
-        </div>
-      `;
-      }).join('');
+          `
+        };
+      }), '', testRunId);
     } else {
       const isJwksError = testRun.error_message && /private key not found|signedjwt|generate jwks/i.test(testRun.error_message);
       let emptyMsg;
@@ -2504,16 +2727,16 @@ async function viewTestRun(testRunId) {
           : '';
         emptyMsg = `<span style="color:#f44336;font-weight:600;">Run failed:</span> <span style="color:#f44336;">${escapedMsg}</span>${jwksCta}`;
       } else {
-        emptyMsg = 'No test results';
+        emptyMsg = 'No results for this run. Start it again from the project, or open another run.';
       }
-      resultsList.innerHTML = `
+      mountRunDetailSplit(resultsList, [], `
         <div class="empty-state">
           <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
           </svg>
           <p>${emptyMsg}</p>
         </div>
-      `;
+      `, testRunId);
     }
 
     // Store test run ID for report buttons (clear fuzz so report opens API report)
@@ -2589,38 +2812,40 @@ async function viewFuzzRun(fuzzRunId) {
     `;
     const resultsList = document.getElementById('test-results-list');
     if (fuzzRun.fuzzResults && fuzzRun.fuzzResults.length > 0) {
-      resultsList.innerHTML = fuzzRun.fuzzResults.map(r => {
+      mountRunDetailSplit(resultsList, fuzzRun.fuzzResults.map(r => {
         const statusLabel = (r.status === 'error' || r.status === 'failed') && r.response_code != null
           ? `${r.status} (${r.response_code})`
           : (r.status || '—');
-        return `
-        <div class="test-result-item">
-          <div class="test-result-header">
-            <div>
-              <strong>${r.test_name}</strong>
-              ${r.fuzzer_name ? `<span style="margin-left: 8px; font-size: 12px; color: #6b7280;">${r.fuzzer_name}</span>` : ''}
+        return {
+          labelHtml: `
+            <span class="test-result-header">
+              <span>
+                <strong>${r.test_name}</strong>
+                ${r.fuzzer_name ? `<span style="margin-left: 8px; font-size: 12px; color: #6b7280;">${r.fuzzer_name}</span>` : ''}
+              </span>
+              <span class="status-badge ${r.status}">${statusLabel}</span>
+            </span>
+          `,
+          evidenceHtml: `
+            <div class="test-result-details">
+              ${r.response_code != null ? `<p><strong>Response Code:</strong> ${r.response_code}</p>` : ''}
+              ${r.error_message ? `<p style="color: #f44336;"><strong>Error:</strong> ${r.error_message}</p>` : '<p>No extra evidence for this result.</p>'}
             </div>
-            <span class="status-badge ${r.status}">${statusLabel}</span>
-          </div>
-          <div class="test-result-details">
-            ${r.response_code != null ? `<p><strong>Response Code:</strong> ${r.response_code}</p>` : ''}
-            ${r.error_message ? `<p style="color: #f44336;"><strong>Error:</strong> ${r.error_message}</p>` : ''}
-          </div>
-        </div>
-      `;
-      }).join('');
+          `
+        };
+      }), '', `fuzz-${fuzzRunId}`);
     } else {
       const isFailed = (fuzzRun.status || '').toLowerCase() === 'failed';
       const emptyMsg = isRunning
         ? 'Fuzz run in progress. No results yet — they will appear when the run completes.'
         : isFailed && fuzzRun.total_tests === 0
           ? 'No tests ran. See the reason above (e.g. CATS not installed, invalid OpenAPI, or missing server URL).'
-          : 'No fuzz results';
-      resultsList.innerHTML = `
+          : 'No fuzz results yet. Check the reason above, then run fuzz again from the project.';
+      mountRunDetailSplit(resultsList, [], `
         <div class="empty-state">
           <p>${emptyMsg}</p>
         </div>
-      `;
+      `, `fuzz-${fuzzRunId}`);
     }
     const viewBtn = document.getElementById('view-report-btn');
     const downloadBtn = document.getElementById('download-report-btn');
@@ -2663,7 +2888,7 @@ document.getElementById('delete-test-run-btn')?.addEventListener('click', async 
   const type = btn?.getAttribute('data-detail-type');
   const id = btn?.getAttribute('data-detail-id');
   if (!type || !id) return;
-  if (!confirm('Delete this run and all its artifacts (reports, videos, traces)? This cannot be undone.')) return;
+  if (!(await confirmDialog({ title: 'Delete run', message: 'Delete this run and all its artifacts (reports, videos, traces)? This cannot be undone.', confirmLabel: 'Delete run' }))) return;
   try {
     const path = type === 'fuzz' ? `/fuzz-runs/${id}` : type === 'ui' ? `/playwright-runs/${id}` : `/test-runs/${id}`;
     await apiRequest(path, { method: 'DELETE' });
@@ -2682,7 +2907,7 @@ window.viewFuzzRun = viewFuzzRun;
 window.loadTestRuns = loadTestRuns;
 
 window.deleteTestRunFromList = async (runType, id) => {
-  if (!confirm('Delete this run and all its artifacts (reports, videos, traces)? This cannot be undone.')) return;
+  if (!(await confirmDialog({ title: 'Delete run', message: 'Delete this run and all its artifacts (reports, videos, traces)? This cannot be undone.', confirmLabel: 'Delete run' }))) return;
   try {
     const path = runType === 'ui' ? `/playwright-runs/${id}` : runType === 'fuzz' ? `/fuzz-runs/${id}` : `/test-runs/${id}`;
     await apiRequest(path, { method: 'DELETE' });
@@ -2707,7 +2932,7 @@ window.cancelTestRun = async (runType, id) => {
     fuzz: 'Cancel this fuzz run?'
   };
   const msg = cancellationMessages[runType] || 'Cancel this test run?';
-  if (!confirm(msg)) return;
+  if (!(await confirmDialog({ title: 'Cancel run', message: msg, confirmLabel: 'Cancel run' }))) return;
   try {
     const path = runType === 'ui'
       ? `/playwright-runs/${id}/cancel`
@@ -2722,7 +2947,7 @@ window.cancelTestRun = async (runType, id) => {
 };
 
 window.deleteProject = async (projectId) => {
-  if (!confirm('Are you sure you want to delete this project?')) return;
+  if (!(await confirmDialog({ title: 'Delete project', message: 'Are you sure you want to delete this project?', confirmLabel: 'Delete project' }))) return;
   
   try {
     await apiRequest(`/projects/${projectId}`, { method: 'DELETE' });
@@ -2733,7 +2958,7 @@ window.deleteProject = async (projectId) => {
 };
 
 window.deleteApiSpec = async (apiSpecId) => {
-  if (!confirm('Are you sure you want to delete this API spec?')) return;
+  if (!(await confirmDialog({ title: 'Delete API spec', message: 'Are you sure you want to delete this API spec?', confirmLabel: 'Delete API spec' }))) return;
   
   try {
     await apiRequest(`/api-specs/${apiSpecId}`, { method: 'DELETE' });

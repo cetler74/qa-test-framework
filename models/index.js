@@ -23,6 +23,7 @@ const ProjectTestNote = require('./ProjectTestNote');
 const ProjectTestNoteAttachment = require('./ProjectTestNoteAttachment');
 const UserEnvironment = require('./UserEnvironment');
 const UserOnboardingProgress = require('./UserOnboardingProgress');
+const UsageEvent = require('./UsageEvent');
 const RunCatalogueMembership = require('./RunCatalogueMembership');
 
 // Define associations
@@ -331,6 +332,9 @@ UserEnvironment.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 User.hasMany(UserOnboardingProgress, { foreignKey: 'user_id', as: 'onboardingProgress' });
 UserOnboardingProgress.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
+User.hasMany(UsageEvent, { foreignKey: 'user_id', as: 'usageEvents' });
+UsageEvent.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
 Project.hasMany(RunCatalogueMembership, { foreignKey: 'project_id', as: 'runCatalogueMemberships' });
 RunCatalogueMembership.belongsTo(Project, { foreignKey: 'project_id', as: 'project' });
 ProjectTest.hasMany(RunCatalogueMembership, { foreignKey: 'project_test_id', as: 'runMemberships' });
@@ -342,6 +346,7 @@ module.exports = {
   User,
   UserEnvironment,
   UserOnboardingProgress,
+  UsageEvent,
   ProjectMember,
   ApiSpec,
   Collection,

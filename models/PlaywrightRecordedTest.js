@@ -11,6 +11,10 @@ const PlaywrightRecordedTest = sequelize.define('PlaywrightRecordedTest', {
     type: DataTypes.STRING(255),
     allowNull: false
   },
+  label: {
+    type: DataTypes.STRING(120),
+    allowNull: true
+  },
   spec_content: {
     type: DataTypes.TEXT,
     allowNull: false

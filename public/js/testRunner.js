@@ -1147,6 +1147,7 @@ function showRunTestsModal(initialState = null) {
         });
         
         const testRunId = result.testRun.id;
+        window.trackUsage?.('run_api_tests');
         console.log('[frontend] Starting progress polling for test run:', testRunId);
         hideModal();
         window.highlightTestRunId = testRunId;
@@ -1982,7 +1983,7 @@ function showManageEnvsModal() {
       const env = findEnvironment(selectedEnvId);
       if (!env) return;
       const varCount = envEntries(env).length;
-      if (!confirm(`Delete environment "${env.name || selectedEnvId}" with ${variableLabel(varCount)}?`)) return;
+      if (!(await confirmDialog({ title: 'Delete environment', message: `Delete environment "${env.name || selectedEnvId}" with ${variableLabel(varCount)}?`, confirmLabel: 'Delete environment' }))) return;
       try {
         await deleteSavedEnv(selectedEnvId);
         selectedEnvId = null;
