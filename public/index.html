@@ -854,14 +854,6 @@
                         </button>
                     </div>
                 </div>
-                <div class="ui-tests-record-section">
-                    <h3 class="ui-tests-record-title">Record a test</h3>
-                    <p class="ui-tests-record-desc">Define a test by recording browser actions with Playwright Codegen, then paste the generated code here.</p>
-                    <div class="ui-tests-record-actions action-bar">
-                        <button class="btn btn-primary" id="add-recorded-test-btn-main">Add recorded test</button>
-                        <button class="btn btn-secondary" id="manage-recorded-tests-btn-main">Manage recorded tests</button>
-                    </div>
-                </div>
                 <p class="ui-tests-runs-note">View all test runs (API and UI) in <strong>Test Runs</strong> in the navigation.</p>
             </div>
 
@@ -885,69 +877,58 @@
                     </div>
                 </div>
 
-                <!-- Form wraps the two-panel layout so all inputs are associated -->
-                <form id="recorded-test-form" class="recorded-test-layout">
+                <form id="recorded-test-form" class="recorded-test-layout recorded-test-sections">
                     <input type="hidden" id="recorded-test-id" value="" />
 
-                    <!-- ── LEFT PANEL: info + metadata ── -->
-                    <div class="recorded-test-left-panel">
-
-                        <div class="recorded-test-info-box">
-                            <p>Use Playwright Codegen to record browser interactions. Click <strong>"Launch Codegen"</strong> to open the browser and Inspector automatically, or copy the command to run it manually in a terminal.</p>
-                            <p style="margin-top:8px">For more information, view the documentation at <a href="https://playwright.dev/docs/intro" target="_blank" rel="noopener noreferrer">https://playwright.dev/docs/intro</a>.</p>
-                        </div>
-
-                        <details class="recorded-test-example">
-                            <summary class="recorded-test-example-title">Example — what you can record</summary>
-                            <p class="recorded-test-example-desc">Access page https://www.meo.pt/empresas/ and search for text "connect" and click it. Codegen will generate code like:</p>
-                            <pre class="recorded-test-example-code"><code>import { test, expect } from '@playwright/test';
+                    <section class="recorded-focus-section open" data-recorded-section="details">
+                        <button type="button" class="recorded-focus-bar" aria-expanded="true">
+                            <span class="recorded-focus-name">Details</span>
+                            <span class="recorded-focus-summary" id="recorded-summary-details">Name, label, and project</span>
+                        </button>
+                        <div class="recorded-focus-body">
+                            <details class="recorded-test-example">
+                                <summary class="recorded-test-example-title">How this works</summary>
+                                <div class="recorded-test-info-box">
+                                    <p>Use Playwright Codegen to record browser interactions. Click <strong>Launch Codegen</strong> in Source to open the browser and Inspector, or copy the command to run it in a terminal.</p>
+                                    <p style="margin-top:8px">For more information, view the documentation at <a href="https://playwright.dev/docs/intro" target="_blank" rel="noopener noreferrer">https://playwright.dev/docs/intro</a>.</p>
+                                </div>
+                                <p class="recorded-test-example-desc">Access page https://www.meo.pt/empresas/ and search for text "connect" and click it. Codegen will generate code like:</p>
+                                <pre class="recorded-test-example-code"><code>import { test, expect } from '@playwright/test';
 
 test('test', async ({ page }) => {
   await page.goto('https://www.meo.pt/empresas');
   await page.getByRole('button', { name: 'CONCORDO' }).click();
   await page.getByLabel('Navegação principal').getByRole('menuitem', { name: 'Connect' }).click();
 });</code></pre>
-                        </details>
-
-                        <div class="form-group">
-                            <label for="recorded-test-name">Test name <span class="required">*</span></label>
-                            <input type="text" id="recorded-test-name" required placeholder="e.g. Login flow" />
-                        </div>
-
-                        <div class="form-group">
-                            <label for="recorded-test-label">Label</label>
-                            <input type="text" id="recorded-test-label" maxlength="120" placeholder="e.g. Checkout, Smoke, Portal" autocomplete="off" />
-                            <p class="form-hint">Optional. Use a short label to search for this test and to pick it when adding tests to a project.</p>
-                        </div>
-
-                        <div class="form-group" id="recorded-test-add-to-project-wrap">
-                            <label for="recorded-test-add-to-project">Project <span class="required">*</span></label>
-                            <select id="recorded-test-add-to-project">
-                                <option value="">Select project...</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group" id="recorded-test-detected-vars-wrap" style="display:none;">
-                            <label>Detected UI variables</label>
-                            <div class="input-with-button" style="margin-bottom: 8px;">
-                                <select id="recorded-test-variable-group">
-                                    <option value="">None</option>
-                                </select>
-                                <button type="button" class="btn btn-secondary" id="manage-recorded-test-variable-groups-btn">Manage groups</button>
+                            </details>
+                            <div class="recorded-focus-fields">
+                                <div class="form-group">
+                                    <label for="recorded-test-name">Test name <span class="required">*</span></label>
+                                    <input type="text" id="recorded-test-name" required placeholder="e.g. Login flow" />
+                                </div>
+                                <div class="form-group">
+                                    <label for="recorded-test-label">Label</label>
+                                    <input type="text" id="recorded-test-label" maxlength="120" placeholder="e.g. Checkout, Smoke, Portal" autocomplete="off" />
+                                    <p class="form-hint">Optional. Use a short label to search for this test and to pick it when adding tests to a project.</p>
+                                </div>
+                                <div class="form-group" id="recorded-test-add-to-project-wrap">
+                                    <label for="recorded-test-add-to-project">Project <span class="required">*</span></label>
+                                    <select id="recorded-test-add-to-project">
+                                        <option value="">Select project...</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div id="recorded-test-detected-vars" class="single-test-vars-list"></div>
-                            <span class="form-hint">Placeholders such as ${suffix} can be edited here and are resolved at run time from the selected UI Test Variable group.</span>
                         </div>
+                    </section>
 
-                    </div>
-                    <!-- /left panel -->
-
-                    <!-- ── RIGHT PANEL: URL + VNC + spec editor ── -->
-                    <div class="recorded-test-right-panel">
-
-                        <!-- Base URL strip — full width above the code editor -->
+                    <section class="recorded-focus-section" data-recorded-section="source">
+                        <button type="button" class="recorded-focus-bar" aria-expanded="false">
+                            <span class="recorded-focus-name">Source</span>
+                            <span class="recorded-focus-summary" id="recorded-summary-source">Base URL and variables</span>
+                        </button>
+                        <div class="recorded-focus-body">
                         <div class="recorded-test-url-strip">
-                            <label>Base URL for recording</label>
+                            <label for="recorded-test-codegen-url">Base URL for recording</label>
                             <div class="input-with-button">
                                 <input type="url" id="recorded-test-codegen-url" placeholder="https://example.com" />
                                 <button type="button" class="btn btn-primary" id="launch-codegen-btn">Launch Codegen</button>
@@ -955,7 +936,50 @@ test('test', async ({ page }) => {
                             </div>
                         </div>
 
-                        <!-- Remote Codegen noVNC panel (hidden by default) -->
+                        <section id="recorded-test-discover" class="recorded-test-discover" aria-labelledby="recorded-test-discover-title">
+                            <div class="recorded-test-discover-head">
+                                <h3 id="recorded-test-discover-title">Discover from URL</h3>
+                                <p>Crawl same-origin pages from the base URL, then choose smoke and journey tests. Saved tests use the Label field, with Smoke or Journey added. Codegen stays available above.</p>
+                            </div>
+                            <div class="recorded-test-discover-controls">
+                                <button type="button" class="btn btn-secondary" id="discover-ui-btn">Discover from URL</button>
+                                <label for="discover-max-pages">Pages
+                                    <input type="number" id="discover-max-pages" min="1" max="20" value="20" />
+                                </label>
+                                <label for="discover-max-depth">Depth
+                                    <input type="number" id="discover-max-depth" min="0" max="3" value="3" />
+                                </label>
+                            </div>
+                            <div class="recorded-test-discover-login">
+                                <label for="discover-username">Username
+                                    <input type="text" id="discover-username" autocomplete="username" placeholder="For this crawl" />
+                                </label>
+                                <label for="discover-password">Password
+                                    <input type="password" id="discover-password" autocomplete="current-password" placeholder="For this crawl" />
+                                </label>
+                            </div>
+                            <p class="form-hint">Optional. Discover signs in with these only for the crawl. They are not saved. Tests you create still use ${USERNAME} and ${PASSWORD} when you run them.</p>
+                            <details class="recorded-test-discover-auth">
+                                <summary>Saved browser session instead</summary>
+                                <textarea id="discover-storage-state" rows="3" placeholder="Optional Playwright storageState JSON, only if the site does not use a username and password form."></textarea>
+                            </details>
+                            <p id="discover-status" class="form-hint" role="status"></p>
+                            <div id="discover-review" class="recorded-test-discover-review" hidden></div>
+                        </section>
+
+                        <div class="form-group recorded-source-variables" id="recorded-test-detected-vars-wrap" style="display:none;">
+                            <label>Variables used by this test</label>
+                            <div class="input-with-button" style="margin-bottom: 8px;">
+                                <select id="recorded-test-variable-group">
+                                    <option value="">None</option>
+                                </select>
+                                <button type="button" class="btn btn-secondary" id="manage-recorded-test-variable-groups-btn">Manage groups</button>
+                            </div>
+                            <div id="recorded-test-detected-vars" class="single-test-vars-list"></div>
+                            <span class="form-hint">These values are used when this test runs. They come from the selected variable group. Placeholders such as ${USERNAME} can be edited here.</span>
+                        </div>
+                        
+<!-- Remote Codegen noVNC panel (hidden by default) -->
                         <div id="codegen-vnc-panel" class="codegen-vnc-panel" style="display: none;">
                             <div class="codegen-vnc-header">
                                 <div class="codegen-vnc-status">
@@ -1009,11 +1033,48 @@ test('test', async ({ page }) => {
                             </div>
                             <p class="codegen-vnc-hint">Interact with the browser above to record your test. When done, click <strong>Stop Recording</strong> to save the generated code.</p>
                         </div>
+</div>
+                    </section>
 
-                        <!-- Spec toolbar -->
+                    <section class="recorded-focus-section" data-recorded-section="steps">
+                        <button type="button" class="recorded-focus-bar" aria-expanded="false">
+                            <span class="recorded-focus-name" id="recorded-step-editor-title">Steps</span>
+                            <span class="recorded-focus-summary" id="recorded-summary-steps">No steps</span>
+                        </button>
+                        <div class="recorded-focus-body">
+                        <section id="recorded-step-editor" class="recorded-step-editor" aria-labelledby="recorded-step-editor-title">
+                            <div class="recorded-step-editor-head">
+                                <div class="action-bar">
+                                    <label for="recorded-step-add-type">Add
+                                        <select id="recorded-step-add-type">
+                                            <option value="open">Open page</option>
+                                            <option value="reach">Reach</option>
+                                            <option value="activate">Activate</option>
+                                            <option value="check">Check</option>
+                                        </select>
+                                    </label>
+                                    <button type="button" class="btn btn-secondary" id="recorded-step-add">Add step</button>
+                                    <button type="button" class="btn btn-amber" id="recorded-step-preview">Preview</button>
+                                </div>
+                            </div>
+                            <p class="form-hint" id="recorded-step-empty">Steps appear here when the code can be shown as steps, or when you add one.</p>
+                            <ol id="recorded-step-list" class="recorded-step-list" hidden></ol>
+                            <p class="form-hint">Preview runs this chain through the existing draft test. It does not create a recorded test or a project run.</p>
+                        </section>
+                        </div>
+                        </section>
+
+                        
+
+                    <section class="recorded-focus-section" data-recorded-section="code">
+                        <button type="button" class="recorded-focus-bar" aria-expanded="false">
+                            <span class="recorded-focus-name">Code</span>
+                            <span class="recorded-focus-summary" id="recorded-summary-code">No code yet</span>
+                        </button>
+                        <div class="recorded-focus-body">
                         <div class="recorded-spec-toolbar">
                             <div class="recorded-spec-toolbar-left">
-                                <span class="recorded-spec-label">Generated spec <span class="required">*</span></span>
+                                <span class="recorded-spec-label">Code <span class="required">*</span></span>
                                 <span class="recorded-spec-lang-badge">Playwright · JS</span>
                                 <span class="recorded-spec-stats" id="recorded-spec-stats"></span>
                             </div>
@@ -1022,24 +1083,36 @@ test('test', async ({ page }) => {
                                 <button type="button" class="btn btn-secondary" id="auto-refresh-codegen-btn" style="display: none;">Auto-refresh: OFF</button>
                                 <button type="button" class="btn btn-secondary" id="auto-fix-spec-btn" title="Toggle automatic template transformation on paste / load">Auto-fix: ON</button>
                                 <button type="button" class="btn btn-secondary" id="apply-spec-fixes-btn" title="Apply robust helper template to the current spec now">Apply fixes</button>
+                                <button type="button" class="btn btn-secondary" id="apply-result-corrections-btn" disabled title="Run Preview or Test recorded test. Recommended corrections from those results can be applied here.">Apply corrections</button>
                                 <button type="button" class="btn btn-secondary" id="copy-spec-btn">Copy</button>
                                 <button type="button" class="btn btn-secondary" id="clear-spec-btn">Clear</button>
                             </div>
                         </div>
-
-                        <!-- CodeMirror attaches to the textarea on init -->
                         <div class="recorded-spec-editor-wrap">
-                            <textarea id="recorded-test-spec" placeholder="Paste the test code from Playwright Inspector here, or click 'Launch Codegen' and then 'Load generated code' to automatically load it (test(..., async ({ page }) => { ... }))" spellcheck="false"></textarea>
+                            <textarea id="recorded-test-spec" placeholder="Paste the test code from Playwright Inspector here, or click Launch Codegen and then Load generated code." spellcheck="false"></textarea>
                         </div>
-
-                        <!-- Hint + validation results -->
                         <div class="recorded-spec-footer">
-                            <span class="form-hint" id="recorded-test-validation-hint">Run a draft validation to check this generated spec before saving. Draft validations do not create test runs or reports.</span>
-                            <div id="recorded-test-validation-results" style="display:none; margin-top: 12px;"></div>
+                            <span class="form-hint" id="recorded-test-validation-hint">Run a draft validation to check this code before saving. Draft validations do not create test runs or reports.</span>
                         </div>
+                        </div>
+                    </section>
 
-                    </div>
-                    <!-- /right panel -->
+                    <section class="recorded-focus-section" data-recorded-section="results">
+                        <button type="button" class="recorded-focus-bar" aria-expanded="false">
+                            <span class="recorded-focus-name">Results</span>
+                            <span class="recorded-focus-summary" id="recorded-summary-results">Preview not run · Test recorded test not run</span>
+                        </button>
+                        <div class="recorded-focus-body">
+                            <div class="recorded-result-grid">
+                                <div id="recorded-preview-results" class="recorded-result-pane">
+                                    <p class="form-hint">Preview has not been run.</p>
+                                </div>
+                                <div id="recorded-test-validation-results" class="recorded-result-pane">
+                                    <p class="form-hint">Test recorded test has not been run.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
                 </form>
             </div>
             <!-- Project recorded tests (manage which recorded tests are in this project) -->
@@ -1089,6 +1162,11 @@ test('test', async ({ page }) => {
                     <select id="recorded-tests-label-filter" aria-label="Filter by label">
                         <option value="">All labels</option>
                     </select>
+                    <label class="recorded-tests-select-shown" for="recorded-tests-select-shown">
+                        <input type="checkbox" id="recorded-tests-select-shown" />
+                        Select shown
+                    </label>
+                    <button type="button" class="btn btn-danger" id="recorded-tests-delete-selected" disabled>Delete selected</button>
                 </div>
                 </div>
                 <div id="recorded-tests-list-container" class="recorded-tests-list"></div>
@@ -1411,7 +1489,8 @@ test('test', async ({ page }) => {
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/js/projectManager.js"></script>
     <script src="/js/reportViewer.js"></script>
-    <script src="/js/uiTests.js"></script>
+    <script src="/js/uiTests.js?v=corrections2"></script>
+    <script src="/js/uiDiscover.js?v=corrections2"></script>
     <script src="/js/help.js"></script>
 </body>
 

@@ -24,7 +24,8 @@ const { generateFuzzReport, getStableReportPath } = require('../services/fuzzRep
 const { generatePlaywrightReport } = require('../services/playwrightReportGenerator');
 const { syncProjectTests, getProjectTestCatalogue, getGlobalTestCatalogue, enrichCatalogueRowsWithSingleRun, enrichGlobalCatalogueRowsWithSingleRun, resolvePostmanSourcePathIfNeeded } = require('../services/testCatalogue');
 const playwrightConfig = require('../config/playwright');
-const { validateSpecContent, analyzeSpecQuality } = require('../services/recordedTestValidation');
+const { validateSpecContent, analyzeSpecQuality, applyQualityCorrections } = require('../services/recordedTestValidation');
+const uiDiscoverer = require('../services/uiDiscoverer');
 const { applyRecordedSpecTemplate } = require('../services/recordedSpecTemplate');
 const codegenSessionManager = require('../services/codegenSessionManager');
 const { loadProxyConfig, getProxyByName, getProxyForUrl, getProxyForUrlAsync } = require('../lib/proxyConfig');
@@ -5031,10 +5032,7 @@ router.post('/playwright-recorded-tests/validate-draft', async(req, res) => {
             return res.status(400).json({ error: validation.error });
         }
 
-        const normalizedSpec = normalizeRecordedSpec(
-            typeof spec_content === 'string' ? spec_content.trim() : '',
-            trimmedName
-        );
+        const draftSpec = typeof spec_content === 'string' ? spec_content.trim() : '';
         const url = (base_url && typeof base_url === 'string' && base_url.trim()) ? base_url.trim() : '';
         const validBrowsers = ['chromium', 'firefox', 'webkit'];
         const browserName = validBrowsers.includes(bodyBrowser) ? bodyBrowser : 'chromium';
@@ -5052,7 +5050,7 @@ router.post('/playwright-recorded-tests/validate-draft', async(req, res) => {
 
         const execution = await executeRecordedSpec({
             recordedName: trimmedName,
-            specContent: normalizedSpec,
+            specContent: draftSpec,
             baseUrl: url,
             defaultBaseUrl: playwrightConfig.baseUrl || 'https://example.com',
             runOptions: {
@@ -5106,7 +5104,7 @@ router.post('/playwright-recorded-tests/validate-draft', async(req, res) => {
             summary,
             results: responseResults,
             output: execution.combinedOutput,
-            quality_warnings: analyzeSpecQuality(normalizedSpec),
+            quality_warnings: analyzeSpecQuality(draftSpec),
             options: {
                 headless,
                 video: videoOpt,
@@ -5146,6 +5144,26 @@ router.post('/playwright-recorded-tests/normalize-draft', (req, res) => {
     }
 });
 
+// Apply the recommended corrections from Preview and/or Test recorded test
+// into the current spec so that code can be run again.
+router.post('/playwright-recorded-tests/apply-quality-corrections', (req, res) => {
+    try {
+        const { spec_content, quality_warnings } = req.body || {};
+        if (typeof spec_content !== 'string') {
+            return res.status(400).json({ error: 'spec_content must be a string' });
+        }
+        if (!Array.isArray(quality_warnings)) {
+            return res.status(400).json({ error: 'quality_warnings must be an array' });
+        }
+        if (spec_content.length > 500000) {
+            return res.status(400).json({ error: 'spec_content exceeds maximum length' });
+        }
+        res.json(applyQualityCorrections(spec_content, quality_warnings));
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 router.get('/playwright-recorded-tests/validation-artifacts/:token/:kind', async(req, res) => {
     try {
         cleanupExpiredDraftValidationArtifacts();
@@ -5173,6 +5191,121 @@ router.get('/playwright-recorded-tests/validation-artifacts/:token/:kind', async
             return res.status(400).json({ error: 'Unsupported validation artifact kind' });
         }
         res.sendFile(path.resolve(entry.filePath));
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Discover crawl. Registered before /:id so "discover" is not treated as a test id.
+router.post('/playwright-recorded-tests/discover', async(req, res) => {
+    try {
+        const body = req.body || {};
+        if (Object.prototype.hasOwnProperty.call(body, 'storageStatePath')) {
+            return res.status(400).json({ error: 'storageStatePath is not accepted' });
+        }
+        const projectId = Number(body.projectId);
+        if (!Number.isInteger(projectId)) {
+            return res.status(400).json({ error: 'projectId is required' });
+        }
+        const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, projectId);
+        if (!canManage) return res.status(403).json({ error: 'Forbidden: cannot manage this project' });
+        const url = typeof body.url === 'string' ? body.url.trim() : '';
+        const proxy = await getProxyForUrlAsync(url);
+        const result = await uiDiscoverer.discoverUi({
+            url,
+            maxPages: body.maxPages,
+            maxDepth: body.maxDepth,
+            storageState: body.storageState,
+            username: body.username,
+            password: body.password,
+            proxy
+        });
+        res.json(result);
+    } catch (error) {
+        const status = error.status || 500;
+        res.status(status).json({ error: error.message });
+    }
+});
+
+router.post('/playwright-recorded-tests/discover/steps', (req, res) => {
+    try {
+        const steps = uiDiscoverer.stepsFromSpec(req.body && req.body.spec_content);
+        res.json({ steps });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+router.post('/playwright-recorded-tests/discover/spec', (req, res) => {
+    try {
+        const steps = Array.isArray(req.body && req.body.steps) ? req.body.steps : [];
+        if (!steps.length || steps.length > 40) {
+            return res.status(400).json({ error: 'steps are required' });
+        }
+        const name = req.body && typeof req.body.name === 'string' ? req.body.name : 'Discovered flow';
+        const spec_content = uiDiscoverer.specFromSteps(steps, {
+            name,
+            storageStateUsed: !!(req.body && req.body.storageStateUsed)
+        });
+        const validation = validateSpecContent(spec_content);
+        if (!validation.valid) return res.status(400).json({ error: validation.error });
+        res.json({ spec_content, steps: uiDiscoverer.stepsFromSpec(spec_content) });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+router.post('/playwright-recorded-tests/discover/commit', async(req, res) => {
+    try {
+        const body = req.body || {};
+        const projectId = Number(body.projectId);
+        if (!Number.isInteger(projectId)) {
+            return res.status(400).json({ error: 'projectId is required' });
+        }
+        const canManage = await userCanManageProjectId(req.user.id, req.user.is_admin, projectId);
+        if (!canManage) return res.status(403).json({ error: 'Forbidden: cannot manage this project' });
+        const tests = Array.isArray(body.tests) ? body.tests : [];
+        const maxBatch = uiDiscoverer.MAX_SMOKES + uiDiscoverer.MAX_JOURNEYS;
+        if (!tests.length) return res.status(400).json({ error: 'At least one test is required' });
+        if (tests.length > maxBatch) {
+            return res.status(400).json({ error: `A discover batch can include at most ${maxBatch} tests` });
+        }
+        const prepared = [];
+        for (const entry of tests) {
+            const name = entry && typeof entry.name === 'string' ? entry.name.trim() : '';
+            if (!name) return res.status(400).json({ error: 'Each test needs a name' });
+            const validation = validateSpecContent(entry && entry.spec_content);
+            if (!validation.valid) return res.status(400).json({ error: `${name}: ${validation.error}` });
+            const parsedLabel = readRecordedTestLabel(entry && entry.label);
+            if (!parsedLabel.ok) return res.status(400).json({ error: parsedLabel.error });
+            prepared.push({
+                name,
+                label: parsedLabel.label,
+                spec_content: normalizeRecordedSpec(String(entry.spec_content).trim(), name),
+                base_url: entry && typeof entry.base_url === 'string' && entry.base_url.trim() ? entry.base_url.trim() : null
+            });
+        }
+        const created = [];
+        for (const entry of prepared) {
+            const test = await PlaywrightRecordedTest.create({
+                name: entry.name,
+                label: entry.label,
+                spec_content: entry.spec_content,
+                base_url: entry.base_url
+            });
+            await ProjectRecordedTest.findOrCreate({
+                where: { project_id: projectId, recorded_test_id: test.id }
+            });
+            created.push({
+                id: test.id,
+                name: test.name,
+                quality_warnings: analyzeSpecQuality(test.spec_content || '')
+            });
+        }
+        res.status(201).json({
+            created,
+            quality_warnings: created.flatMap((test) => test.quality_warnings || [])
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

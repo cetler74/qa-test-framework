@@ -263,14 +263,19 @@
             const stats = document.getElementById('recorded-spec-stats');
             if (!stats) return;
             const spec = getSpecValue();
-            if (!spec.trim()) { stats.textContent = ''; return; }
+            if (!spec.trim()) { stats.textContent = ''; if (window.refreshRecordedSectionSummaries) window.refreshRecordedSectionSummaries(); return; }
             const lines = spec.split('\n').length;
             const kb = (new TextEncoder().encode(spec).length / 1024).toFixed(1);
             stats.textContent = `${lines} lines · ${kb} KB`;
+            if (window.refreshRecordedSectionSummaries) window.refreshRecordedSectionSummaries();
         }
 
         // Live syntax highlighting via CodeMirror.
         let specEditor = null;
+        let suppressSpecNotice = false;
+        let suppressValidationClear = false;
+        let suppressBaselineUpdate = false;
+        let recordedSpecBaseline = '';
 
         // Auto-fix toggle — persisted across page loads.
         let autoFixEnabled = localStorage.getItem('specAutoFix') !== 'false';
@@ -299,9 +304,11 @@
             specEditor.setSize('100%', '100%');
             specEditor.on('change', () => {
                 specEditor.save();
+                if (!suppressBaselineUpdate) recordedSpecBaseline = specEditor.getValue();
                 updateRecordedTestDetectedVariablesPreview();
-                clearRecordedTestValidationResults();
+                if (!suppressValidationClear) clearRecordedTestValidationResults();
                 updateRecordedSpecStats();
+                if (!suppressSpecNotice && window.UiDiscover) window.UiDiscover.onSpecLoaded(specEditor.getValue());
             });
             // Normalize pasted Codegen output via backend (best-effort, silent on failure).
             specEditor.on('paste', () => {
@@ -330,11 +337,25 @@
             return document.getElementById('recorded-test-spec')?.value || '';
         }
 
-        function setSpecValue(value) {
+        function setSpecValue(value, options) {
             const v = value || '';
-            if (specEditor) { specEditor.setValue(v); return; }
+            const fromDiscover = !!(options && options.fromDiscover);
+            const preserveResults = !!(options && options.preserveResults);
+            const keepBaseline = !!(options && (options.keepBaseline || options.fromDiscover));
+            if (!keepBaseline) recordedSpecBaseline = v;
+            if (specEditor) {
+                suppressSpecNotice = fromDiscover;
+                suppressValidationClear = preserveResults;
+                suppressBaselineUpdate = keepBaseline;
+                specEditor.setValue(v);
+                suppressSpecNotice = false;
+                suppressValidationClear = false;
+                suppressBaselineUpdate = false;
+                return;
+            }
             const ta = document.getElementById('recorded-test-spec');
             if (ta) ta.value = v;
+            if (!fromDiscover && window.UiDiscover) window.UiDiscover.onSpecLoaded(v);
         }
 
         function updateRecordedTestDetectedVariablesPreview() {
@@ -347,6 +368,7 @@
             if (variableNames.length === 0) {
                 wrap.style.display = 'none';
                 list.innerHTML = '';
+                if (window.refreshRecordedSectionSummaries) window.refreshRecordedSectionSummaries();
                 return;
             }
             const currentValues = collectUiVariableInputValues(list, '.recorded-test-variable-value');
@@ -357,6 +379,7 @@
                 idPrefix: 'recorded-test-variable',
                 emptyMessage: 'No UI variables detected.'
             });
+            if (window.refreshRecordedSectionSummaries) window.refreshRecordedSectionSummaries();
         }
 
         function showUiTestVariableGroupEditor(group = null, onDone = null) {
@@ -1235,20 +1258,175 @@
   let remoteSessionStartTime = null;
   let remoteSessionTimeoutMs = 600000;
 
-  function clearRecordedTestValidationResults() {
-    const resultsEl = document.getElementById('recorded-test-validation-results');
-    const validateBtn = document.getElementById('recorded-test-validate');
-    if (resultsEl) {
-      resultsEl.style.display = 'none';
-      resultsEl.innerHTML = '';
+  function recordedResultPane(kind) {
+    return document.getElementById(kind === 'preview' ? 'recorded-preview-results' : 'recorded-test-validation-results');
+  }
+
+  const recordedQualityWarnings = { preview: [], test: [] };
+
+  function recordedCorrectionIsApplicable(warning) {
+    const text = String(warning || '');
+    return text.includes('toBeVisible({ timeout: 15000 })')
+      || text.includes('toHaveURL')
+      || text.includes("waitUntil: 'domcontentloaded'")
+      || text.includes('explicit navigation timeout')
+      || text.includes('ignoreHTTPSErrors');
+  }
+
+  function recordedResultCorrectionWarnings() {
+    const seen = new Set();
+    const unique = [];
+    [...recordedQualityWarnings.preview, ...recordedQualityWarnings.test].forEach((warning) => {
+      if (!warning || seen.has(warning)) return;
+      seen.add(warning);
+      unique.push(warning);
+    });
+    return unique;
+  }
+
+  function updateApplyCorrectionsButton() {
+    const button = document.getElementById('apply-result-corrections-btn');
+    const hint = document.getElementById('recorded-test-validation-hint');
+    const warnings = recordedResultCorrectionWarnings();
+    const applicable = warnings.filter(recordedCorrectionIsApplicable);
+    const sources = [];
+    if (recordedQualityWarnings.preview.some(recordedCorrectionIsApplicable)) sources.push('Preview');
+    if (recordedQualityWarnings.test.some(recordedCorrectionIsApplicable)) sources.push('Test recorded test');
+    if (button) {
+      button.disabled = applicable.length === 0;
+      button.textContent = applicable.length ? `Apply corrections (${applicable.length})` : 'Apply corrections';
+      button.title = applicable.length
+        ? `Apply ${applicable.length} recommended correction${applicable.length === 1 ? '' : 's'} from ${sources.join(' and ')} into this code, then run it again.`
+        : 'Run Preview or Test recorded test. Recommended corrections from those results can be applied here.';
     }
+    if (hint) {
+      if (hint.dataset.appliedNote && applicable.length) {
+        hint.textContent = hint.dataset.appliedNote;
+      } else {
+        delete hint.dataset.appliedNote;
+        hint.textContent = applicable.length
+          ? `${applicable.length} recommended correction${applicable.length === 1 ? '' : 's'} from ${sources.join(' and ')} ${applicable.length === 1 ? 'is' : 'are'} listed in Results. Apply corrections adds ${applicable.length === 1 ? 'it' : 'them'} to this code so you can run the test again.`
+          : 'Run a draft validation to check this code before saving. Draft validations do not create test runs or reports.';
+      }
+    }
+  }
+
+  function recordedResultTitle(kind, payload) {
+    const summary = payload && payload.summary ? payload.summary : {};
+    const isFailure = !!(payload && payload.error) || Number(summary.failed) > 0;
+    if (payload && payload.running) return kind === 'preview' ? 'Preview running' : 'Test recorded test running';
+    if (kind === 'preview') return isFailure ? 'Preview failed' : 'Preview passed';
+    return isFailure ? 'Test recorded test failed' : 'Test recorded test passed';
+  }
+
+  function resetRecordedResultPane(kind) {
+    const pane = recordedResultPane(kind);
+    if (!pane) return;
+    const isPreview = kind === 'preview';
+    pane.dataset.statusLabel = isPreview ? 'Preview not run' : 'Test recorded test not run';
+    pane.dataset.ran = '0';
+    delete pane.dataset.passed;
+    delete pane.dataset.failed;
+    pane.innerHTML = `<p class="form-hint">${isPreview ? 'Preview has not been run.' : 'Test recorded test has not been run.'}</p>`;
+    recordedQualityWarnings[kind] = [];
+    updateApplyCorrectionsButton();
+  }
+
+  function openRecordedSection(name) {
+    document.querySelectorAll('#recorded-test-form .recorded-focus-section').forEach((section) => {
+      const open = section.dataset.recordedSection === name;
+      section.classList.toggle('open', open);
+      const bar = section.querySelector('.recorded-focus-bar');
+      if (bar) bar.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    if (name === 'code' && specEditor) requestAnimationFrame(() => specEditor.refresh());
+  }
+
+  function refreshRecordedSectionSummaries() {
+    const details = document.getElementById('recorded-summary-details');
+    const source = document.getElementById('recorded-summary-source');
+    const steps = document.getElementById('recorded-summary-steps');
+    const code = document.getElementById('recorded-summary-code');
+    const results = document.getElementById('recorded-summary-results');
+    if (details) {
+      const name = document.getElementById('recorded-test-name')?.value.trim();
+      const label = document.getElementById('recorded-test-label')?.value.trim();
+      const projectSelect = document.getElementById('recorded-test-add-to-project');
+      const project = projectSelect && projectSelect.value ? projectSelect.options[projectSelect.selectedIndex].text : '';
+      const parts = [name, label, project].filter(Boolean);
+      details.textContent = parts.length ? parts.join(' · ') : 'Name, label, and project';
+    }
+    if (source) {
+      const url = document.getElementById('recorded-test-codegen-url')?.value.trim();
+      const groupSelect = document.getElementById('recorded-test-variable-group');
+      const group = groupSelect && groupSelect.value ? groupSelect.options[groupSelect.selectedIndex].text : '';
+      const variableNames = [...document.querySelectorAll('#recorded-test-detected-vars [data-var-name]')].map((input) => input.getAttribute('data-var-name'));
+      const codegenOpen = document.getElementById('codegen-vnc-panel') && document.getElementById('codegen-vnc-panel').style.display !== 'none';
+      const parts = [codegenOpen ? 'Codegen' : '', url, group, variableNames.join(', ')].filter(Boolean);
+      source.textContent = parts.length ? parts.join(' · ') : 'Base URL and variables';
+    }
+    if (steps) {
+      const list = document.getElementById('recorded-step-list');
+      const titles = list && !list.hidden ? [...list.querySelectorAll('strong')].map((item) => item.textContent.trim()).filter(Boolean) : [];
+      steps.textContent = titles.length ? `${titles.length} step${titles.length === 1 ? '' : 's'} · ${titles.slice(0, 3).join(', ')}` : 'No steps';
+    }
+    if (code) {
+      const stats = document.getElementById('recorded-spec-stats')?.textContent.trim();
+      code.textContent = stats || 'No code yet';
+    }
+    if (results) {
+      const preview = document.getElementById('recorded-preview-results');
+      const test = document.getElementById('recorded-test-validation-results');
+      const previewLabel = preview?.dataset.statusLabel || 'Preview not run';
+      const testLabel = test?.dataset.statusLabel || 'Test recorded test not run';
+      const counts = test && test.dataset.ran === '1' ? ` · ${test.dataset.passed || 0} passed, ${test.dataset.failed || 0} failed` : '';
+      results.textContent = `${previewLabel} · ${testLabel}${counts}`;
+    }
+  }
+
+  function bindRecordedSectionChrome() {
+    const form = document.getElementById('recorded-test-form');
+    if (!form || form.dataset.sectionsBound === '1') return;
+    form.dataset.sectionsBound = '1';
+    form.querySelectorAll('.recorded-focus-bar').forEach((bar) => {
+      bar.addEventListener('click', () => {
+        const section = bar.closest('.recorded-focus-section');
+        if (section) openRecordedSection(section.dataset.recordedSection);
+      });
+    });
+    ['recorded-test-name', 'recorded-test-label', 'recorded-test-add-to-project', 'recorded-test-codegen-url', 'recorded-test-variable-group'].forEach((id) => {
+      const field = document.getElementById(id);
+      if (!field) return;
+      field.addEventListener('input', refreshRecordedSectionSummaries);
+      field.addEventListener('change', refreshRecordedSectionSummaries);
+    });
+  }
+
+  function clearRecordedTestValidationResults() {
+    resetRecordedResultPane('preview');
+    resetRecordedResultPane('test');
+    const validateBtn = document.getElementById('recorded-test-validate');
     if (validateBtn) {
       validateBtn.disabled = false;
       validateBtn.textContent = 'Test recorded test';
     }
+    const previewBtn = document.getElementById('recorded-step-preview');
+    if (previewBtn) {
+      previewBtn.disabled = false;
+      previewBtn.textContent = 'Preview';
+    }
+    refreshRecordedSectionSummaries();
   }
 
-  function setRecordedTestValidationPending(isPending) {
+  function setRecordedTestValidationPending(isPending, kind) {
+    if (kind === 'preview') {
+      const previewBtn = document.getElementById('recorded-step-preview');
+      if (previewBtn) {
+        previewBtn.disabled = !!isPending;
+        previewBtn.textContent = isPending ? 'Previewing...' : 'Preview';
+      }
+      return;
+    }
     const validateBtn = document.getElementById('recorded-test-validate');
     const saveBtn = document.getElementById('recorded-test-save');
     if (validateBtn) {
@@ -1258,8 +1436,9 @@
     if (saveBtn) saveBtn.disabled = !!isPending;
   }
 
-  function renderRecordedTestValidationResults(payload) {
-    const resultsEl = document.getElementById('recorded-test-validation-results');
+  function renderRecordedTestValidationResults(payload, kind) {
+    const resultKind = kind === 'preview' ? 'preview' : 'test';
+    const resultsEl = recordedResultPane(resultKind);
     if (!resultsEl) return;
     const summary = payload && payload.summary ? payload.summary : { total: 0, passed: 0, failed: 0 };
     const results = Array.isArray(payload && payload.results) ? payload.results : [];
@@ -1268,9 +1447,7 @@
     const artifacts = payload && payload.artifacts ? payload.artifacts : {};
     const output = payload && payload.output ? String(payload.output) : '';
     const isFailure = !!(payload && payload.error) || summary.failed > 0;
-    const statusLabel = payload && payload.error
-      ? 'Validation error'
-      : (isFailure ? 'Validation finished with failures' : 'Validation passed');
+    const statusLabel = recordedResultTitle(resultKind, payload);
     const statusColor = payload && payload.error ? '#991b1b' : (isFailure ? '#92400e' : '#065f46');
     const statusBackground = payload && payload.error ? '#fee2e2' : (isFailure ? '#fef3c7' : '#d1fae5');
     const validationsHtml = results.length > 0
@@ -1328,7 +1505,12 @@
         </div>`
       : '';
 
-    resultsEl.style.display = 'block';
+    resultsEl.dataset.statusLabel = statusLabel;
+    resultsEl.dataset.ran = '1';
+    resultsEl.dataset.passed = String(summary.passed || 0);
+    resultsEl.dataset.failed = String(summary.failed || 0);
+    recordedQualityWarnings[resultKind] = qualityWarnings.filter((warning) => typeof warning === 'string');
+    updateApplyCorrectionsButton();
     resultsEl.innerHTML = `
       <div class="light-surface" style="border:1px solid #e5e7eb; border-radius:12px; background:#f8fafc; padding:16px;">
         <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start;">
@@ -1357,9 +1539,11 @@
         ${validationsHtml}
         ${outputBlock}
       </div>`;
+    refreshRecordedSectionSummaries();
   }
 
-  async function validateRecordedTestDraft() {
+  async function validateRecordedTestDraft(kind) {
+    const resultKind = kind === 'preview' ? 'preview' : 'test';
     const name = document.getElementById('recorded-test-name')?.value?.trim();
     const spec = getSpecValue().trim();
     const baseUrl = document.getElementById('recorded-test-codegen-url')?.value?.trim();
@@ -1379,18 +1563,18 @@
       alert(`Provide values for all detected UI variables before validating: ${missingVariables.join(', ')}`);
       return;
     }
-    setRecordedTestValidationPending(true);
-    renderRecordedTestValidationResults({
-      summary: { total: 0, passed: 0, failed: 0 },
-      results: [],
-      options: {},
-      output: '',
-      error: null
-    });
-    const resultsEl = document.getElementById('recorded-test-validation-results');
+    setRecordedTestValidationPending(true, resultKind);
+    recordedQualityWarnings[resultKind] = [];
+    const correctionHint = document.getElementById('recorded-test-validation-hint');
+    if (correctionHint) delete correctionHint.dataset.appliedNote;
+    updateApplyCorrectionsButton();
+    openRecordedSection('results');
+    const resultsEl = recordedResultPane(resultKind);
     if (resultsEl) {
-      resultsEl.innerHTML = '<div class="light-surface" style="border:1px solid #e5e7eb; border-radius:12px; background:#f8fafc; padding:16px;"><p style="margin:0;">Running draft validation. This does not create a UI test run or report.</p></div>';
-      resultsEl.style.display = 'block';
+      resultsEl.dataset.statusLabel = recordedResultTitle(resultKind, { running: true, summary: {} });
+      resultsEl.dataset.ran = '0';
+      resultsEl.innerHTML = `<div class="light-surface" style="border:1px solid #e5e7eb; border-radius:12px; background:#f8fafc; padding:16px;"><p style="margin:0;">${resultKind === 'preview' ? 'Running preview.' : 'Running test recorded test.'} This does not create a UI test run or report.</p></div>`;
+      refreshRecordedSectionSummaries();
     }
     try {
       const res = await apiRequest('/playwright-recorded-tests/validate-draft', {
@@ -1402,7 +1586,7 @@
           uiVariables: Object.fromEntries(Object.entries(uiVariables).map(([key, value]) => [key, String(value).trim()]))
         }
       });
-      renderRecordedTestValidationResults(res);
+      renderRecordedTestValidationResults(res, resultKind);
     } catch (err) {
       renderRecordedTestValidationResults({
         summary: { total: 0, passed: 0, failed: 0 },
@@ -1410,9 +1594,9 @@
         options: {},
         output: '',
         error: err.message || 'Draft validation failed'
-      });
+      }, resultKind);
     } finally {
-      setRecordedTestValidationPending(false);
+      setRecordedTestValidationPending(false, resultKind);
     }
   }
 
@@ -1474,6 +1658,8 @@
     iframe.src = vncClientUrl;
 
     panel.style.display = 'block';
+    openRecordedSection('source');
+    refreshRecordedSectionSummaries();
     remoteSessionStartTime = Date.now();
     remoteSessionTimeoutMs = timeoutMs || 600000;
 
@@ -1489,6 +1675,7 @@
     if (panel) panel.style.display = 'none';
     if (iframe) iframe.src = '';
     stopRemoteSessionTimer();
+    refreshRecordedSectionSummaries();
   }
 
   function stopRemoteSessionTimer() {
@@ -1651,6 +1838,7 @@
       if (addToProjectSelect && Array.isArray(projects) && projects.length > 0) {
         addToProjectSelect.innerHTML = '<option value="">Select project...</option>' + projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
         if (selectedProjectId) addToProjectSelect.value = selectedProjectId;
+        refreshRecordedSectionSummaries();
       }
     }).catch(() => {});
 
@@ -1668,6 +1856,7 @@
             selectedProjectId = String(t.project_ids[0]);
             addToProjectSelect.value = selectedProjectId;
           }
+          refreshRecordedSectionSummaries();
         })
         .catch(err => alert('Error loading recorded test: ' + err.message));
     } else {
@@ -1675,17 +1864,20 @@
       apiRequest('/playwright-config').then(c => {
         const defaultUrl = (c.baseUrl || '').trim() || 'https://example.com';
         codegenUrlInput.value = defaultUrl;
+        refreshRecordedSectionSummaries();
       }).catch(() => {
         codegenUrlInput.value = 'https://example.com';
       });
       updateRecordedTestDetectedVariablesPreview();
       clearRecordedTestValidationResults();
     }
+    bindRecordedSectionChrome();
+    openRecordedSection('details');
+    refreshRecordedSectionSummaries();
     showView('add-recorded-test');
   }
 
   document.getElementById('add-recorded-test-btn')?.addEventListener('click', () => showAddRecordedTestView());
-  document.getElementById('add-recorded-test-btn-main')?.addEventListener('click', () => showAddRecordedTestView());
   document.getElementById('back-from-recorded-test')?.addEventListener('click', () => {
     stopAutoRefresh();
     hideRemoteCodegenPanel();
@@ -1790,6 +1982,51 @@
       .catch(() => alert('Could not copy to clipboard.'));
   });
 
+  document.getElementById('apply-result-corrections-btn')?.addEventListener('click', async () => {
+    const warnings = recordedResultCorrectionWarnings();
+    const applicable = warnings.filter(recordedCorrectionIsApplicable);
+    const spec = (recordedSpecBaseline || getSpecValue());
+    if (!spec.trim()) {
+      alert('Nothing to update — the code is empty.');
+      return;
+    }
+    if (!applicable.length) {
+      alert('Run Preview or Test recorded test first. Recommended corrections from those results can be applied here.');
+      return;
+    }
+    const button = document.getElementById('apply-result-corrections-btn');
+    if (button) button.disabled = true;
+    try {
+      const res = await apiRequest('/playwright-recorded-tests/apply-quality-corrections', {
+        method: 'POST',
+        body: { spec_content: spec, quality_warnings: warnings }
+      });
+      const applied = Array.isArray(res.applied) ? res.applied : [];
+      const manual = (Array.isArray(res.unchanged) ? res.unchanged : []).filter((item) => item && item.reason === 'manual');
+      if (res.specContent && res.specContent !== getSpecValue()) {
+        setSpecValue(res.specContent, { preserveResults: true, keepBaseline: true });
+        updateRecordedTestDetectedVariablesPreview();
+        updateRecordedSpecStats();
+        openRecordedSection('code');
+        const hint = document.getElementById('recorded-test-validation-hint');
+        if (hint) {
+          const manualNote = manual.length
+            ? ` ${manual.length} recommendation${manual.length === 1 ? '' : 's'} stay in Results because they need a selector you choose.`
+            : '';
+          hint.dataset.appliedNote = `Applied ${applied.length} correction${applied.length === 1 ? '' : 's'} onto the original code.${manualNote} Preview runs this code.`;
+        }
+      } else if (manual.length && !applied.length) {
+        alert('Those recommendations need a selector change. They stay listed in Results.');
+      } else {
+        alert('No code changes. Those corrections are already in the code.');
+      }
+    } catch (err) {
+      alert('Could not apply corrections: ' + err.message);
+    } finally {
+      updateApplyCorrectionsButton();
+    }
+  });
+
   // Apply robust helper template to the current spec on demand.
   document.getElementById('apply-spec-fixes-btn')?.addEventListener('click', async () => {
     const spec = getSpecValue();
@@ -1882,6 +2119,41 @@
   });
 
   let recordedTestsList = [];
+  const selectedRecordedTestIds = new Set();
+
+  function currentRecordedTestFilter() {
+    const searchInput = document.getElementById('recorded-tests-search-input');
+    const labelFilterEl = document.getElementById('recorded-tests-label-filter');
+    return {
+      searchInput,
+      labelFilterEl,
+      searchTerm: (searchInput?.value || '').trim().toLowerCase(),
+      selectedLabel: labelFilterEl?.value || ''
+    };
+  }
+
+  function filteredRecordedTests() {
+    const filter = currentRecordedTestFilter();
+    return recordedTestsList.filter(test =>
+      recordedTestMatchesQuery(test, filter.searchTerm) && (!filter.selectedLabel || String(test.label || '') === filter.selectedLabel)
+    );
+  }
+
+  function updateRecordedSelectionControls(filteredTests) {
+    const deleteButton = document.getElementById('recorded-tests-delete-selected');
+    const selectShown = document.getElementById('recorded-tests-select-shown');
+    const shownIds = (filteredTests || []).map((test) => String(test.id));
+    const selectedShown = shownIds.filter((id) => selectedRecordedTestIds.has(id));
+    if (deleteButton) {
+      deleteButton.disabled = selectedShown.length === 0;
+      deleteButton.textContent = selectedShown.length ? `Delete selected (${selectedShown.length})` : 'Delete selected';
+    }
+    if (selectShown) {
+      selectShown.disabled = shownIds.length === 0;
+      selectShown.checked = shownIds.length > 0 && selectedShown.length === shownIds.length;
+      selectShown.indeterminate = selectedShown.length > 0 && selectedShown.length < shownIds.length;
+    }
+  }
 
   function recordedTestLabelHtml(label) {
     const text = String(label || '').trim();
@@ -1909,11 +2181,12 @@
     const searchInput = document.getElementById('recorded-tests-search-input');
     const labelFilterEl = document.getElementById('recorded-tests-label-filter');
     fillRecordedLabelFilter(labelFilterEl, recordedTestsList);
-    const searchTerm = (searchInput?.value || '').trim().toLowerCase();
-    const selectedLabel = labelFilterEl?.value || '';
-    const filteredTests = recordedTestsList.filter(test =>
-      recordedTestMatchesQuery(test, searchTerm) && (!selectedLabel || String(test.label || '') === selectedLabel)
-    );
+    const filteredTests = filteredRecordedTests();
+    const knownIds = new Set(recordedTestsList.map((test) => String(test.id)));
+    [...selectedRecordedTestIds].forEach((id) => {
+      if (!knownIds.has(id)) selectedRecordedTestIds.delete(id);
+    });
+    updateRecordedSelectionControls(filteredTests);
 
     if (recordedTestsList.length === 0) {
       container.innerHTML = `
@@ -1928,9 +2201,13 @@
     } else {
       container.innerHTML = filteredTests.map(t => `
           <div class="list-item" data-id="${t.id}">
+            <label class="recorded-test-select">
+              <input type="checkbox" class="recorded-test-select-input" data-id="${t.id}" ${selectedRecordedTestIds.has(String(t.id)) ? 'checked' : ''} />
+              <span class="sr-only">Select ${escapeHtml(t.name)}</span>
+            </label>
             <div class="list-item-info">
               <h3>${escapeHtml(t.name)}${recordedTestLabelHtml(t.label)}</h3>
-              <p style="font-size: 12px; color: #6b7280;">${escapeHtml(t.base_url || '')} • ${formatDateTime(t.created_at)}</p>
+              <p class="recorded-test-meta">${escapeHtml(t.base_url || '')}${t.base_url ? ' • ' : ''}${formatDateTime(t.created_at)}</p>
             </div>
             <div class="list-item-actions">
               <button type="button" class="btn btn-secondary edit-recorded-test-btn" data-id="${t.id}">Edit</button>
@@ -1938,6 +2215,14 @@
             </div>
           </div>
         `).join('');
+      container.querySelectorAll('.recorded-test-select-input').forEach(box => {
+        box.addEventListener('change', () => {
+          const id = String(box.getAttribute('data-id'));
+          if (box.checked) selectedRecordedTestIds.add(id);
+          else selectedRecordedTestIds.delete(id);
+          updateRecordedSelectionControls(filteredRecordedTests());
+        });
+      });
       container.querySelectorAll('.edit-recorded-test-btn').forEach(btn => {
         btn.addEventListener('click', () => showAddRecordedTestView(btn.getAttribute('data-id')));
       });
@@ -1978,7 +2263,6 @@
     loadRecordedTestsList();
   }
   document.getElementById('manage-recorded-tests-btn')?.addEventListener('click', showManageRecordedTests);
-  document.getElementById('manage-recorded-tests-btn-main')?.addEventListener('click', showManageRecordedTests);
   document.getElementById('back-from-recorded-tests-list')?.addEventListener('click', () => {
     showView('ui-tests');
     loadPlaywrightRuns();
@@ -1986,6 +2270,35 @@
   document.getElementById('recorded-tests-list-add-new')?.addEventListener('click', () => showAddRecordedTestView());
   document.getElementById('recorded-tests-search-input')?.addEventListener('input', renderRecordedTestsList);
   document.getElementById('recorded-tests-label-filter')?.addEventListener('change', renderRecordedTestsList);
+  document.getElementById('recorded-tests-select-shown')?.addEventListener('change', (event) => {
+    filteredRecordedTests().forEach((test) => {
+      const id = String(test.id);
+      if (event.target.checked) selectedRecordedTestIds.add(id);
+      else selectedRecordedTestIds.delete(id);
+    });
+    renderRecordedTestsList();
+  });
+  document.getElementById('recorded-tests-delete-selected')?.addEventListener('click', async () => {
+    const tests = filteredRecordedTests().filter((test) => selectedRecordedTestIds.has(String(test.id)));
+    if (!tests.length) return;
+    const countLabel = tests.length === 1 ? '1 recorded test' : `${tests.length} recorded tests`;
+    if (!(await confirmDialog({
+      title: 'Delete selected tests',
+      message: `Delete ${countLabel} matching the current search and label filter?`,
+      confirmLabel: 'Delete selected'
+    }))) return;
+    const failures = [];
+    for (const test of tests) {
+      try {
+        await apiRequest(`/playwright-recorded-tests/${test.id}`, { method: 'DELETE' });
+        selectedRecordedTestIds.delete(String(test.id));
+      } catch (err) {
+        failures.push(`${test.name}: ${err.message}`);
+      }
+    }
+    await loadRecordedTestsList();
+    if (failures.length) alert(`Some tests were not deleted:\n${failures.join('\n')}`);
+  });
 
   // Project recorded tests (Option B: list linked to project, add from pool, remove link)
   let projectRecordedTestsList = [];
@@ -2474,4 +2787,22 @@ document.addEventListener('DOMContentLoaded', () => {
   window.resolveUiVariableValues = resolveUiVariableValues;
   window.extractUiVariableNamesFromSpecText = extractUiVariableNamesFromSpecText;
   window.showUiTestVariableGroupsManager = showUiTestVariableGroupsManager;
+  window.recordedTestEditor = {
+    getSpec: getSpecValue,
+    setSpec: setSpecValue,
+    validateDraft: validateRecordedTestDraft,
+    refreshLists: function() {
+      loadRecordedTestsList();
+      loadPlaywrightRuns();
+      const runView = document.getElementById('run-ui-tests-view');
+      if (runView && runView.classList.contains('active')) loadRunUiTestsPage();
+      const projectView = document.getElementById('project-recorded-tests-view');
+      if (projectView && projectView.classList.contains('active') && window._projectRecordedTestsProjectId) {
+        loadProjectRecordedTestsView(window._projectRecordedTestsProjectId);
+      }
+    }
+  };
+  window.openRecordedSection = openRecordedSection;
+  window.refreshRecordedSectionSummaries = refreshRecordedSectionSummaries;
+  bindRecordedSectionChrome();
 })();

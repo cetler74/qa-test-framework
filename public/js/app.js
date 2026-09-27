@@ -2267,24 +2267,26 @@ function renderProjectsList() {
           <div class="projects-row-title-line">
             <h3>${escapeHtmlLite(project.name || 'Untitled project')}</h3>
           </div>
-          <p>${escapeHtmlLite(project.description || 'No description')}</p>
-        </div>
-        <div class="projects-row-cell projects-row-owner">
-          <span class="projects-row-label">Owner</span>
-          <span class="projects-row-value">${escapeHtmlLite(owner.name)}${owner.email ? `<span class="project-owner-email">${escapeHtmlLite(owner.email)}</span>` : ''}</span>
-        </div>
-        <div class="projects-row-cell">
-          <span class="projects-row-label">Access</span>
-          <span class="visibility-badge visibility-${visibility.visibility}">${visibility.label}</span>
-        </div>
-        <div class="projects-row-cell projects-row-assets">
-          <span class="projects-row-label">Assets</span>
-          <span class="projects-asset-chips">
-            <span class="projects-asset-chip">${apiTestCount} API test${apiTestCount === 1 ? '' : 's'}</span>
-            <span class="projects-asset-chip">${uiTestCount} UI test${uiTestCount === 1 ? '' : 's'}</span>
-          </span>
+          <p class="projects-row-description">${escapeHtmlLite(project.description || 'No description')}</p>
         </div>
         <div class="projects-row-status"><span class="status-badge ${statusClass}">${escapeHtmlLite(statusLabel)}</span></div>
+        <div class="projects-row-details">
+          <div class="projects-row-cell projects-row-owner">
+            <span class="projects-row-label">Owner</span>
+            <span class="projects-row-value">${escapeHtmlLite(owner.name)}${owner.email ? `<span class="project-owner-email">${escapeHtmlLite(owner.email)}</span>` : ''}</span>
+          </div>
+          <div class="projects-row-cell">
+            <span class="projects-row-label">Access</span>
+            <span class="visibility-badge visibility-${visibility.visibility}">${visibility.label}</span>
+          </div>
+          <div class="projects-row-cell projects-row-assets">
+            <span class="projects-row-label">Assets</span>
+            <span class="projects-asset-chips">
+              <span class="projects-asset-chip">${apiTestCount} API test${apiTestCount === 1 ? '' : 's'}</span>
+              <span class="projects-asset-chip">${uiTestCount} UI test${uiTestCount === 1 ? '' : 's'}</span>
+            </span>
+          </div>
+        </div>
         <div class="list-item-actions projects-row-actions">
           <button type="button" class="btn btn-primary" onclick="window.viewProject(${projectId})">Open</button>
           <button type="button" class="btn btn-secondary" onclick="window.openProjectApiTests(${projectId})">API tests</button>
@@ -2477,19 +2479,20 @@ function renderTestRunsList(allRuns) {
     const runByLine = runBy ? `<p style="font-size: 12px; color: #666; margin-top: 4px;">Run by: ${runBy}</p>` : '';
     const isHighlighted = highlightedRunId && String(run.id) === highlightedRunId && runType === 'api';
     return `
-    <div class="list-item test-run-list-item${isHighlighted ? ' highlighted' : ''}" onclick="${onClick}">
+    <div class="list-item test-run-list-item${isHighlighted ? ' highlighted' : ''}" tabindex="0" onclick="${onClick}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}">
       <div class="list-item-info test-run-list-identity">
         <h3>${typeBadge} ${run.name}${isHighlighted ? ' <span style="font-size: 12px; color: var(--color-primary, #14b8a6);">Latest run</span>' : ''}</h3>
-        <p>Project: ${projectName}${flowLabel} • ${formatDateTime(run.created_at)}</p>
-        <p class="test-run-list-results">
-          ${run.passed_tests != null ? run.passed_tests : 0} passed, ${run.failed_tests != null ? run.failed_tests : 0} failed of ${run.total_tests != null ? run.total_tests : 0} total
-        </p>
-        ${runByLine}
-        ${runningLine}
+        <div class="test-run-list-extra">
+          <p>Project: ${projectName}${flowLabel} • ${formatDateTime(run.created_at)}</p>
+          <p class="test-run-list-results">
+            ${run.passed_tests != null ? run.passed_tests : 0} passed, ${run.failed_tests != null ? run.failed_tests : 0} failed of ${run.total_tests != null ? run.total_tests : 0} total
+          </p>
+          ${runByLine}
+          ${runningLine}
+        </div>
       </div>
       <div class="test-run-list-actions">
-        ${cancelBtn}
-        ${deleteBtn}
+        <div class="test-run-list-buttons">${cancelBtn}${deleteBtn}</div>
         <span class="status-badge ${run.status || 'pending'}">${run.status === 'partial_failed' ? 'Partial Failed' : (run.status || 'pending')}</span>
       </div>
     </div>
